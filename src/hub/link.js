@@ -1,6 +1,7 @@
 import { createHubSdk, HubSdkError, isGameId } from '@metaverse/hub-sdk/core';
 import { hubVisitStarting } from '@metaverse/hub-sdk/progress';
 import { HUB_GAME_ID } from './config.js';
+import { relicsFromProfile } from './relics.js';
 import { pageServerKey } from './serverKey.js';
 
 /**
@@ -97,6 +98,10 @@ export class HubLink {
   playerId = null;
   /** The hub username, or `Guest`. */
   accountLabel = '';
+  /** Relic ids from this visit's `init`, including `otherRelics`. Empty unless `relicsFromAccount`. */
+  relics = [];
+  /** True only after a settled session of this game returned a profile. */
+  relicsFromAccount = false;
   error = null;
   code = null;
   listeners = new Set();
@@ -122,6 +127,8 @@ export class HubLink {
     this.bankable = false;
     this.playerId = null;
     this.accountLabel = '';
+    this.relics = [];
+    this.relicsFromAccount = false;
     this.error = null;
     this.code = null;
     this.emit();
@@ -132,14 +139,18 @@ export class HubLink {
     this.bankable = false;
     this.playerId = null;
     this.accountLabel = '';
+    this.relics = [];
+    this.relicsFromAccount = false;
     this.code = errorCode(err);
     this.error = err instanceof Error ? err.message : String(err);
     this.emit();
   }
 
-  adopt(session, username) {
+  adopt(session, username, profile) {
     this.playerId = session.playerId;
     this.bankable = true;
+    this.relics = relicsFromProfile(profile);
+    this.relicsFromAccount = true;
     this.error = null;
     this.code = null;
     this.status = username ? 'connected' : 'guest';
@@ -175,7 +186,7 @@ export class HubLink {
 
 async function settle(link, api, now) {
   try {
-    await api.init(HUB_GAME_ID);
+    const profile = await api.init(HUB_GAME_ID);
     const session = api.getSession?.() ?? null;
     if (!session || !session.playerId || session.game !== HUB_GAME_ID) {
       link.markOffline();
@@ -185,7 +196,7 @@ async function settle(link, api, now) {
       link.fail(new Error('session_expired'));
       return;
     }
-    link.adopt(session, usernameFromToken(session.token));
+    link.adopt(session, usernameFromToken(session.token), profile);
   } catch (err) {
     console.warn('[hub] no hub session', err);
     link.fail(err);

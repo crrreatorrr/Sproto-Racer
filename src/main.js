@@ -21,6 +21,7 @@ import {createRaceFX} from './race-fx.js';
 import {createSession,DEFAULT_TEST,timeText} from './session.js';
 import {bootHub} from './hub/boot.js';
 import {chipFrom,paintAccount} from './hub/account.js';
+import {paintRelics} from './hub/relics.js';
 
 mountUI();
 const $=id=>document.getElementById(id);
@@ -45,9 +46,11 @@ let session=createSession(track,play,fx),state=session.state;
 function showAccount(){
   const chip=chipFrom(hub.link,hub.records);
   document.querySelectorAll('[data-hub-account]').forEach(el=>paintAccount(el,chip));
+  paintRelics($('hub-relic-caption'),$('hub-relics'),hub.relics.view());
 }
 hub.link.subscribe(showAccount);
 hub.records.subscribe(()=>{session.reloadBest();showAccount();});
+hub.relics.subscribe(showAccount);
 showAccount();
 attachFeedbackSdk(hub.link.api);
 function stampAccount(){
@@ -172,7 +175,7 @@ function loadSelectedCourse(){
 const garage=createGarage(paddock,()=>{
   loadSelectedCourse();
   if(selected==='test')testTools(true);else begin();
-});
+},hub.relics);
 mountTrackSelector(chosenCourse,course=>{chosenCourse=course;});
 selectMode(selected);
 $('launch').onclick=()=>garage.open();

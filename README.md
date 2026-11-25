@@ -31,6 +31,14 @@ npm run dev
 
 Open the game from the plaza once the hub lists it (the address has `#t=`). The paddock then shows the hub username and "times in the cloud". A new time-trial record on one signed-in browser shows as the personal best on another browser signed in to the same account. Signing out, or opening the game with no ticket, shows this browser's own times again.
 
+## Relics
+
+A signed-in visit reads that account's Relics from `init` (`relics`, plus `otherRelics` when the hub sends an id this SDK build does not type). The paddock lists each Relic as owned or not. The garage locks a car or character only when [`src/hub/unlocks.js`](src/hub/unlocks.js) names the Relic that unlocks it. That file is the only reward table. Its rows are empty placeholders until Ken fills one. A car or character with no filled row stays selectable, including when nobody is signed in, so a race can still start.
+
+The last confirmed list is kept in this browser. A later launch with no ticket still shows that visit. A new sign-in replaces the list, including when the account owns none. With no visit and no saved list, the paddock says to sign in and the free cars and characters still race.
+
+This game does not grant a Relic. `npm test` covers the table, the account read, the saved list, and the locked garage buttons.
+
 ## Circuits
 
 Select a circuit in the paddock before choosing a mode, driver, and car. Each map shows the driving route and lap length. Each circuit has 12 sectors, a separate Time Trial record, and sector starts in Test Drive.
@@ -51,7 +59,7 @@ Item boxes start about 42 m from the line on every circuit. Each row has two or 
 
 ## Garage
 
-Choose a circuit and mode, pick Sproto, Pip, Miso, or Rook, then select a car. The preview shows the exact driver and chassis used in the race. Use **Rear view** to inspect the chase-side silhouette. Your browser remembers the last confirmed pairing.
+Choose a circuit and mode, pick Sproto, Pip, Miso, or Rook, then select a car. The preview shows the exact driver and chassis used in the race. Use **Rear view** to inspect the chase-side silhouette. Your browser remembers the last confirmed pairing. A locked car or character stays on screen and cannot be confirmed. The line above the choices names the Relics this account owns.
 
 | Car | Driving style |
 | --- | --- |

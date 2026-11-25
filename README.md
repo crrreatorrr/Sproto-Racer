@@ -94,9 +94,12 @@ The garage displays each chassis’s changes relative to Apex. All four drivers 
 | Select test item directly | 1–0 for slots 1–10, Shift + 1–0 for slots 11–20 | — | — |
 | Change camera distance / hold rear view | C / V | LT / RT (L2 / R2) | Left / right stick click |
 | Pause | Esc or P | Menu / Options | Menu / Options |
+| Return to hub | Paddock portal, or pause / results | D-pad to Return to hub, A / Cross. Menu / Options on that control | Same |
 | Send feedback | N twice | — | — |
 | Toggle minimap | M | Y / Triangle | — |
 | Restart section or race | R | Pause menu | Y / Triangle |
+
+The paddock has a hub portal on the grid, beside the preview kart. **Return to hub** leaves for the plaza (`#from=sproto-racer`), from that button, from the results screen, or from the pause menu. Leaving mid-race asks first. **Keep racing** stays selected. Esc, B / Circle, and Menu / Options return to the pause menu. Set `VITE_HUB_URL` when the hub is not same-origin `/hub/`.
 
 Press N twice within a moment to send feedback. One N does nothing. N is ignored while you are typing in a text field or while Controller setup is waiting for a button, and the race does not treat N as a driving key. The window pauses the race, including gamepad steering, until it closes. Sending needs a signed-in visit from the hub. Opened on its own, the game shows a one-line message instead. The pad does not open the window: every gamepad button is already a driving or menu control.
 

@@ -22,6 +22,7 @@ import {createSession,DEFAULT_TEST,timeText} from './session.js';
 import {bootHub} from './hub/boot.js';
 import {chipFrom,paintAccount} from './hub/account.js';
 import {paintRelics} from './hub/relics.js';
+import {controlRole,hubConfirmCopy,lobbyPadAction,menuKeyAction,modalPadAction,padEdges} from './hub/portal.js';
 
 mountUI();
 const $=id=>document.getElementById(id);
@@ -96,11 +97,11 @@ function soundToggle(){muted=!muted;try{localStorage.setItem('sproto.mute',muted
   fx.unlock();fx.mute(muted);updateSound();if(!muted)fx.tone('click');}
 function updateSound(){$('audio').innerHTML=icon(muted?'mute':'sound');$('audio').setAttribute('aria-label',muted?'Enable sound':'Mute sound');}
 updateSound();$('audio').onclick=soundToggle;
-function controller(){controllerOpen=true;openController(input,()=>{const pad=input.rawPad();navPrev=pad?padDirections(pad):[];controllerOpen=false;previous=performance.now();});}
+function controller(){controllerOpen=true;openController(input,()=>{const pad=input.rawPad();navPrev=pad?padEdges(pad):[];controllerOpen=false;previous=performance.now();});}
 $('controls').onclick=controller;
 function showPanel(name,html){
   const pad=input.rawPad();
-  navPrev=pad?padDirections(pad):[];
+  navPrev=pad?padEdges(pad):[];
   pendingEdges={};pendingSlot=null;modal=name;$('overlay').hidden=false;$('overlay').firstElementChild.innerHTML=html;
   $('overlay').querySelector('.primary,button,select')?.focus({preventScroll:true});fx.pause();
 }
@@ -179,6 +180,13 @@ const garage=createGarage(paddock,()=>{
 mountTrackSelector(chosenCourse,course=>{chosenCourse=course;});
 selectMode(selected);
 $('launch').onclick=()=>garage.open();
+let hubLeaving=false;
+function returnToHub(){
+  if(hubLeaving)return;
+  hubLeaving=true;
+  hub.leaveForHub();
+}
+$('return-hub').onclick=()=>returnToHub();
 const options=(arr,value)=>arr.map(([v,t])=>`<option value="${v}" ${String(v)===String(value)?'selected':''}>${t}</option>`).join('');
 function testTools(first=false){
   const c=first?config:{...session.settings,sector:state.sector,lap:state.lap,item:state.player.held};
@@ -196,13 +204,20 @@ function testTools(first=false){
 function restartSection(){if(state.mode==='test')begin('test',{...session.settings,sector:state.sector,lap:state.lap,item:state.player.held});else begin(state.mode);}
 function pause(){
   if(screen!=='game'||state.done||feedbackHold.held())return;
-  showPanel('pause',`<h2 id="panel-title">Paused</h2><p>${track.name} · ${track.sections[state.sector].name}</p><div class="keys"><span><kbd>WASD / ↑↓←→</kbd> Drive</span><span><kbd>Q</kbd> Hop & drift</span><span><kbd>E</kbd> Drift boost</span><span><kbd>SPACE</kbd> Item</span><span><kbd>N N</kbd> Feedback</span>${state.player.car==='barrage'&&state.mode!=='trial'?'<span><kbd>F</kbd> Pulse blasters</span>':''}</div><p>Steer and hold drift through the hop. Press boost in the marked zone, then time the next charge. Mix up to three Goods and Perfects per slide. Each Good adds 0.8s and each Perfect adds 1.2s. Boost items add to the same timer. Kart bumps preserve boost. Rail, obstacle, and unblocked item hits cut it.</p><div class="panel-actions"><button class="primary" id="resume">RESUME ${icon('arrow')}</button>${state.mode==='test'?'<button id="panel-tools">Test tools</button>':''}<button id="retry">${state.mode==='test'?'Restart current section':'Restart race'}</button><button id="edit-pad">Controller setup</button><button id="back-home">Return to paddock</button></div>`);
-  $('resume').onclick=closePanel;$('retry').onclick=restartSection;$('edit-pad').onclick=controller;$('back-home').onclick=home;if($('panel-tools'))$('panel-tools').onclick=()=>testTools();
+  showPanel('pause',`<h2 id="panel-title">Paused</h2><p>${track.name} · ${track.sections[state.sector].name}</p><div class="keys"><span><kbd>WASD / ↑↓←→</kbd> Drive</span><span><kbd>Q</kbd> Hop & drift</span><span><kbd>E</kbd> Drift boost</span><span><kbd>SPACE</kbd> Item</span><span><kbd>N N</kbd> Feedback</span>${state.player.car==='barrage'&&state.mode!=='trial'?'<span><kbd>F</kbd> Pulse blasters</span>':''}</div><p>Steer and hold drift through the hop. Press boost in the marked zone, then time the next charge. Mix up to three Goods and Perfects per slide. Each Good adds 0.8s and each Perfect adds 1.2s. Boost items add to the same timer. Kart bumps preserve boost. Rail, obstacle, and unblocked item hits cut it.</p><div class="panel-actions"><button class="primary" id="resume">RESUME ${icon('arrow')}</button>${state.mode==='test'?'<button id="panel-tools">Test tools</button>':''}<button id="retry">${state.mode==='test'?'Restart current section':'Restart race'}</button><button id="edit-pad">Controller setup</button><button id="back-home">Return to paddock</button><button id="pause-hub" type="button">Return to hub</button></div>`);
+  $('resume').onclick=closePanel;$('retry').onclick=restartSection;$('edit-pad').onclick=controller;$('back-home').onclick=home;$('pause-hub').onclick=confirmHub;if($('panel-tools'))$('panel-tools').onclick=()=>testTools();
+  stampAccount();
+}
+function confirmHub(){
+  const copy=hubConfirmCopy();
+  showPanel('hub-exit',`<h2 id="panel-title">${copy.title}</h2><p>${copy.body}</p><div class="panel-actions"><button class="primary" id="stay-racing" type="button">${copy.stay}</button><button id="confirm-hub" type="button">${copy.leave}</button></div>`);
+  $('stay-racing').onclick=()=>pause();
+  $('confirm-hub').onclick=()=>returnToHub();
   stampAccount();
 }
 function finish(){
-  fx.tone('go');showPanel('finish',`<h2 id="panel-title">${state.mode==='trial'?'Time trial complete':'Race complete'}</h2><p class="result-time">${timeText(state.elapsed)}</p><p>${state.mode==='trial'?'Personal best · '+timeText(session.best):'Finished '+session.position()+' / '+state.actors.length+' · 3 laps'}</p><div class="panel-actions"><button class="primary" id="again">RACE AGAIN ${icon('arrow')}</button><button id="back-home">Return to paddock</button></div>`);
-  $('again').onclick=()=>begin(state.mode);$('back-home').onclick=home;
+  fx.tone('go');showPanel('finish',`<h2 id="panel-title">${state.mode==='trial'?'Time trial complete':'Race complete'}</h2><p class="result-time">${timeText(state.elapsed)}</p><p>${state.mode==='trial'?'Personal best · '+timeText(session.best):'Finished '+session.position()+' / '+state.actors.length+' · 3 laps'}</p><div class="panel-actions"><button class="primary" id="again">RACE AGAIN ${icon('arrow')}</button><button id="back-home">Return to paddock</button><button id="finish-hub" type="button">Return to hub</button></div>`);
+  $('again').onclick=()=>begin(state.mode);$('back-home').onclick=home;$('finish-hub').onclick=()=>returnToHub();
   stampAccount();
 }
 $('game').addEventListener('keydown',e=>{
@@ -243,10 +258,10 @@ for(const [index,item] of ITEMS.entries()){
   inventory.append(button);
 }
 let navPrev=[];
-function padDirections(pad){return [pad.buttons[0]?.pressed,pad.buttons[1]?.pressed,pad.buttons[12]?.pressed||pad.axes[1]<-.65,pad.buttons[13]?.pressed||pad.axes[1]>.65,pad.buttons[14]?.pressed||pad.axes[0]<-.65,pad.buttons[15]?.pressed||pad.axes[0]>.65,pad.buttons[9]?.pressed];}
+function lobbyButtons(){return [...document.querySelectorAll('[data-track],.mode'),$('launch'),$('return-hub'),$('controls')];}
 function menuPad(){
  const pad=input.rawPad();if(!pad){navPrev=[];return;}
- const down=padDirections(pad);
+ const down=padEdges(pad);
  const edge=down.map((v,i)=>v&&!navPrev[i]);navPrev=down;
  if(!edge.some(Boolean)||controllerOpen)return;
  if(garage.active){
@@ -255,17 +270,24 @@ function menuPad(){
    else if(edge[6])$('garage-next').click();
    else if(edge[0])document.activeElement?.click();
  }else if(!modal&&screen==='lobby'){
-   const buttons=[...document.querySelectorAll('[data-track],.mode'),$('launch'),$('controls')];
-   if(edge[2]||edge[3]||edge[4]||edge[5]){
-     let i=buttons.indexOf(document.activeElement);i=(i+(edge[4]||edge[2]?-1:1)+buttons.length)%buttons.length;buttons[i].focus();if(buttons[i].dataset.mode)selectMode(buttons[i].dataset.mode);
-   }else if(edge[0]||edge[6]){const current=document.activeElement;if(current===$('controls'))controller();else if(edge[0]&&current?.dataset.track)current.click();else $('launch').click();}
+   const buttons=lobbyButtons();
+   const index=Math.max(0,buttons.indexOf(document.activeElement));
+   const step=lobbyPadAction({edges:edge,index,count:buttons.length,role:controlRole(buttons[index])});
+   if(step.type==='focus'){buttons[step.index].focus();if(buttons[step.index].dataset.mode)selectMode(buttons[step.index].dataset.mode);}
+   else if(step.type==='controller')controller();
+   else if(step.type==='portal')returnToHub();
+   else if(step.type==='click')buttons[index].click();
+   else if(step.type==='launch')$('launch').click();
  }else if(modal){
    const list=Array.from($('overlay').querySelectorAll('button,select'));
-   let i=Math.max(0,list.indexOf(document.activeElement)),el=list[i];
-   if(edge[1]||edge[6]){if(modal==='finish')home();else closePanel();}
-   else if(edge[2]||edge[3])list[(i+(edge[2]?-1:1)+list.length)%list.length].focus();
-   else if(el?.tagName==='SELECT'&&(edge[4]||edge[5])){el.selectedIndex=(el.selectedIndex+(edge[4]?-1:1)+el.length)%el.length;el.dispatchEvent(new Event('change'));}
-   else if(edge[0]&&el?.tagName==='BUTTON')el.click();
+   const index=Math.max(0,list.indexOf(document.activeElement));
+   const step=modalPadAction({modal,edges:edge,index,count:list.length,tagName:list[index]?.tagName||''});
+   if(step.type==='home')home();
+   else if(step.type==='back-to-pause')pause();
+   else if(step.type==='close')closePanel();
+   else if(step.type==='focus')list[step.index].focus();
+   else if(step.type==='select'){const el=list[index];el.selectedIndex=(el.selectedIndex+step.direction+el.length)%el.length;el.dispatchEvent(new Event('change'));}
+   else if(step.type==='click')list[index].click();
  }
 }
 window.addEventListener('keydown',e=>{
@@ -281,8 +303,13 @@ window.addEventListener('keydown',e=>{
    if(e.shiftKey&&document.activeElement===first){e.preventDefault();last?.focus();}
    else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first?.focus();}
  }
- if(e.code==='Escape'&&modal){e.preventDefault();if(modal==='finish')home();else closePanel();input.block(true);input.block(false);}
- if(screen==='lobby'&&!modal&&e.code==='Enter'&&document.activeElement===document.body)$('launch').click();
+ const keyStep=menuKeyAction({modal,code:e.code,activeRole:document.activeElement===document.body?'body':controlRole(document.activeElement)});
+ if(keyStep.type==='home'||keyStep.type==='back-to-pause'||keyStep.type==='close'){
+   e.preventDefault();
+   if(keyStep.type==='home')home();else if(keyStep.type==='back-to-pause')pause();else closePanel();
+   input.block(true);input.block(false);
+ }
+ if(keyStep.type==='launch'&&screen==='lobby')$('launch').click();
 });
 document.addEventListener('visibilitychange',()=>{if(document.hidden&&screen==='game'&&!modal&&!controllerOpen)pause();});
 function placeModel(model,k,b,dt){
@@ -391,7 +418,9 @@ function frame(now){
    const key=hints.map(([k,v])=>k+v).join('|');
    if($('driving-keys').dataset.key!==key){$('driving-keys').dataset.key=key;$('driving-keys').innerHTML=hints.map(([k,v])=>'<kbd>'+k+'</kbd> '+v).join(' ');}
  }else if(modal){
-   if(modal==='pause'&&c.pausePressed)closePanel();else menuPad();
+   if(modal==='hub-exit'&&c.pausePressed)pause();
+   else if(modal==='pause'&&c.pausePressed)closePanel();
+   else menuPad();
  }
  else if(c.pausePressed){pause();}
  else if(c.resetPressed){restartSection();}

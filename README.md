@@ -17,7 +17,7 @@ Open the local address printed by Vite in a WebGL 2 browser. To build and run th
 
 The paddock uses the same login as the [metaverse hub](https://github.com/crrreatorrr/metaverse-hub). A visit from the plaza arrives with `#t=<ticket>`. The game redeems it for that hub account and shows the username (a hub guest shows as Guest). Time-trial records for that account sync through the hub cloud save. Play opened on its own keeps this browser's records and does not copy them into an account.
 
-`npm test` covers the visit, the name, and the records. The vendored SDK is `@metaverse/hub-sdk` 0.10.0 in `vendor/hub-sdk`. It does not list the game id `sproto-racer` yet, so a ticket cannot be redeemed until the hub adds that id and this tree is re-vendored. Until then the paddock says `Hub: bad_game` when a ticket is present, and stays "Not signed in" otherwise.
+`npm test` covers the visit, the name, and the records. The vendored SDK is `@metaverse/hub-sdk` 0.11.0 in `vendor/hub-sdk`. It lists `sproto-racer`, so a plaza ticket redeems and the paddock shows the hub username instead of `Hub: bad_game`. Opened with no ticket, it stays "Not signed in".
 
 For a local hub, run the plaza and Nakama from metaverse-hub, then in this repo:
 
@@ -29,7 +29,7 @@ For a local hub, run the plaza and Nakama from metaverse-hub, then in this repo:
 npm run dev
 ```
 
-Open the game from the plaza once the hub lists it (the address has `#t=`). The paddock then shows the hub username and "times in the cloud". A new time-trial record on one signed-in browser shows as the personal best on another browser signed in to the same account. Signing out, or opening the game with no ticket, shows this browser's own times again.
+Open the game from the plaza (the address has `#t=`). The paddock then shows the hub username and "times in the cloud". A new time-trial record on one signed-in browser shows as the personal best on another browser signed in to the same account. Signing out, or opening the game with no ticket, shows this browser's own times again.
 
 ## Relics
 

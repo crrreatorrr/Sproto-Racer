@@ -1,6 +1,6 @@
 import type { FeedbackAccess, FeedbackSubmission } from './feedback';
 /** Game ids stored on the server and used in `/hub#from=<game>` and `play/<game>`. */
-export declare const GAME_IDS: readonly ["hpos10i", "nobu", "peoples-bitcoin", "sproto", "sproto-fighter", "sproto-arcade", "sproto-shooter", "sproto-coop-battle", "sproto-open-world"];
+export declare const GAME_IDS: readonly ["hpos10i", "nobu", "peoples-bitcoin", "sproto", "sproto-fighter", "sproto-arcade", "sproto-shooter", "sproto-coop-battle", "sproto-open-world", "sproto-racer"];
 export type GameId = (typeof GAME_IDS)[number];
 /** Earn-once relics. The primary key on the server is (user, relic). */
 export declare const RELIC_IDS: readonly ["hpos10i_core", "genesis_shard", "cones_tip", "tinubu_crown", "tidebreaker_belt", "breakwater_coin", "marina_anchor", "dragon_scale"];

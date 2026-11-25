@@ -1,4 +1,4 @@
-/*! @metaverse/hub-sdk 0.10.0 IIFE global HubSDK. Built from packages/hub-sdk/src. Not a CDN import. */
+/*! @metaverse/hub-sdk 0.11.0 IIFE global HubSDK. Built from packages/hub-sdk/src. Not a CDN import. */
 "use strict";
 var HubSDK = (() => {
   var __defProp = Object.defineProperty;
@@ -1765,7 +1765,8 @@ var HubSDK = (() => {
     "sproto-arcade",
     "sproto-shooter",
     "sproto-coop-battle",
-    "sproto-open-world"
+    "sproto-open-world",
+    "sproto-racer"
   ];
   var RELIC_IDS = [
     "hpos10i_core",

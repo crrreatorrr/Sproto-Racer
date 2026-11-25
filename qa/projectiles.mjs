@@ -4,7 +4,7 @@ import {Scene,Vector3} from 'three';
 import {createGameplay} from '../src/gameplay.js';
 import {createKart} from '../src/driving.js';
 import {createBoost} from '../src/boost.js';
-import {ITEMS,drawPickup,pickupWeights} from '../src/items.js';
+import {ITEMS,startPickup,settlePickup,pickupPreview,PICKUP_SPIN_SECONDS,pickupWeights} from '../src/items.js';
 import {contactTime} from '../src/projectile-contact.js';
 
 const dt=1/60;
@@ -50,11 +50,29 @@ for(const slot of [1,10,11])check(ITEMS[slot].name+' rear fire reaches follower 
   f.until(()=>f.b.kart.stunRemaining>0);assert.equal(f.racers[2].kart.stunRemaining,0);
   const miss=fixture([100,116]);miss.b.kart.x=-12;miss.fire(slot);miss.tick(75);assert.equal(miss.b.kart.stunRemaining,0);
 });
-check('Homing picks nearest, Relay picks frontmost within range and retains invalid shot',()=>{
+check('Homing picks nearest and Relay picks frontmost within range',()=>{
   for(const [slot,index] of [[5,1],[18,2]]){
     const f=fixture([100,125,190,405]);assert(f.fire(slot));f.until(()=>f.racers[index].kart.stunRemaining>0);
     assert.equal(f.racers[index===1?2:1].kart.stunRemaining,0);assert.equal(f.racers[3].kart.stunRemaining,0);
-    const solo=fixture([100]);assert.equal(solo.fire(slot),false);assert.equal(solo.a.held,slot);
+  }
+});
+check('Unguided shots spend the pickup and can hit a rival who crosses their path',()=>{
+  for(const slot of [5,18]){
+    const f=fixture([100,70]);
+    assert(f.fire(slot));assert.equal(f.a.held,null);assert.equal(f.a.charges,0);
+    assert.equal(f.models(ITEMS[slot].model).length,1);
+    f.tick();assert.equal(f.b.incoming,'');
+    f.b.kart.s=118;
+    f.until(()=>f.b.kart.stunRemaining>0);
+  }
+});
+check('A solo driver spends each targeting item in a race and can reuse it in Test Drive',()=>{
+  for(const slot of [5,7,17,18])for(const unlimited of [false,true]){
+    const f=fixture([100]);f.a.unlimited=unlimited;
+    assert(f.fire(slot));assert.equal(f.a.held,unlimited?slot:null);assert.equal(f.a.charges,unlimited?1:0);
+    if(unlimited)assert(f.game.use(f.a,slot,f.racers));
+    f.tick(440);assert.equal(f.a.boost.reserve,0);assert.equal(f.a.kart.speed,0);
+    assert.equal(f.models(ITEMS[slot].model).length,0);
   }
 });
 check('Airborne ball clears ground rivals and traps, lands, then hits downrange',()=>{
@@ -118,8 +136,8 @@ check('Broom Bot leaves its owner’s shots and distant airborne attacks in flig
   assert.equal(f.models('bolt').length,3);assert.equal(f.a.kart.stunRemaining,0);
 });
 check('Finished racers cannot collect a box, fire an item, or receive a new lock',()=>{
-  const f=fixture();f.b.finish=2;assert.equal(drawPickup(f.b,f.racers),null);
-  assert.equal(f.fire(1,f.b),false);assert.equal(f.fire(18),false);assert.equal(f.fire(5),false);
+  const f=fixture();f.b.finish=2;startPickup(f.b,f.racers,0);assert(!f.b.roulette);
+  assert.equal(f.fire(1,f.b),false);assert(f.fire(18));assert(f.fire(5));f.tick();assert(!f.b.incoming);
 });
 check('Lock warning prioritizes the rocket, prompts a defensive AI, and clears on impact',()=>{
   const f=fixture([100,165]);f.fire(5);f.tick();assert.equal(f.b.incoming,'CURSOR INCOMING');
@@ -136,11 +154,27 @@ check('Utility items grant their advertised effects and share strips only once',
   f.fire(16);assert(!f.a.kart.grounded&&f.a.kart.vy>=9);assert(!f.fire(16));assert.equal(f.a.held,16);
   f.fire(19);assert.equal(f.a.boost.tier,2);assert.equal(f.a.shield,3);
 });
-check('Siphon transfers actual reserve, respects shields and retains a no-target item',()=>{
-  const f=fixture();assert(!f.fire(17));assert.equal(f.a.held,17);
+check('Siphon transfers actual reserve, respects shields and spends a missed use',()=>{
+  const f=fixture();assert(f.fire(17));assert.equal(f.a.held,null);assert.equal(f.a.notice,'SIPHON MISSED');
   f.b.boost.reserve=2;f.b.boost.tier=2;f.fire(2,f.b);f.fire(17);assert.equal(f.b.boost.reserve,2);assert.equal(f.b.shield,0);
   f.fire(17);assert.equal(f.a.boost.reserve,1.5);assert.equal(f.b.boost.reserve,.5);f.fire(17);
   assert.equal(f.b.boost.tier,0);assert.equal(f.a.boost.reserve,2);
+});
+check('A box reserves one roll, shows changing icons, then awards the correct charges',()=>{
+  const f=fixture(),a=f.a;
+  startPickup(a,f.racers,5);
+  const roll=a.roulette,previews=new Set();
+  startPickup(a,f.racers,5.1);assert.equal(a.roulette,roll);
+  for(let n=0;n<90;n++){
+    const now=5+n/60;
+    settlePickup(a,now);assert.equal(a.held,null);
+    previews.add(pickupPreview(roll,now));
+  }
+  assert(previews.size>5);
+  settlePickup(a,5+PICKUP_SPIN_SECONDS);
+  assert.equal(a.held,roll.item);assert.equal(a.charges,ITEMS[roll.item].charges??1);assert.equal(a.roulette,null);
+  startPickup(a,f.racers,8);assert.equal(a.roulette,null);
+  a.held=null;a.unlimited=true;startPickup(a,f.racers,9);assert.equal(a.roulette,null);
 });
 check('Rank-weighted draws use full race distance and award stronger items to trailing karts',()=>{
   const f=fixture([502,501,499,498,497,496]),strong=[8,17,18,19];let previous=0;
@@ -149,7 +183,7 @@ check('Rank-weighted draws use full race distance and award stronger items to tr
   assert(previous>.30);assert.equal(pickupWeights(f.a,f.racers)[19],0);
   const random=Math.random;
   try{for(const a of [f.a,f.racers.at(-1)]){const counts=Array(20).fill(0);
-    for(let i=0;i<10000;i++){Math.random=()=>(i+.5)/10000;a.held=null;counts[drawPickup(a,f.racers)]++;}
+    for(let i=0;i<10000;i++){Math.random=()=>(i+.5)/10000;a.held=null;startPickup(a,f.racers,0);settlePickup(a,PICKUP_SPIN_SECONDS);counts[a.held]++;}
     console.log('  strong draws per 10,000, '+(a===f.a?'first':'last')+': '+strong.reduce((n,i)=>n+counts[i],0));assert.equal(counts.reduce((x,y)=>x+y),10000);
   }}finally{Math.random=random;}
 });

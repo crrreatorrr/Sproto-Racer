@@ -86,8 +86,11 @@ The garage displays each chassis’s changes relative to Apex. All four drivers 
 | Select test item directly | 1–0 for slots 1–10, Shift + 1–0 for slots 11–20 | — | — |
 | Change camera distance / hold rear view | C / V | LT / RT (L2 / R2) | Left / right stick click |
 | Pause | Esc or P | Menu / Options | Menu / Options |
+| Send feedback | N twice | — | — |
 | Toggle minimap | M | Y / Triangle | — |
 | Restart section or race | R | Pause menu | Y / Triangle |
+
+Press N twice within a moment to send feedback. One N does nothing. N is ignored while you are typing in a text field or while Controller setup is waiting for a button, and the race does not treat N as a driving key. The window pauses the race, including gamepad steering, until it closes. Sending needs a signed-in visit from the hub. Opened on its own, the game shows a one-line message instead. The pad does not open the window: every gamepad button is already a driving or menu control.
 
 On the grid, press the accelerator late enough to reach the launch window as the light turns green. In a corner, steer and hold the drift button through the hop. The steering direction sets the slide. Countersteer to open the arc. Keep holding drift and tap the boost control when the meter reaches the marked zone. The **Drift Boost** button under the meter also accepts a click or tap. A charge of 70% earns Good, and 90% earns Perfect. Press again in each new window to chain up to three boosts in one slide. You can also release drift in the window and quickly hold it again to continue the chain.
 

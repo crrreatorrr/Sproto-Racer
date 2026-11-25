@@ -26,6 +26,10 @@ const keyBindings = {
   pause: ['Escape', 'KeyP'], reset: ['KeyR']
 };
 const keysOfInterest = new Set([...Object.values(keyBindings).flat(), ...Array.from({length: 10}, (_, i) => 'Digit' + i)]);
+/** True when this code already drives the kart or picks a test item. Feedback must not use one. */
+export function isDrivingKey(code) {
+  return keysOfInterest.has(code);
+}
 const buttonNames = ['A / Cross', 'B / Circle', 'X / Square', 'Y / Triangle', 'LB / L1', 'RB / R1', 'LT / L2', 'RT / R2', 'View / Share', 'Menu / Options', 'Left stick click', 'Right stick click', 'D-pad up', 'D-pad down', 'D-pad left', 'D-pad right', 'Home'];
 const axisNames = ['Left stick X', 'Left stick Y', 'Right stick X', 'Right stick Y'];
 const STORAGE = 'sproto-racing.controls.v1';

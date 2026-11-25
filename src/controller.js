@@ -3,6 +3,11 @@ import './controller.css';
 
 let openPanel = null;
 
+/** True while Controller setup is on screen, including while it waits for a button. */
+export function controllerIsOpen() {
+  return !!openPanel;
+}
+
 function optionCodes(pad, settings) {
   const codes = new Set(['none']);
   for (let i = 0; i < Math.max(17, pad?.buttons.length || 0); i++) codes.add('b' + i);

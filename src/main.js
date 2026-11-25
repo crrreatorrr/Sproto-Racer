@@ -4,7 +4,8 @@ import {mountUI,MODES} from './ui.js';
 import {icon} from './icons.js';
 import {createInput,bindingName} from './input.js';
 import {driftBoostReady} from './driving.js';
-import {openController} from './controller.js';
+import {controllerIsOpen,openController} from './controller.js';
+import {attachFeedbackSdk,createFeedbackHold,installRaceFeedback,raceBreadcrumbs} from './feedback.js';
 import {createPaddock,lightScene} from './paddock.js';
 import {updateRivalVisibility} from './kart-visibility.js';
 import {makeKart,animateKart,disposeKart} from './kart-art.js';
@@ -46,6 +47,7 @@ function showAccount(){
 hub.link.subscribe(showAccount);
 hub.records.subscribe(()=>{session.reloadBest();showAccount();});
 showAccount();
+attachFeedbackSdk(hub.link.api);
 function stampAccount(){
   const el=document.createElement('p');
   el.className='hub-line';
@@ -104,8 +106,46 @@ function home(){
   selectMode(selected);
 }
 $('brand').onclick=e=>{e.preventDefault();home();};
+function feedbackSnapshot(){
+  const racing=screen==='game',kart=state.player?.kart;
+  const sample=racing&&kart?track.sample(kart.s,kart.x):null;
+  const pos=sample?.position;
+  return {
+    racing,screen,garage:!!garage.active,modal,circuitId:track.id,circuitName:track.name,mode:state.mode,
+    elapsed:state.elapsed,lap:state.lap,sectorName:track.sections[state.sector]?.name??'',
+    place:racing&&state.mode==='race'?session.position():null,rivals:Math.max(0,state.actors.length-1),
+    driver:state.player?driverById(state.player.driver).name:'',car:state.player?carById(state.player.car).name:'',
+    x:pos?.x??0,y:pos?.y??0,z:pos?.z??0,speedKmh:kart?(kart.reverseSpeed||kart.speed)*3.6:0,
+    item:state.player?.held!=null?ITEMS[state.player.held].name:'',boost:state.player?.boost?.tier??0,
+    stun:kart?.stunRemaining??0,offTrack:!!kart?.fall,done:!!state.done,countdown:state.countdown,
+  };
+}
+let lastCrumb=null;
+function noteCrumbs(){
+  const snap=feedbackSnapshot();
+  for(const crumb of raceBreadcrumbs(lastCrumb,snap))feedbackHandle.breadcrumb(crumb.type,crumb.data);
+  lastCrumb=snap;
+}
+const feedbackHold=createFeedbackHold(input,{pauseAudio:()=>fx.pause()});
+function renderFeedbackFrame(){
+  if(screen==='lobby')paddock.render(renderer,animation,w||1,h||1);
+  else renderer.render(world,camera);
+}
+const feedbackHandle=installRaceFeedback({
+  hold(){pendingEdges={};pendingSlot=null;return feedbackHold.hold();},
+  release(token){
+    feedbackHold.release(token);
+    const pad=input.rawPad();
+    navPrev=pad?padDirections(pad):[];
+    accumulator=0;previous=performance.now();
+  },
+  renderNow:renderFeedbackFrame,
+  snapshot:feedbackSnapshot,
+  canvases:()=>renderer?.domElement?[renderer.domElement]:[],
+  enabled:()=>!controllerIsOpen(),
+});
 function begin(mode=selected,options=config){
-  closePanel();fx.unlock();fx.mute(muted);
+  closePanel();fx.unlock();fx.mute(muted);lastCrumb=null;
   pendingEdges={};pendingSlot=null;screen='game';$('lobby').hidden=true;$('game').hidden=false;document.querySelector('.topbar').hidden=true;
   $('race-canvas').append(renderer.domElement);w=0;h=0;accumulator=0;previous=performance.now();
   session.start(mode,{...options,...garage.selection()});
@@ -150,8 +190,8 @@ function testTools(first=false){
 }
 function restartSection(){if(state.mode==='test')begin('test',{...session.settings,sector:state.sector,lap:state.lap,item:state.player.held});else begin(state.mode);}
 function pause(){
-  if(screen!=='game'||state.done)return;
-  showPanel('pause',`<h2 id="panel-title">Paused</h2><p>${track.name} · ${track.sections[state.sector].name}</p><div class="keys"><span><kbd>WASD / ↑↓←→</kbd> Drive</span><span><kbd>Q</kbd> Hop & drift</span><span><kbd>E</kbd> Drift boost</span><span><kbd>SPACE</kbd> Item</span>${state.player.car==='barrage'&&state.mode!=='trial'?'<span><kbd>F</kbd> Pulse blasters</span>':''}</div><p>Steer and hold drift through the hop. Press boost in the marked zone, then time the next charge. Chain up to three boosts per slide.</p><div class="panel-actions"><button class="primary" id="resume">RESUME ${icon('arrow')}</button>${state.mode==='test'?'<button id="panel-tools">Test tools</button>':''}<button id="retry">${state.mode==='test'?'Restart current section':'Restart race'}</button><button id="edit-pad">Controller setup</button><button id="back-home">Return to paddock</button></div>`);
+  if(screen!=='game'||state.done||feedbackHold.held())return;
+  showPanel('pause',`<h2 id="panel-title">Paused</h2><p>${track.name} · ${track.sections[state.sector].name}</p><div class="keys"><span><kbd>WASD / ↑↓←→</kbd> Drive</span><span><kbd>Q</kbd> Hop & drift</span><span><kbd>E</kbd> Drift boost</span><span><kbd>SPACE</kbd> Item</span><span><kbd>N N</kbd> Feedback</span>${state.player.car==='barrage'&&state.mode!=='trial'?'<span><kbd>F</kbd> Pulse blasters</span>':''}</div><p>Steer and hold drift through the hop. Press boost in the marked zone, then time the next charge. Chain up to three boosts per slide.</p><div class="panel-actions"><button class="primary" id="resume">RESUME ${icon('arrow')}</button>${state.mode==='test'?'<button id="panel-tools">Test tools</button>':''}<button id="retry">${state.mode==='test'?'Restart current section':'Restart race'}</button><button id="edit-pad">Controller setup</button><button id="back-home">Return to paddock</button></div>`);
   $('resume').onclick=closePanel;$('retry').onclick=restartSection;$('edit-pad').onclick=controller;$('back-home').onclick=home;if($('panel-tools'))$('panel-tools').onclick=()=>testTools();
   stampAccount();
 }
@@ -327,6 +367,7 @@ function frame(now){
  const dt=Math.min(.1,Math.max(0,(now-previous)/1000));previous=now;animation+=dt;
  const host=screen==='lobby'?$('hero-canvas'):$('race-canvas');const W=host.clientWidth,H=host.clientHeight;
  if(W&&H&&(W!==w||H!==h)){w=W;h=H;renderer.setSize(w,h,false);camera.aspect=w/h;camera.updateProjectionMatrix();}
+ if(feedbackHold.held()){accumulator=0;requestAnimationFrame(frame);return;}
  const c=input.poll();
  if(controllerOpen){menuPad();requestAnimationFrame(frame);return;}
  if(screen==='lobby'){
@@ -364,6 +405,7 @@ function frame(now){
    fx.update(dt,state.actors,true,state.countdown>0);syncWorld(dt,Math.min(1,accumulator*60));timingHUD();
    if(now-lastHUD>45){hud();lastHUD=now;}
    renderer.render(world,camera);
+   noteCrumbs();
    if(state.done){hud();finish();}
  }
  requestAnimationFrame(frame);

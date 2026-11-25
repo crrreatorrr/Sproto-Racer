@@ -38,20 +38,22 @@
 - source src/types.ts: 754a7675e3605e3e577c8389d1510e79800b645e75db25cdf45f4e3b10ed6972
 
 Source hashes match metaverse-hub main `ab23b71` (the same `packages/hub-sdk` source Open World
-vendored at `273dfe3`). Layout: `package.json`, `README.md`, `SOURCE.pin.json`, `dist/*.js`,
-`dist/*.d.ts`, including `dist/realtime/` and `dist/hub-sdk.iife.js`. No source maps.
+vendored at `273dfe3`). `SOURCE.pin.json` is that pin. No source was edited. Layout: `package.json`,
+`README.md`, `SOURCE.pin.json`, `dist/**/*.js`, `dist/**/*.d.ts`, including `dist/realtime/` and
+`dist/hub-sdk.iife.js`. No source maps.
 
-Sproto Racer uses this tree for the hub account only (`src/hub/`):
+Sproto Racer imports this one tree:
 
+- `@metaverse/hub-sdk/feedback`: `installFeedback` (the N-N window) and `feedbackTransportFromSdk`.
+  The adapter is `src/feedback.js`. The account visit hands it the same SDK (`attachFeedbackSdk`).
 - `@metaverse/hub-sdk/core`: `createHubSdk`, for the visit in `src/hub/link.js` (ticket redeem, the
   signed-in name, `exit` back to the plaza) and the cloud save (`loadSave` / `writeSave`).
 - `@metaverse/hub-sdk/progress`: `createProgressStore` and `hubVisitStarting`, for time-trial
   records in `src/hub/records.js`. Ghost frames stay in this browser. The cloud body is the times.
 
 `GAME_IDS` in this 0.10.0 tree does not list `sproto-racer`. Until the hub adds that id and this
-tree is re-vendored, `init` answers `bad_game` and a portal ticket is not redeemed. Feedback
-(`@metaverse/hub-sdk/feedback`) and the return control should import this package; do not vendor
-a second copy.
+tree is re-vendored, `init` answers `bad_game` and a portal ticket is not redeemed. Feedback still
+sends through the page's hub session once that session exists.
 
 Re-sync from a metaverse-hub checkout (esbuild writes source paths relative to that working
 directory into the IIFE):

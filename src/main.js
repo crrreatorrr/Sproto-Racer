@@ -6,7 +6,7 @@ import {createInput,bindingName} from './input.js';
 import {PERFECT_CHARGE} from './boost.js';
 import {driftBoostReady} from './driving.js';
 import {controllerIsOpen,openController} from './controller.js';
-import {createFeedbackHold,installRaceFeedback,raceBreadcrumbs} from './feedback.js';
+import {attachFeedbackSdk,createFeedbackHold,installRaceFeedback,raceBreadcrumbs} from './feedback.js';
 import {createPaddock,lightScene} from './paddock.js';
 import {updateRivalVisibility} from './kart-visibility.js';
 import {makeKart,animateKart,disposeKart} from './kart-art.js';
@@ -19,6 +19,8 @@ import {createGameplay,ITEMS} from './gameplay.js';
 import {pickupPreview} from './items.js';
 import {createRaceFX} from './race-fx.js';
 import {createSession,DEFAULT_TEST,timeText} from './session.js';
+import {bootHub} from './hub/boot.js';
+import {chipFrom,paintAccount} from './hub/account.js';
 
 mountUI();
 const $=id=>document.getElementById(id);
@@ -38,7 +40,23 @@ const camera=new THREE.PerspectiveCamera(62,1,.15,2300);
 let chosenCourse=savedCourse();
 let track=createTrack(world,chosenCourse);
 const play=createGameplay(world,track),fx=createRaceFX(world,track);
+const hub=bootHub();
 let session=createSession(track,play,fx),state=session.state;
+function showAccount(){
+  const chip=chipFrom(hub.link,hub.records);
+  document.querySelectorAll('[data-hub-account]').forEach(el=>paintAccount(el,chip));
+}
+hub.link.subscribe(showAccount);
+hub.records.subscribe(()=>{session.reloadBest();showAccount();});
+showAccount();
+attachFeedbackSdk(hub.link.api);
+function stampAccount(){
+  const el=document.createElement('p');
+  el.className='hub-line';
+  el.setAttribute('data-hub-account','');
+  paintAccount(el,chipFrom(hub.link,hub.records));
+  $('overlay').querySelector('h2')?.after(el);
+}
 const models=[];
 let ghostModel;
 const ghostPaint=new THREE.MeshBasicMaterial({color:'#9ef2e4',transparent:true,opacity:.28,depthWrite:false});
@@ -177,10 +195,12 @@ function pause(){
   if(screen!=='game'||state.done||feedbackHold.held())return;
   showPanel('pause',`<h2 id="panel-title">Paused</h2><p>${track.name} · ${track.sections[state.sector].name}</p><div class="keys"><span><kbd>WASD / ↑↓←→</kbd> Drive</span><span><kbd>Q</kbd> Hop & drift</span><span><kbd>E</kbd> Drift boost</span><span><kbd>SPACE</kbd> Item</span><span><kbd>N N</kbd> Feedback</span>${state.player.car==='barrage'&&state.mode!=='trial'?'<span><kbd>F</kbd> Pulse blasters</span>':''}</div><p>Steer and hold drift through the hop. Press boost in the marked zone, then time the next charge. Mix up to three Goods and Perfects per slide. Each Good adds 0.8s and each Perfect adds 1.2s. Boost items add to the same timer. Kart bumps preserve boost. Rail, obstacle, and unblocked item hits cut it.</p><div class="panel-actions"><button class="primary" id="resume">RESUME ${icon('arrow')}</button>${state.mode==='test'?'<button id="panel-tools">Test tools</button>':''}<button id="retry">${state.mode==='test'?'Restart current section':'Restart race'}</button><button id="edit-pad">Controller setup</button><button id="back-home">Return to paddock</button></div>`);
   $('resume').onclick=closePanel;$('retry').onclick=restartSection;$('edit-pad').onclick=controller;$('back-home').onclick=home;if($('panel-tools'))$('panel-tools').onclick=()=>testTools();
+  stampAccount();
 }
 function finish(){
   fx.tone('go');showPanel('finish',`<h2 id="panel-title">${state.mode==='trial'?'Time trial complete':'Race complete'}</h2><p class="result-time">${timeText(state.elapsed)}</p><p>${state.mode==='trial'?'Personal best · '+timeText(session.best):'Finished '+session.position()+' / '+state.actors.length+' · 3 laps'}</p><div class="panel-actions"><button class="primary" id="again">RACE AGAIN ${icon('arrow')}</button><button id="back-home">Return to paddock</button></div>`);
   $('again').onclick=()=>begin(state.mode);$('back-home').onclick=home;
+  stampAccount();
 }
 $('game').addEventListener('keydown',e=>{
   if(e.code==='Space'&&!modal)e.preventDefault();

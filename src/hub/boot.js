@@ -1,4 +1,5 @@
 import { pageRecords } from './records.js';
+import { pageRelics } from './relics.js';
 import { startHub, visitStarting } from './link.js';
 
 /**
@@ -7,9 +8,9 @@ import { startHub, visitStarting } from './link.js';
  * (`vendor/hub-sdk`); import that for a new hub feature instead of copying it.
  *
  * `bootHub()` redeems the plaza login (`#t=` or the cached `hub:sproto-racer:session`), keeps
- * the signed-in name on `link`, and points time-trial records at that account. `leaveForHub()`
- * flushes the cloud save and goes back to the plaza. This module does not draw a return control
- * and does not open the feedback window.
+ * the signed-in name on `link`, points time-trial records at that account, and reads that
+ * account's Relics onto `relics`. `leaveForHub()` flushes the cloud save and goes back to the
+ * plaza. This module does not draw a return control and does not open the feedback window.
  */
 
 let page = null;
@@ -19,16 +20,20 @@ export function bootHub(opts = {}) {
   if (page && !opts.force) return page;
   if (opts.force) leaving = false;
   const records = opts.records ?? pageRecords;
+  const relics = opts.relics ?? pageRelics;
   const starting = opts.starting ?? visitStarting();
   if (starting) records.hold();
   const visit = startHub({ ...opts, starting });
+  visit.link.subscribe(() => relics.follow(visit.link));
   const ready = visit.ready.then(async (link) => {
+    relics.follow(link);
     await records.follow(link);
     return link;
   });
   const handle = {
     link: visit.link,
     records,
+    relics,
     ready,
     saveBeforeLeaving() {
       if (leaving) return false;

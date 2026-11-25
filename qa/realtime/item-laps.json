@@ -1,0 +1,292 @@
+{
+  "baseline": {
+    "utcStart": "2026-11-24T22:54:37.703Z",
+    "utcFinish": "2026-11-24T22:57:09.282Z",
+    "wallSeconds": 151.579,
+    "gameSeconds": 151.63333333334614,
+    "meters": 5919.97,
+    "sectors": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12
+    ],
+    "errors": [],
+    "attempts": 167,
+    "accepted": 163,
+    "rejected": 4,
+    "items": [
+      {
+        "name": "Soda Turbo",
+        "accepted": 16,
+        "rejected": 0
+      },
+      {
+        "name": "Bumper Ball",
+        "accepted": 18,
+        "rejected": 0
+      },
+      {
+        "name": "Bubble Wrap",
+        "accepted": 16,
+        "rejected": 0
+      },
+      {
+        "name": "Sticky Blob",
+        "accepted": 16,
+        "rejected": 0
+      },
+      {
+        "name": "Pop-Up Box",
+        "accepted": 17,
+        "rejected": 0
+      },
+      {
+        "name": "Homing Cursor",
+        "accepted": 15,
+        "rejected": 2
+      },
+      {
+        "name": "Bass Speaker",
+        "accepted": 16,
+        "rejected": 0
+      },
+      {
+        "name": "Tow Cable",
+        "accepted": 15,
+        "rejected": 2
+      },
+      {
+        "name": "Triple Soda",
+        "accepted": 18,
+        "rejected": 0
+      },
+      {
+        "name": "Express Lane",
+        "accepted": 16,
+        "rejected": 0
+      }
+    ],
+    "contacts": {
+      "forwardBallShots": 9,
+      "reverseBallShots": 9,
+      "ballHits": 8,
+      "slips": 13,
+      "boxLatches": 12,
+      "boxDisarms": 11,
+      "boxPops": 1,
+      "cursorHits": 15,
+      "bassBumps": 14,
+      "towPulls": 15,
+      "stripSpawns": 64,
+      "stripSelf": 56,
+      "stripRival": 100
+    }
+  },
+  "corrected": {
+    "utcStart": "2026-11-24T22:58:21.879Z",
+    "utcFinish": "2026-11-24T23:00:52.025Z",
+    "wallSeconds": 150.146,
+    "gameSeconds": 150.20000000001167,
+    "meters": 5919.97,
+    "sectors": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12
+    ],
+    "errors": [],
+    "attempts": 166,
+    "accepted": 162,
+    "rejected": 4,
+    "items": [
+      {
+        "name": "Soda Turbo",
+        "accepted": 16,
+        "rejected": 0
+      },
+      {
+        "name": "Bumper Ball",
+        "accepted": 18,
+        "rejected": 0
+      },
+      {
+        "name": "Bubble Wrap",
+        "accepted": 16,
+        "rejected": 0
+      },
+      {
+        "name": "Sticky Blob",
+        "accepted": 16,
+        "rejected": 0
+      },
+      {
+        "name": "Pop-Up Box",
+        "accepted": 16,
+        "rejected": 0
+      },
+      {
+        "name": "Homing Cursor",
+        "accepted": 15,
+        "rejected": 2
+      },
+      {
+        "name": "Bass Speaker",
+        "accepted": 16,
+        "rejected": 0
+      },
+      {
+        "name": "Tow Cable",
+        "accepted": 15,
+        "rejected": 2
+      },
+      {
+        "name": "Triple Soda",
+        "accepted": 18,
+        "rejected": 0
+      },
+      {
+        "name": "Express Lane",
+        "accepted": 16,
+        "rejected": 0
+      }
+    ],
+    "contacts": {
+      "forwardBallShots": 9,
+      "reverseBallShots": 9,
+      "ballHits": 6,
+      "slips": 9,
+      "boxLatches": 6,
+      "boxDisarms": 5,
+      "boxPops": 1,
+      "cursorHits": 15,
+      "bassBumps": 14,
+      "towPulls": 15,
+      "stripSpawns": 64,
+      "stripSelf": 60,
+      "stripRival": 118
+    }
+  },
+  "focusedChecks": [
+    {
+      "test": "Soda adds one reserve and accelerates",
+      "pass": true
+    },
+    {
+      "test": "Forward and reverse Bumper Ball hit correct rivals",
+      "pass": true
+    },
+    {
+      "test": "Bubble stops a hit then expires in six seconds",
+      "pass": true
+    },
+    {
+      "test": "Sticky Blob causes rival slip",
+      "pass": true
+    },
+    {
+      "test": "Pop-Up Box attaches and AI shakes it off",
+      "pass": true
+    },
+    {
+      "test": "Homing Cursor warns, tracks, hits; rejects out-of-range shot",
+      "pass": true
+    },
+    {
+      "test": "Bass Speaker pushes nearby rival only",
+      "pass": true
+    },
+    {
+      "test": "Tow Cable pulls in range and refuses absent target",
+      "pass": true
+    },
+    {
+      "test": "Tow Cable refuses impossible initial lateral gap",
+      "pass": true
+    },
+    {
+      "test": "Triple Soda charges survive switching and refill on third",
+      "pass": true
+    },
+    {
+      "test": "Express Lane can boost self and rival",
+      "pass": true
+    },
+    {
+      "test": "Bubble absorbs one ball with no speed loss; second shot hits after protection",
+      "pass": true
+    },
+    {
+      "test": "Bumper Ball hits rail and bounces once",
+      "pass": true
+    },
+    {
+      "test": "Bumper Ball intercepts sticky patch, pop-up box and incoming cursor",
+      "pass": true
+    },
+    {
+      "test": "Pop-Up Box times out on player; two real hops disarm next one",
+      "pass": true
+    },
+    {
+      "test": "Airborne Homing Cursor starts at shooter height",
+      "pass": true
+    },
+    {
+      "test": "Cable rejects 18m lateral separation; valid farther rival still selected",
+      "pass": true
+    },
+    {
+      "test": "Cursor fired from 6m clears a ground rival and pursues target height",
+      "pass": true
+    },
+    {
+      "test": "Airborne ball clears ground rival, falls to road, rolls on surface",
+      "pass": true
+    },
+    {
+      "test": "Airborne ball clears grounded trap; ground shot then clears same type",
+      "pass": true
+    },
+    {
+      "test": "Airborne Bass Speaker pulses at kart height and does not hit vertically out-of-range kart",
+      "pass": true
+    },
+    {
+      "test": "Staying over an Express strip grants once per kart",
+      "pass": true
+    },
+    {
+      "test": "Refreshing Bubble renews duration without stacking shields",
+      "pass": true
+    },
+    {
+      "test": "In Quick Race an invalid cable is retained and a valid one is spent",
+      "pass": true
+    },
+    {
+      "test": "Quick Race Triple Soda consumes each charge and clears inventory on third",
+      "pass": true
+    },
+    {
+      "test": "Hot-switch first and last slot during a held drift and bank a boost",
+      "pass": true
+    }
+  ]
+}

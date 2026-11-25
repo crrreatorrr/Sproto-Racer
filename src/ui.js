@@ -1,0 +1,23 @@
+import {icon} from './icons.js';
+export const MODES=[
+ {id:'race',title:'Quick Race',type:'flag',desc:'Three laps against five rival gremlins.',action:'Start race'},
+ {id:'trial',title:'Time Trial',type:'clock',desc:'Chase your best time and race your ghost.',action:'Start time trial'},
+ {id:'test',title:'Test Drive',type:'tool',desc:'Jump to any sector. Try unlimited items.',action:'Start test drive'}
+];
+const logo='<svg class="brandmark" viewBox="0 0 56 39" aria-hidden="true"><path fill="currentColor" d="M16 1h39l-7 10H22l-4 6h24L29 37H0l8-11h16l3-5H3z"/></svg>';
+export function mountUI(){
+ document.querySelector('#app').innerHTML=`
+ <header class="topbar"><div class="top-inner"><a class="brand" href="#" id="brand" aria-label="Sproto Racing home">${logo}<span>SPROTO <em>RACING</em></span></a><div class="header-actions"><button class="nav-control" id="controls">${icon('pad')}<span>Controller setup</span></button><i></i><button id="audio" class="sound" aria-label="Mute sound">${icon('sound')}</button></div></div></header>
+ <main id="lobby"><div class="pretitle"><span><b class="status-light"></b> PADDOCK</span><span class="mono pale">LOCAL SESSION</span></div>
+ <section id="hero"><div id="hero-canvas"></div><div class="hero-shade"></div><button type="button" id="turn-model" hidden>Rear view</button><div class="hero-copy"><div class="hero-label"><b></b> DEVELOPMENT CIRCUIT</div><h1><span id="hero-name">TEST TRACK</span> <strong id="hero-suffix">01</strong></h1><div class="hero-stats"><span><b id="hero-sectors">12</b> SECTORS</span><span><b>03</b> LAPS</span><span><b>06</b> RACERS</span></div></div><div class="driver-tag"><span class="driver-num">01</span><span class="driver-name"><span id="tag-driver">SPROTO</span><br><b id="tag-car">APEX</b></span></div></section>
+ <section id="garage" hidden></section>
+ <section class="track-section"><div class="section-heading"><h2 id="track-heading">SELECT TRACK</h2></div><div id="circuits" role="group" aria-labelledby="track-heading"></div></section>
+ <section class="mode-section"><div class="section-heading"><h2>SELECT MODE</h2><span class="mode-counter">01 / 03</span></div><div class="modes">${MODES.map((m,i)=>`<button class="mode ${i===0?'selected':''}" data-mode="${m.id}" aria-pressed="${i===0}"><span class="mode-icon">${icon(m.type)}</span><span class="mode-body"><b>${m.title}</b><small>${m.desc}</small></span><span class="mode-dot"></span></button>`).join('')}</div></section>
+ <div class="launch-row"><div class="inputs-summary"><div id="device-info">${icon('keyboard')}<span>KEYBOARD</span></div><div id="driving-keys"><kbd>WASD</kbd> Drive <kbd>Q</kbd> Drift <kbd>E</kbd> Boost <kbd>SPACE</kbd> Item</div></div><button id="launch" class="launch">START RACE ${icon('arrow')}</button></div></main>
+ <section id="game" hidden><div id="race-canvas"></div><div class="race-top"><div class="hud-column"><div class="hudplate"><small id="mode-tag">QUICK RACE</small><b id="position">6 / 6</b></div><div id="sector-read"></div></div><div class="hud-column hud-controls"><div class="race-right"><div class="hudplate clockplate"><small id="lap">LAP 1 / 3</small><b id="clock">00:00.000</b></div><button class="square" id="pause" aria-label="Pause">${icon('pause')}</button></div><div id="drive-toolbar" hidden><button id="prev-item" title="Previous item">‹</button><button id="test-tools">${icon('tune')} Test tools</button><button id="next-item" title="Next item">›</button></div></div></div>
+ <div id="announce" aria-live="polite"></div><div id="incoming-warning" role="status" hidden></div>
+ <div class="race-bottom"><div class="lower-left"><canvas id="minimap" width="220" height="142"></canvas><button id="item-hud" title="Use item"><i class="item-picture" id="held-picture" aria-hidden="true" hidden></i><span id="item-key">ITEM</span><b id="item-name">EMPTY</b><span id="item-cycle"></span></button><div id="test-inventory" aria-label="Unlimited items" hidden></div></div><div id="meterbox"><div class="meter-title"><span id="meter-label">DRIFT</span><span id="pips" role="meter" aria-label="Chained drift boosts" aria-valuemin="0" aria-valuemax="3" aria-valuenow="0"><i></i><i></i><i></i></span></div><div class="meter"><i id="meterfill"></i></div><div class="reserve"><i id="reservefill"></i></div><button type="button" id="drift-boost" disabled aria-label="Activate drift boost">DRIFT BOOST <kbd id="boost-key">E</kbd></button><span id="feedback"></span></div><div class="speedbox"><b id="speed">0</b><small>KM/H</small></div></div>
+ </section>
+ <div id="overlay" hidden><section class="panel" role="dialog" aria-modal="true" aria-labelledby="panel-title"></section></div>
+ `;
+}

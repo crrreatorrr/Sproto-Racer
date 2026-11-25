@@ -1,0 +1,352 @@
+import * as THREE from 'three';
+import './style.css';
+import {mountUI,MODES} from './ui.js';
+import {icon} from './icons.js';
+import {createInput,bindingName} from './input.js';
+import {driftBoostReady} from './driving.js';
+import {openController} from './controller.js';
+import {createPaddock,lightScene} from './paddock.js';
+import {updateRivalVisibility} from './kart-visibility.js';
+import {makeKart,animateKart,disposeKart} from './kart-art.js';
+import {createGarage} from './garage.js';
+import {carById,driverById} from './roster.js';
+import {createChaseCamera} from './chase-camera.js';
+import {mountTrackSelector,savedCourse} from './track-selector.js';
+import {createTrack} from './track.js';
+import {createGameplay,ITEMS} from './gameplay.js';
+import {createRaceFX} from './race-fx.js';
+import {createSession,DEFAULT_TEST,timeText} from './session.js';
+
+mountUI();
+const $=id=>document.getElementById(id);
+const input=createInput();
+let renderer;
+try{renderer=new THREE.WebGLRenderer({antialias:true,alpha:false,powerPreference:'high-performance'});}
+catch(error){$('hero-canvas').innerHTML='<div class="unavailable">WebGL 2 is unavailable. Enable hardware acceleration in your browser and reload.</div>';$('launch').disabled=true;throw error;}
+renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,1.6));
+renderer.outputColorSpace=THREE.SRGBColorSpace;
+renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=1.12;
+$('hero-canvas').append(renderer.domElement);
+const paddock=createPaddock();
+const world=new THREE.Scene();
+world.background=new THREE.Color('#b9d9dc');world.fog=new THREE.FogExp2(0xc6d9d4,.0017);
+lightScene(world,2.1);
+const camera=new THREE.PerspectiveCamera(62,1,.15,2300);
+let chosenCourse=savedCourse();
+let track=createTrack(world,chosenCourse);
+const play=createGameplay(world,track),fx=createRaceFX(world,track);
+let session=createSession(track,play,fx),state=session.state;
+const models=[];
+let ghostModel;
+const ghostPaint=new THREE.MeshBasicMaterial({color:'#9ef2e4',transparent:true,opacity:.28,depthWrite:false});
+function syncModel(old,id,setup,ghost=false){
+  const car=carById(setup.car),driver=driverById(setup.driver);
+  if(old?.userData.car===car.id&&old.userData.character===driver.id)return old;
+  if(old){
+    if(ghost)old.traverse(mesh=>{if(mesh.isMesh)mesh.material=mesh.userData.originalPaint;});
+    disposeKart(old);
+  }
+  const m=makeKart(id,car,driver,ghost);
+  if(ghost)m.traverse(mesh=>{if(mesh.isMesh){mesh.userData.originalPaint=mesh.material;mesh.material=ghostPaint;}});
+  world.add(m);return m;
+}
+let screen='lobby',selected='race',modal='',controllerOpen=false,muted=false,config={...DEFAULT_TEST};
+try{muted=localStorage.getItem('sproto.mute')==='1';}catch{}
+fx.mute(muted);
+let previous=performance.now(),animation=0,w=0,h=0,accumulator=0,lastHUD=0;
+let followKart=createChaseCamera(camera,track);
+let wideView=false,lookingBack=false;
+const lastPose=[];
+let cameraRescues=0;
+const poseFields=['s','x','y','yaw','pitch','roll','speed','travelYaw','steer','slipAngle','hopLift','suspension','stunRemaining'];
+function setText(id,value){if($(id).textContent!==String(value))$(id).textContent=value;}
+function selectMode(id){
+  selected=id;const idx=MODES.findIndex(m=>m.id===id);
+  document.querySelectorAll('[data-mode]').forEach(btn=>{const on=btn.dataset.mode===id;btn.classList.toggle('selected',on);btn.setAttribute('aria-pressed',on);});
+  document.querySelector('.mode-section .mode-counter').textContent='0'+(idx+1)+' / 03';
+  $('launch').dataset.action=MODES[idx].action.toUpperCase();
+  $('launch').innerHTML='CHOOSE DRIVER '+icon('arrow');
+}
+document.querySelectorAll('[data-mode]').forEach(b=>b.onclick=()=>{selectMode(b.dataset.mode);fx.tone('click')});
+function soundToggle(){muted=!muted;try{localStorage.setItem('sproto.mute',muted?'1':'0');}catch{}
+  fx.unlock();fx.mute(muted);updateSound();if(!muted)fx.tone('click');}
+function updateSound(){$('audio').innerHTML=icon(muted?'mute':'sound');$('audio').setAttribute('aria-label',muted?'Enable sound':'Mute sound');}
+updateSound();$('audio').onclick=soundToggle;
+function controller(){controllerOpen=true;openController(input,()=>{const pad=input.rawPad();navPrev=pad?padDirections(pad):[];controllerOpen=false;previous=performance.now();});}
+$('controls').onclick=controller;
+function showPanel(name,html){
+  const pad=input.rawPad();
+  navPrev=pad?padDirections(pad):[];
+  pendingEdges={};pendingSlot=null;modal=name;$('overlay').hidden=false;$('overlay').firstElementChild.innerHTML=html;
+  $('overlay').querySelector('.primary,button,select')?.focus({preventScroll:true});fx.pause();
+}
+function closePanel(){modal='';$('overlay').hidden=true;accumulator=0;previous=performance.now();document.activeElement?.blur();}
+function home(){
+  garage.close();closePanel();screen='lobby';fx.pause();$('lobby').hidden=false;$('game').hidden=true;
+  document.querySelector('.topbar').hidden=false;$('hero-canvas').append(renderer.domElement);w=0;h=0;
+  selectMode(selected);
+}
+$('brand').onclick=e=>{e.preventDefault();home();};
+function begin(mode=selected,options=config){
+  closePanel();fx.unlock();fx.mute(muted);
+  pendingEdges={};pendingSlot=null;screen='game';$('lobby').hidden=true;$('game').hidden=false;document.querySelector('.topbar').hidden=true;
+  $('race-canvas').append(renderer.domElement);w=0;h=0;accumulator=0;previous=performance.now();
+  session.start(mode,{...options,...garage.selection()});
+  for(const actor of state.actors)models[actor.id]=syncModel(models[actor.id],actor.id,actor);
+  if(mode==='trial'&&session.best)ghostModel=syncModel(ghostModel,0,session.ghostSetup,true);
+  $('drive-toolbar').hidden=mode!=='test';
+  inventory.hidden=mode!=='test';
+  setText('mode-tag',track.name.toUpperCase()+' · '+MODES.find(m=>m.id===mode).title.toUpperCase());
+  for(const m of models)m.visible=false;
+  if(state.countdown>0)fx.tone('count');
+  lookingBack=false;lastPose.length=0;syncWorld(0,1);hud();timingHUD();
+}
+function loadSelectedCourse(){
+  if(chosenCourse.id===track.id)return;
+  const next=createTrack(world,chosenCourse);
+  track.dispose();track=next;
+  play.setTrack(track);fx.setTrack(track);
+  session=createSession(track,play,fx);state=session.state;
+  followKart=createChaseCamera(camera,track);
+  rebuildMap();config={...DEFAULT_TEST};
+}
+const garage=createGarage(paddock,()=>{
+  loadSelectedCourse();
+  if(selected==='test')testTools(true);else begin();
+});
+mountTrackSelector(chosenCourse,course=>{chosenCourse=course;});
+selectMode(selected);
+$('launch').onclick=()=>garage.open();
+const options=(arr,value)=>arr.map(([v,t])=>`<option value="${v}" ${String(v)===String(value)?'selected':''}>${t}</option>`).join('');
+function testTools(first=false){
+  const c=first?config:{...session.settings,sector:state.sector,lap:state.lap,item:state.player.held};
+  showPanel('tools',`<h2 id="panel-title">Test Drive</h2><p>${track.name} · Choose a repeatable start. All ${ITEMS.length} items have unlimited uses.</p>
+  <label>START SECTION<select id="sector-choice">${options(track.sections.map((s,i)=>[i,String(i+1).padStart(2,'0')+' · '+s.name]),c.sector)}</select></label>
+  <div class="pair"><label>ENTRY SPEED<select id="entry">${options([['standstill','Standing start'],['cruise','Cruise'],['turbo','Turbo'],['super','Super turbo']],c.speed)}</select></label>
+  <label>RIVALS<select id="rivals">${options([['solo','Solo'],['ahead','One ahead'],['behind','One behind'],['alongside','One alongside'],['pack','Full pack']],c.rivals)}</select></label></div>
+  <div class="pair"><label>ACTIVE ITEM<select id="test-item">${options(ITEMS.map((it,i)=>[i,it.name]),c.item)}</select></label><label>LAP STATE<select id="test-lap">${options([[1,'Lap 1'],[2,'Lap 2'],[3,track.switchTrigger?'Lap 3 · door open':'Lap 3']],c.lap)}</select></label></div>
+  <p id="item-help"></p><div class="panel-actions"><button class="primary" id="apply-test">${first?'START TEST DRIVE':'RESTART WITH SETTINGS'} ${icon('arrow')}</button><button id="cancel-panel">Back</button></div>`);
+  const help=()=>setText('item-help',ITEMS[Number($('test-item').value)].description);
+  $('test-item').onchange=help;help();
+  $('apply-test').onclick=()=>{config={sector:+$('sector-choice').value,speed:$('entry').value,rivals:$('rivals').value,item:+$('test-item').value,lap:+$('test-lap').value};begin('test',config);};
+  $('cancel-panel').onclick=()=>closePanel();
+}
+function restartSection(){if(state.mode==='test')begin('test',{...session.settings,sector:state.sector,lap:state.lap,item:state.player.held});else begin(state.mode);}
+function pause(){
+  if(screen!=='game'||state.done)return;
+  showPanel('pause',`<h2 id="panel-title">Paused</h2><p>${track.name} · ${track.sections[state.sector].name}</p><div class="keys"><span><kbd>WASD / ↑↓←→</kbd> Drive</span><span><kbd>Q</kbd> Hop & drift</span><span><kbd>E</kbd> Drift boost</span><span><kbd>SPACE</kbd> Item</span>${state.player.car==='barrage'&&state.mode!=='trial'?'<span><kbd>F</kbd> Pulse blasters</span>':''}</div><p>Steer and hold drift through the hop. Press boost in the marked zone, then time the next charge. Chain up to three boosts per slide.</p><div class="panel-actions"><button class="primary" id="resume">RESUME ${icon('arrow')}</button>${state.mode==='test'?'<button id="panel-tools">Test tools</button>':''}<button id="retry">${state.mode==='test'?'Restart current section':'Restart race'}</button><button id="edit-pad">Controller setup</button><button id="back-home">Return to paddock</button></div>`);
+  $('resume').onclick=closePanel;$('retry').onclick=restartSection;$('edit-pad').onclick=controller;$('back-home').onclick=home;if($('panel-tools'))$('panel-tools').onclick=()=>testTools();
+}
+function finish(){
+  fx.tone('go');showPanel('finish',`<h2 id="panel-title">${state.mode==='trial'?'Time trial complete':'Race complete'}</h2><p class="result-time">${timeText(state.elapsed)}</p><p>${state.mode==='trial'?'Personal best · '+timeText(session.best):'Finished '+session.position()+' / '+state.actors.length+' · 3 laps'}</p><div class="panel-actions"><button class="primary" id="again">RACE AGAIN ${icon('arrow')}</button><button id="back-home">Return to paddock</button></div>`);
+  $('again').onclick=()=>begin(state.mode);$('back-home').onclick=home;
+}
+$('game').addEventListener('keydown',e=>{
+  if(e.code==='Space'&&!modal)e.preventDefault();
+});
+$('pause').onclick=pause;$('test-tools').onclick=()=>testTools();
+$('item-hud').onclick=()=>{
+  if(screen==='game'&&!modal&&!controllerOpen&&!state.countdown)pendingEdges.itemPressed=true;
+};
+const boostButton=$('drift-boost');
+function requestDriftBoost(){
+  if(screen==='game' && !modal && !controllerOpen && !boostButton.disabled)pendingEdges.driftBoostPressed=true;
+}
+boostButton.onpointerdown=event=>{
+  if(event.button!==0 || !event.isPrimary)return;
+  event.preventDefault();
+  requestDriftBoost();
+};
+boostButton.onclick=event=>{if(event.detail===0)requestDriftBoost();};
+boostButton.onkeydown=event=>{
+  if(event.key==='Enter' || event.code==='Space'){
+    event.stopPropagation();
+    if(event.repeat)event.preventDefault();
+  }
+};
+$('prev-item').onclick=()=>session.select(state.player.held-1);$('next-item').onclick=()=>session.select(state.player.held+1);
+function itemImagePosition(index){return (index%5)*25+'% '+(Math.floor(index/5)*100/3)+'%';}
+const inventory=$('test-inventory');
+for(const [index,item] of ITEMS.entries()){
+  const button=document.createElement('button');
+  const picture=document.createElement('i');picture.className='item-picture';
+  picture.setAttribute('aria-hidden','true');
+  picture.style.backgroundPosition=itemImagePosition(index);
+  const number=document.createElement('span');number.textContent=String(index+1);
+  button.append(picture,number);
+  button.title=item.name+' · '+item.description;button.setAttribute('aria-label','Equip '+item.name);
+  button.onclick=()=>{session.select(index);hud();};
+  inventory.append(button);
+}
+let navPrev=[];
+function padDirections(pad){return [pad.buttons[0]?.pressed,pad.buttons[1]?.pressed,pad.buttons[12]?.pressed||pad.axes[1]<-.65,pad.buttons[13]?.pressed||pad.axes[1]>.65,pad.buttons[14]?.pressed||pad.axes[0]<-.65,pad.buttons[15]?.pressed||pad.axes[0]>.65,pad.buttons[9]?.pressed];}
+function menuPad(){
+ const pad=input.rawPad();if(!pad){navPrev=[];return;}
+ const down=padDirections(pad);
+ const edge=down.map((v,i)=>v&&!navPrev[i]);navPrev=down;
+ if(!edge.some(Boolean)||controllerOpen)return;
+ if(garage.active){
+   if(edge[1])garage.back();
+   else if(edge[2]||edge[3]||edge[4]||edge[5])garage.move(edge[4]||edge[2]?-1:1);
+   else if(edge[6])$('garage-next').click();
+   else if(edge[0])document.activeElement?.click();
+ }else if(!modal&&screen==='lobby'){
+   const buttons=[...document.querySelectorAll('[data-track],.mode'),$('launch'),$('controls')];
+   if(edge[2]||edge[3]||edge[4]||edge[5]){
+     let i=buttons.indexOf(document.activeElement);i=(i+(edge[4]||edge[2]?-1:1)+buttons.length)%buttons.length;buttons[i].focus();if(buttons[i].dataset.mode)selectMode(buttons[i].dataset.mode);
+   }else if(edge[0]||edge[6]){const current=document.activeElement;if(current===$('controls'))controller();else if(edge[0]&&current?.dataset.track)current.click();else $('launch').click();}
+ }else if(modal){
+   const list=Array.from($('overlay').querySelectorAll('button,select'));
+   let i=Math.max(0,list.indexOf(document.activeElement)),el=list[i];
+   if(edge[1]||edge[6]){if(modal==='finish')home();else closePanel();}
+   else if(edge[2]||edge[3])list[(i+(edge[2]?-1:1)+list.length)%list.length].focus();
+   else if(el?.tagName==='SELECT'&&(edge[4]||edge[5])){el.selectedIndex=(el.selectedIndex+(edge[4]?-1:1)+el.length)%el.length;el.dispatchEvent(new Event('change'));}
+   else if(edge[0]&&el?.tagName==='BUTTON')el.click();
+ }
+}
+window.addEventListener('keydown',e=>{
+ if(controllerOpen)return;
+ if(garage.active&&!modal){
+   if(e.key==='Escape'){e.preventDefault();garage.back();}
+   else if(['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.key)){e.preventDefault();garage.move(['ArrowLeft','ArrowUp'].includes(e.key)?-1:1);}
+   return;
+ }
+ if(e.key==='Tab'&&modal){
+   const buttons=$('overlay').querySelectorAll('button,select');
+   const first=buttons[0],last=buttons[buttons.length-1];
+   if(e.shiftKey&&document.activeElement===first){e.preventDefault();last?.focus();}
+   else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first?.focus();}
+ }
+ if(e.code==='Escape'&&modal){e.preventDefault();if(modal==='finish')home();else closePanel();input.block(true);input.block(false);}
+ if(screen==='lobby'&&!modal&&e.code==='Enter'&&document.activeElement===document.body)$('launch').click();
+});
+document.addEventListener('visibilitychange',()=>{if(document.hidden&&screen==='game'&&!modal&&!controllerOpen)pause();});
+function placeModel(model,k,b,dt){
+  const f=track.sample(k.s,k.x); model.visible=true;model.position.copy(f.position);
+  model.rotation.order='YXZ';model.rotation.y=Math.atan2(-f.forward.x,-f.forward.z)-(k.yaw||0);
+  model.rotation.x=k.pitch??Math.atan(f.grade);model.rotation.z=k.roll??f.bank;
+  animateKart(model,k,b,animation);
+}
+function syncWorld(dt,alpha){
+  let k;
+  for(const a of state.actors){
+    const pose={...a.kart},prev=lastPose[a.id];
+    if(prev && prev.rescues===pose.rescues)for(const key of poseFields){
+      // A new hit starts upright. Interpolate only the countdown of the active roll.
+      if(key==='stunRemaining' && pose[key]>prev[key])continue;
+      pose[key]=THREE.MathUtils.lerp(prev[key],pose[key],alpha);
+    }
+    placeModel(models[a.id],pose,a.boost,dt);
+    if(a.isPlayer)k=pose;
+  }
+  const ghost=state.done?null:session.ghost();
+  if(ghostModel)ghostModel.visible=!!ghost;
+  if(ghost)placeModel(ghostModel,ghost,{tier:0},dt);
+
+  followKart(k,k.rescues===cameraRescues?dt:0,wideView,lookingBack);
+  cameraRescues=k.rescues;
+  updateRivalVisibility(camera,models,dt);
+}
+const map=$('minimap'),ctx=map.getContext('2d');
+let mapPath,mapXY;
+function rebuildMap(){
+  const points=track.mapPoints,xs=points.map(p=>p.x),zs=points.map(p=>p.z);
+  const mx=Math.min(...xs),mz=Math.min(...zs),dx=Math.max(...xs)-mx,dz=Math.max(...zs)-mz;
+  const scale=Math.min((map.width-24)/dx,(map.height-17)/dz);
+  mapXY=p=>[(map.width-dx*scale)/2+(p.x-mx)*scale,(map.height-dz*scale)/2+(p.z-mz)*scale];
+  mapPath=new Path2D();
+  points.forEach((p,i)=>{const [x,y]=mapXY(p);if(i)mapPath.lineTo(x,y);else mapPath.moveTo(x,y);});
+  mapPath.closePath();
+}
+rebuildMap();
+function timingHUD(){
+ const {kart:k,boost:b}=state.player;
+ const pips=$('pips');
+ if(pips.getAttribute('aria-valuenow')!==String(b.pips)){
+   pips.setAttribute('aria-valuenow',String(b.pips));
+   for(let i=0;i<pips.children.length;i++)pips.children[i].classList.toggle('filled',i<b.pips);
+ }
+ const charging=k.sliding && k.driftWasHeld && !b.chainClosed && !state.done;
+ const ready=charging && driftBoostReady(b);
+ boostButton.disabled=!charging;
+ boostButton.classList.toggle('ready',ready);
+ setText('meter-label',state.countdown?'LAUNCH':ready?'READY':k.sliding?'DRIFT':b.tier===2?'SUPER TURBO':b.tier?'TURBO':'DRIFT');
+ $('meterfill').style.width=((state.countdown?b.rev:b.meter)*100)+'%';$('reservefill').style.width=(b.reserve/5*100)+'%';
+ }
+function hud(){
+ const a=state.player,k=a.kart,b=a.boost;
+ const binding=input.settings.bindings.driftBoost;
+ setText('boost-key',input.deviceName==='Keyboard'?'E':binding==='none'?'':bindingName(binding));
+ setText('position',state.mode==='race'?session.position()+' / '+state.actors.length:state.mode==='trial'?'GHOST':'∞ ITEMS');
+ setText('lap','LAP '+state.lap+' / 3');setText('clock',timeText(state.elapsed));
+ setText('sector-read',String(state.sector+1).padStart(2,'0')+' / '+track.sections[state.sector].name.toUpperCase());
+ setText('speed',Math.round((k.reverseSpeed||k.speed)*3.6));
+ const incoming=a.incoming||'';
+ setText('incoming-warning',incoming);$('incoming-warning').hidden=!incoming;
+ const notice=a.noticeTime>0&&!a.notice.endsWith(' INCOMING')?a.notice:'';
+ let grade=b.feedbackTime>0?b.feedback:'';
+ if(notice && (grade==='GOOD'||grade==='PERFECT'))grade+=' BOOST';
+ const feedback=k.fall?['OFF TRACK']:[notice,k.stunRemaining>0?'STUNNED':grade].filter(Boolean);
+ setText('feedback',feedback.join('\n')||(state.splitUntil>state.elapsed?state.split:''));
+ setText('announce',state.countdown?Math.ceil(state.countdown):state.elapsed<.7&&state.mode!=='test'?'GO!':'');
+ setText('item-name',a.held!=null?ITEMS[a.held].name:'EMPTY');
+ const art=$('held-picture');art.hidden=a.held==null;
+ if(a.held!=null)art.style.backgroundPosition=itemImagePosition(a.held);
+ setText('item-key',state.mode==='test'?'UNLIMITED  ∞':'ITEM');
+ if(state.mode==='test'){
+   for(let i=0;i<inventory.children.length;i++)inventory.children[i].setAttribute('aria-pressed',String(i===a.held));
+   const switchKey=input.deviceName==='Keyboard'?'X / I':bindingName(input.settings.bindings.next);
+   setText('item-cycle',(a.held===8?a.charges+' CHARGES · ':'')+switchKey+' · NEXT');
+ }else setText('item-cycle',a.held===8?a.charges+' CHARGES':'');
+ $('item-hud').hidden=state.mode==='trial';
+ ctx.clearRect(0,0,map.width,map.height);ctx.strokeStyle='#80968e';ctx.lineWidth=3;ctx.lineJoin='round';ctx.stroke(mapPath);
+ for(const actor of [...state.actors].reverse()){const p=track.sample(actor.kart.s,0).position;const [x,y]=mapXY(p);ctx.beginPath();ctx.fillStyle=actor.isPlayer?'#d5ee7a':'#ff7853';ctx.arc(x,y,actor.isPlayer?4.8:2.7,0,Math.PI*2);ctx.fill();}
+}
+const edgeFlags=['driftPressed','driftReleased','driftBoostPressed','itemPressed','blastersPressed','prevPressed','nextPressed'];
+let pendingEdges={},pendingSlot=null;
+function frame(now){
+ const dt=Math.min(.1,Math.max(0,(now-previous)/1000));previous=now;animation+=dt;
+ const host=screen==='lobby'?$('hero-canvas'):$('race-canvas');const W=host.clientWidth,H=host.clientHeight;
+ if(W&&H&&(W!==w||H!==h)){w=W;h=H;renderer.setSize(w,h,false);camera.aspect=w/h;camera.updateProjectionMatrix();}
+ const c=input.poll();
+ if(controllerOpen){menuPad();requestAnimationFrame(frame);return;}
+ if(screen==='lobby'){
+   menuPad();paddock.render(renderer,animation,w,h);
+   const label=input.gamepadName?'GAMEPAD CONNECTED':'KEYBOARD';
+   if($('device-info').lastElementChild.textContent!==label)$('device-info').innerHTML=icon(input.gamepadName?'pad':'keyboard')+'<span>'+label+'</span>';
+   const bindings=input.settings.bindings;
+   const hints=input.gamepadName
+     ? [[bindingName(bindings.throttle),'Drive'],[bindingName(bindings.drift),'Drift'],[bindingName(bindings.driftBoost),'Boost'],[bindingName(bindings.item),'Item']]
+     : [['WASD','Drive'],['Q','Drift'],['E','Boost'],['SPACE','Item']];
+   const key=hints.map(([k,v])=>k+v).join('|');
+   if($('driving-keys').dataset.key!==key){$('driving-keys').dataset.key=key;$('driving-keys').innerHTML=hints.map(([k,v])=>'<kbd>'+k+'</kbd> '+v).join(' ');}
+ }else if(modal){
+   if(modal==='pause'&&c.pausePressed)closePanel();else menuPad();
+ }
+ else if(c.pausePressed){pause();}
+ else if(c.resetPressed){restartSection();}
+ else{
+   if(c.distancePressed)wideView=!wideView;
+   if(c.mapPressed)$('minimap').hidden=!$('minimap').hidden;
+   lookingBack=c.lookBack;
+   // Preserve button edges between render frames, including on high-refresh screens.
+   for(const key of edgeFlags)if(c[key])pendingEdges[key]=true;
+   if(c.slot!=null)pendingSlot=c.slot;
+   accumulator+=dt;
+   while(accumulator>=1/60&&!state.done){
+     for(const a of state.actors){
+       const pose=lastPose[a.id]??={};
+       pose.rescues=a.kart.rescues;
+       for(const key of poseFields)pose[key]=a.kart[key];
+     }
+     session.tick({...c,...Object.fromEntries(edgeFlags.map(k=>[k,!!pendingEdges[k]])),slot:pendingSlot},1/60);
+     pendingEdges={};pendingSlot=null;accumulator-=1/60;
+   }
+   fx.update(dt,state.actors,true,state.countdown>0);syncWorld(dt,Math.min(1,accumulator*60));timingHUD();
+   if(now-lastHUD>45){hud();lastHUD=now;}
+   renderer.render(world,camera);
+   if(state.done){hud();finish();}
+ }
+ requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);

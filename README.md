@@ -23,7 +23,7 @@ Select a circuit in the paddock before choosing a mode, driver, and car. Each ma
 | Crestline Ridge | 7.93 km | Climb the Staircase switchbacks and carry speed through the sweeping descent. The paired ramps have different jump impulses. Landing lanes have brackets every 10 m for 50–120 m, and stronger ramps have a trackside 40 m board. |
 | Switchyard GP | 9.17 km | Brake into the enlarged freight and return hairpins, then switch lines through the container esses. The 75, 50, and 25 m boards mark braking distances. White arrows point past the dividers. |
 
-Item boxes start about 42 m from the line on every circuit. Each row has two or three boxes across five possible positions. The open lanes change with each row. Test Track 01 has 73 rows per lap, Crestline Ridge has 89, and Switchyard GP has 99. In Quick Race, a box fills an empty item slot. In Test Drive, you can practice taking the same pickup lines while keeping your selected unlimited item.
+Item boxes start about 42 m from the line on every circuit. Each row has two or three boxes across five possible positions. The open lanes change with each row. Test Track 01 has 73 rows per lap, Crestline Ridge has 89, and Switchyard GP has 99. In Quick Race, crossing a box with an empty slot starts the item roulette. In Test Drive, you can practice taking the same pickup lines while keeping your selected unlimited item.
 
 ## Modes
 
@@ -84,7 +84,7 @@ With the wheel centered in normal driving, your kart keeps its heading. Steer in
 
 Karts can bump each other in Quick Race and Test Drive. A rear-end hit transfers speed to the kart ahead. Side contact pushes the karts apart along their racing lines, including during a drift. A high jump can clear another kart, and strong contact gives a short thump and suspension kick.
 
-Steer into the slide to tighten it and countersteer to push the exit wider. The kart carries some of its slide angle as the rear wheels regain grip. Later boosts bank more reserve, with a bonus for completing the third charge. For a tight airborne turn, lift the accelerator and brake while steering. Pulling back on the stick tightens the rotation. A light rail scrape preserves the slide. A hard rail hit cancels the slide and empties the boost reserve.
+Steer into the slide to tighten it and countersteer to push the exit wider. The kart carries some of its slide angle as the rear wheels regain grip. Every Good adds 0.8 seconds of boost and every Perfect adds 1.2 seconds, in any position in the combo. Any mix of grades counts. A mistimed press breaks the combo. The timer counts down as you drive, and boost items add their full duration to the remaining time. For a tight airborne turn, lift the accelerator and brake while steering. Pulling back on the stick tightens the rotation. Kart bumps preserve boost reserve and streaks for both racers. A rail impact or obstacle strike empties the reserve and ends the boost chain. A hard rail hit also ends the slide.
 
 A rival's damaging hit makes your kart lose speed and roll. Steering, throttle, and item use return after 0.9 seconds. A hit breaks your drift chain and clears boost. Hop twice to shake off an attached Pop-Up Box before it pops. Bubble Wrap absorbs one hit and disappears immediately, preserving your speed and drift. An unused shield lasts six seconds.
 
@@ -94,7 +94,9 @@ In Test Drive all twenty unlimited items are available simultaneously. Cycle thr
 
 ## Items
 
-Quick Race uses the same pickup odds for drivers and AI. Leaders get more traps and defensive items. Each position farther back improves the odds of pursuit items and stronger boosts, with some extra help across a large gap. A box fills an empty slot. Triple Soda takes three presses to empty.
+Quick Race uses the same pickup odds for drivers and AI. Leaders get more traps and defensive items. Each position farther back improves the odds of pursuit items and stronger boosts, with some extra help across a large gap. The HUD cycles through item icons for 1.5 seconds of race time, then reveals the item. Press Use after the reveal to fire it. Triple Soda takes three presses to empty.
+
+Firing a targeting item spends it even if there is no eligible rival. Homing Cursor and Relay Rocket fire unguided without a lock. Tow Cable and Soda Siphon miss and give no boost. Test Drive keeps its unlimited supply.
 
 | Slot | Item | Use | Slot | Item | Use |
 | --- | --- | --- | --- | --- | --- |

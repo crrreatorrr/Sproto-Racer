@@ -3,6 +3,7 @@ import './style.css';
 import {mountUI,MODES} from './ui.js';
 import {icon} from './icons.js';
 import {createInput,bindingName} from './input.js';
+import {PERFECT_CHARGE} from './boost.js';
 import {driftBoostReady} from './driving.js';
 import {controllerIsOpen,openController} from './controller.js';
 import {createFeedbackHold,installRaceFeedback,raceBreadcrumbs} from './feedback.js';
@@ -15,6 +16,7 @@ import {createChaseCamera} from './chase-camera.js';
 import {mountTrackSelector,savedCourse} from './track-selector.js';
 import {createTrack} from './track.js';
 import {createGameplay,ITEMS} from './gameplay.js';
+import {pickupPreview} from './items.js';
 import {createRaceFX} from './race-fx.js';
 import {createSession,DEFAULT_TEST,timeText} from './session.js';
 
@@ -173,7 +175,7 @@ function testTools(first=false){
 function restartSection(){if(state.mode==='test')begin('test',{...session.settings,sector:state.sector,lap:state.lap,item:state.player.held});else begin(state.mode);}
 function pause(){
   if(screen!=='game'||state.done||feedbackHold.held())return;
-  showPanel('pause',`<h2 id="panel-title">Paused</h2><p>${track.name} · ${track.sections[state.sector].name}</p><div class="keys"><span><kbd>WASD / ↑↓←→</kbd> Drive</span><span><kbd>Q</kbd> Hop & drift</span><span><kbd>E</kbd> Drift boost</span><span><kbd>SPACE</kbd> Item</span><span><kbd>N N</kbd> Feedback</span>${state.player.car==='barrage'&&state.mode!=='trial'?'<span><kbd>F</kbd> Pulse blasters</span>':''}</div><p>Steer and hold drift through the hop. Press boost in the marked zone, then time the next charge. Chain up to three boosts per slide.</p><div class="panel-actions"><button class="primary" id="resume">RESUME ${icon('arrow')}</button>${state.mode==='test'?'<button id="panel-tools">Test tools</button>':''}<button id="retry">${state.mode==='test'?'Restart current section':'Restart race'}</button><button id="edit-pad">Controller setup</button><button id="back-home">Return to paddock</button></div>`);
+  showPanel('pause',`<h2 id="panel-title">Paused</h2><p>${track.name} · ${track.sections[state.sector].name}</p><div class="keys"><span><kbd>WASD / ↑↓←→</kbd> Drive</span><span><kbd>Q</kbd> Hop & drift</span><span><kbd>E</kbd> Drift boost</span><span><kbd>SPACE</kbd> Item</span><span><kbd>N N</kbd> Feedback</span>${state.player.car==='barrage'&&state.mode!=='trial'?'<span><kbd>F</kbd> Pulse blasters</span>':''}</div><p>Steer and hold drift through the hop. Press boost in the marked zone, then time the next charge. Mix up to three Goods and Perfects per slide. Each Good adds 0.8s and each Perfect adds 1.2s. Boost items add to the same timer. Kart bumps preserve boost. Rail, obstacle, and unblocked item hits cut it.</p><div class="panel-actions"><button class="primary" id="resume">RESUME ${icon('arrow')}</button>${state.mode==='test'?'<button id="panel-tools">Test tools</button>':''}<button id="retry">${state.mode==='test'?'Restart current section':'Restart race'}</button><button id="edit-pad">Controller setup</button><button id="back-home">Return to paddock</button></div>`);
   $('resume').onclick=closePanel;$('retry').onclick=restartSection;$('edit-pad').onclick=controller;$('back-home').onclick=home;if($('panel-tools'))$('panel-tools').onclick=()=>testTools();
 }
 function finish(){
@@ -309,8 +311,10 @@ function timingHUD(){
  const ready=charging && driftBoostReady(b);
  boostButton.disabled=!charging;
  boostButton.classList.toggle('ready',ready);
- setText('meter-label',state.countdown?'LAUNCH':ready?'READY':k.sliding?'DRIFT':b.tier===2?'SUPER TURBO':b.tier?'TURBO':'DRIFT');
- $('meterfill').style.width=((state.countdown?b.rev:b.meter)*100)+'%';$('reservefill').style.width=(b.reserve/5*100)+'%';
+ setText('meter-label',state.countdown?'LAUNCH':ready && b.meter+1e-9>=PERFECT_CHARGE?'PERFECT':ready?'READY':k.sliding?'DRIFT':b.tier===2?'SUPER TURBO':b.tier?'TURBO':'DRIFT');
+ $('meterfill').style.width=((state.countdown?b.rev:b.meter)*100)+'%';
+ $('reservefill').style.width=(100*b.reserve/Math.max(5,b.reservePeak))+'%';
+ setText('reserve-time',b.reserve>0?(Math.ceil(b.reserve*10)/10).toFixed(1)+'s':'');
  }
 function hud(){
  const a=state.player,k=a.kart,b=a.boost;
@@ -323,15 +327,18 @@ function hud(){
  const incoming=a.incoming||'';
  setText('incoming-warning',incoming);$('incoming-warning').hidden=!incoming;
  const notice=a.noticeTime>0&&!a.notice.endsWith(' INCOMING')?a.notice:'';
- let grade=b.feedbackTime>0?b.feedback:'';
- if(notice && (grade==='GOOD'||grade==='PERFECT'))grade+=' BOOST';
+ const grade=b.feedbackTime>0?b.feedback:'';
  const feedback=k.fall?['OFF TRACK']:[notice,k.stunRemaining>0?'STUNNED':grade].filter(Boolean);
  setText('feedback',feedback.join('\n')||(state.splitUntil>state.elapsed?state.split:''));
  setText('announce',state.countdown?Math.ceil(state.countdown):state.elapsed<.7&&state.mode!=='test'?'GO!':'');
- setText('item-name',a.held!=null?ITEMS[a.held].name:'EMPTY');
- const art=$('held-picture');art.hidden=a.held==null;
- if(a.held!=null)art.style.backgroundPosition=itemImagePosition(a.held);
- setText('item-key',state.mode==='test'?'UNLIMITED  ∞':'ITEM');
+ const shownItem=a.roulette?pickupPreview(a.roulette,state.elapsed):a.held;
+ const itemButton=$('item-hud');
+ itemButton.disabled=shownItem==null || !!a.roulette;
+ itemButton.title=a.roulette?'Drawing an item':a.held==null?'Empty item slot':'Use '+ITEMS[a.held].name;
+ setText('item-name',a.roulette?'Drawing…':a.held!=null?ITEMS[a.held].name:'EMPTY');
+ const art=$('held-picture');art.hidden=shownItem==null;
+ if(shownItem!=null)art.style.backgroundPosition=itemImagePosition(shownItem);
+ setText('item-key',a.roulette?'ITEM ROULETTE':state.mode==='test'?'UNLIMITED  ∞':'ITEM');
  if(state.mode==='test'){
    for(let i=0;i<inventory.children.length;i++)inventory.children[i].setAttribute('aria-pressed',String(i===a.held));
    const switchKey=input.deviceName==='Keyboard'?'X / I':bindingName(input.settings.bindings.next);

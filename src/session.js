@@ -6,7 +6,7 @@ import {ironhideAxles,ironhideHalfTrack} from './ironhide-layout.js';
 import {geepAxles,geepScale,geepHalfTrack} from './geep-layout.js';
 import {barrageAxles,barrageHalfTrack} from './barrage-layout.js';
 import {hasShapedBody,isGeep,kartFootprint,footprintBox,footprintContact} from './kart-footprint.js';
-import {ITEMS} from './items.js';
+import {ITEMS,startPickup,settlePickup} from './items.js';
 import {racerSetup} from './roster.js';
 import {createKart,stepKart,launchFromRamp,CRUISE_SPEED,HALF_KART_WIDTH,HALF_KART_LENGTH,KART_CONTACT_HEIGHT} from './driving.js';
 import {createBoost,stepBoost,grantBoost,updateRevs,gradeLaunch} from './boost.js';
@@ -30,7 +30,7 @@ export function createSession(track,play,fx){
   function make(id,s,x,entrySpeed){
     const {car,driver}=racerSetup(id,settings);
     return {id,car:car.id,driver:driver.id,isPlayer:!id,kart:{...createKart(car),s,x,speed:entrySpeed*car.speed},
-      boost:createBoost(),held:null,charges:0,unlimited:!id&&state.mode==='test',finish:null,
+      boost:createBoost(),held:null,roulette:null,charges:0,unlimited:!id&&state.mode==='test',finish:null,
       hazardCooldown:0,touchingHazards:new Set()};
   }
   function start(mode,options={}) {
@@ -121,8 +121,8 @@ export function createSession(track,play,fx){
       return offset>0 && offset<=dist && Math.abs(k.x-o.x)<(o.width??3.2)/2+.45;
     };
     for(const p of track.pads)if(!k.stunRemaining&&cross(p)&&k.y<1.4)grantBoost(a.boost,p.tier===2?2.2:1.35,p.tier);
-    if(state.mode!=='trial' && a.finish==null && (a.held==null || a.unlimited))for(const p of track.pickups)if(!p.hidden&&cross(p)&&k.y<2.5){
-      if(!a.unlimited)play.drawItem(a,state.actors);
+    if(state.mode!=='trial' && a.finish==null && !a.roulette && (a.held==null || a.unlimited))for(const p of track.pickups)if(!p.hidden&&cross(p)&&k.y<2.5){
+      if(!a.unlimited)startPickup(a,state.actors,state.elapsed);
       p.hidden=true;p.readyAt=state.elapsed+1.8;break;
     }
     if(track.switchTrigger&&cross(track.switchTrigger))track.triggerSwitch();
@@ -159,7 +159,6 @@ export function createSession(track,play,fx){
       road.grade=rise/((front+rear)*Math.max(.55,1-k.x*road.curvature));
     }
     road.crossedRamp=crossedRamp;
-    const oldPips=a.boost.pips;
     stepKart(k,controls,road,a.boost,dt);
     if(k.fall && !wasFalling){
       Object.assign(a.boost,createBoost());
@@ -167,7 +166,6 @@ export function createSession(track,play,fx){
     }
     if(wasFalling || k.fall)return {a,recovering:true};
     stepBoost(a.boost,k,controls,dt);
-    if(a.isPlayer&&a.boost.pips>oldPips)fx.tone('boost');
     return {a,controls,old,s:k.s,x:k.x};
   }
   function recordGhost() {
@@ -199,6 +197,7 @@ export function createSession(track,play,fx){
     state.elapsed+=dt;
     for(const p of track.pickups)if(p.hidden&&state.elapsed>=p.readyAt)p.hidden=false;
     track.update(state.elapsed,dt,state.player.kart.s,state.lap);
+    const oldPips=state.player.boost.pips;
     const moves=state.actors.map(a=>drive(a,a.isPlayer?input:a.kart.fall?{}:play.decide(a,state.player,dt),dt));
     play.update(dt,state.actors,()=>{
       for(const {a,controls,old,s,x,recovering} of moves){
@@ -217,6 +216,8 @@ export function createSession(track,play,fx){
           a.finish=state.elapsed-dt*(k.s-line)/(k.s-old);
       }
     });
+    for(const actor of state.actors)settlePickup(actor,state.elapsed);
+    if(state.player.boost.pips>oldPips)fx.tone('boost');
     const k=state.player.kart,raceS=k.fall?.exitS??k.s,f=track.sample(raceS,k.x);
     state.lap=state.mode==='test'?1+mod(Math.floor(raceS/track.length),3):Math.max(1,Math.min(3,Math.floor(raceS/track.length)+1));
     if((state.mode==='test'||k.s>=0)&&f.section!==state.sector){

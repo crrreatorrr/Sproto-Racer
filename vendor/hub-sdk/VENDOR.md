@@ -37,9 +37,25 @@
 - source src/ticket.ts: b01e1635c7031dd0e6855ecb22b99af1654395c41f0296863b627a31ded41033
 - source src/types.ts: 754a7675e3605e3e577c8389d1510e79800b645e75db25cdf45f4e3b10ed6972
 
-0.10.0 is the hub SDK Sproto Open World vendors. Sproto Fighter and NOBU vendor 0.9.0. The `exit` path is the same source, and 0.10.0 adds the `sproto-open-world` game id on top of that.
+Source hashes match metaverse-hub main `ab23b71` (the same `packages/hub-sdk` source Open World
+vendored at `273dfe3`). `SOURCE.pin.json` is that pin. No source was edited. Layout: `package.json`,
+`README.md`, `SOURCE.pin.json`, `dist/**/*.js`, `dist/**/*.d.ts`, including `dist/realtime/` and
+`dist/hub-sdk.iife.js`. No source maps.
 
-Sproto Racer uses `@metaverse/hub-sdk/core` (`createHubSdk`). The paddock portal calls `exit('return')` on the page SDK in `src/hub/sdk.js`. Hub login should call `pageHubSdk().init('sproto-racer')` on that same instance. `GAME_IDS` does not list `sproto-racer` yet, so a portal ticket cannot be redeemed until the hub adds the id. With no session, the portal still leaves for `<hub>/#from=sproto-racer`.
+Sproto Racer imports this one tree:
 
-Re-sync from the metaverse-hub root when packages/hub-sdk changes:
-`node scripts/vendor-sdk.mjs /path/to/Sproto-Racer --branch main`, then `npm install`.
+- `@metaverse/hub-sdk/feedback`: `installFeedback` (the N-N window) and `feedbackTransportFromSdk`.
+  The adapter is `src/feedback.js`. The account visit hands it the same SDK (`attachFeedbackSdk`).
+- `@metaverse/hub-sdk/core`: `createHubSdk`, for the visit in `src/hub/link.js` (ticket redeem, the
+  signed-in name, `exit` back to the plaza) and the cloud save (`loadSave` / `writeSave`).
+- `@metaverse/hub-sdk/progress`: `createProgressStore` and `hubVisitStarting`, for time-trial
+  records in `src/hub/records.js`. Ghost frames stay in this browser. The cloud body is the times.
+
+`GAME_IDS` in this 0.10.0 tree does not list `sproto-racer`. Until the hub adds that id and this
+tree is re-vendored, `init` answers `bad_game` and a portal ticket is not redeemed. Feedback still
+sends through the page's hub session once that session exists.
+
+Re-sync from a metaverse-hub checkout (esbuild writes source paths relative to that working
+directory into the IIFE):
+`cd /path/to/metaverse-hub && node scripts/vendor-sdk.mjs /path/to/Sproto-Racer --branch main`,
+then `npm install`.

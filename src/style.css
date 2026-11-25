@@ -5,6 +5,21 @@
 @media(min-height:900px){#lobby{padding-top:38px}.section-heading{margin-top:30px}.mode{min-height:108px}.launch-row{margin-top:25px}}
 @media(max-width:880px){.mode{padding:14px 12px;gap:9px}.mode-icon{flex-basis:24px}.mode-icon svg{width:24px}.mode-body small{font-size:11px}.mode-dot{display:none}.hero-stats{gap:8px}.hero-stats span+span{padding-left:8px}}
 @media(max-width:620px){.topbar{height:56px}.brand span{font-size:23px}.brandmark{width:30px}.top-inner{padding:0 14px}.header-actions{gap:4px}.header-actions i{display:none}.header-actions button{font-size:11px}#lobby{padding:15px 12px}#hero{height:270px}.hero-copy{left:4%;top:49%}h1{font-size:56px}.hero-label{font-size:8px}.hero-stats{font-size:7px;gap:5px}.hero-stats b{font-size:9px}.hero-stats span+span{padding-left:5px}.modes{grid-template-columns:1fr;gap:6px}.mode{min-height:48px}.mode-body{display:flex;align-items:center;gap:12px}.mode-body b{font-size:20px}.mode-counter,.driver-tag{display:none}.section-heading{margin:16px 0 10px}.launch-row{margin-top:12px}.clockplate{min-width:auto}.clockplate b{font-size:15px}#minimap{width:95px;height:60px}#item-hud{min-width:95px}#item-hud b{font-size:16px}.speedbox{min-width:65px}.speedbox b{font-size:32px}.race-bottom{bottom:12px}#meterbox{padding:6px}.hudplate{min-width:85px}.race-top{top:11px}#drive-toolbar button{font-size:11px}}
+.hub-account{max-width:min(52vw,420px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hub-account[data-hub="connected"],.hub-account[data-hub="guest"]{color:var(--lime)}
+.hub-account[data-hub="error"]{color:var(--orange)}
+#hub-account-race{display:block;margin-top:4px;font-size:9px;letter-spacing:.04em}
+.panel .hub-line{margin:0 0 12px;font:700 11px var(--mono);letter-spacing:.04em;color:var(--soft)}
+.panel .hub-line[data-hub="connected"],.panel .hub-line[data-hub="guest"]{color:var(--lime)}
+.panel .hub-line[data-hub="error"]{color:var(--orange)}
+.hub-relics-row{display:grid;gap:6px;margin:-4px 0 12px}
+.hub-relic-caption,.garage-relics{margin:0;color:var(--soft);font:700 10px var(--mono);letter-spacing:.04em}
+.garage-relics{margin:0 0 10px;font-size:11px}
+.hub-relics{display:flex;flex-wrap:wrap;gap:6px;margin:0;padding:0;list-style:none}
+.hub-relics li{font:700 10px var(--mono);letter-spacing:.03em;border:1px solid var(--line);border-radius:99px;padding:3px 8px;color:var(--soft)}
+.hub-relics li[data-owned=true]{color:#17211b;background:var(--lime);border-color:var(--lime)}
+.hub-relics li[data-owned=false]{opacity:.45}
+.hub-relics li[data-owned=unknown]{opacity:.75;border-style:dashed}
 .pair{display:grid;grid-template-columns:1fr 1fr;gap:10px}.pair label{margin:6px 0}.result-time{font:700 26px var(--mono)!important;color:var(--lime)!important}.unavailable{position:absolute;inset:0;display:grid;align-content:end;padding:12px;background:#142024;font:14px/1.4 Arial;z-index:5}
 .inputs-summary{display:flex;align-items:center;gap:18px}#driving-keys{display:flex;align-items:center;gap:6px;font:11px Arial;color:#afbbb6}#driving-keys kbd{border:1px solid #495655;border-radius:3px;padding:2px 5px;margin-left:7px;color:#d5ded4;font:700 9px var(--mono)}@media(max-width:920px){.inputs-summary{display:grid;gap:6px}#driving-keys kbd:first-child{margin:0}}@media(max-width:620px){#driving-keys{display:none}}
 #test-inventory{pointer-events:auto;display:grid;grid-template-columns:repeat(5,1fr);gap:2px}#test-inventory button{font:700 10px var(--mono);background:#152124e8;border:1px solid #758079;border-radius:2px;padding:3px;color:#e4ecdd}#test-inventory button[aria-pressed=true]{background:var(--lime);color:#17211b}
@@ -22,6 +37,8 @@
 .garage-choices button{flex:1 1 115px;display:grid;gap:4px;position:relative;text-align:left;background:var(--surface);color:var(--paper);border:1px solid var(--line);border-radius:3px;padding:12px 12px 12px 20px}
 .garage-choices button:before{content:"";position:absolute;left:6px;top:12px;bottom:12px;width:4px;background:var(--paint)}
 .garage-choices button[aria-pressed=true]{border-color:var(--lime);background:#2a332a}
+.garage-choices button[data-locked=true]{opacity:.55;filter:grayscale(.9)}
+.garage-choices button[data-locked=true] small{color:var(--orange)}
 .garage-choices b{font:700 23px/1 var(--display)}
 .garage-choices small{color:#bfcac5;font:12px/1.3 Arial,sans-serif}
 .garage-detail{display:flex;flex-wrap:wrap;gap:8px 24px;margin:14px 0 18px;color:#bfcac5;font-size:13px}

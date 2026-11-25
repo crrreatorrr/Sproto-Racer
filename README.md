@@ -13,6 +13,32 @@ npm run dev
 
 Open the local address printed by Vite in a WebGL 2 browser. To build and run the static version, use `npm run build` followed by `npm run preview`. The production files are in `dist/`.
 
+## Hub account
+
+The paddock uses the same login as the [metaverse hub](https://github.com/crrreatorrr/metaverse-hub). A visit from the plaza arrives with `#t=<ticket>`. The game redeems it for that hub account and shows the username (a hub guest shows as Guest). Time-trial records for that account sync through the hub cloud save. Play opened on its own keeps this browser's records and does not copy them into an account.
+
+`npm test` covers the visit, the name, and the records. The vendored SDK is `@metaverse/hub-sdk` 0.10.0 in `vendor/hub-sdk`. It does not list the game id `sproto-racer` yet, so a ticket cannot be redeemed until the hub adds that id and this tree is re-vendored. Until then the paddock says `Hub: bad_game` when a ticket is present, and stays "Not signed in" otherwise.
+
+For a local hub, run the plaza and Nakama from metaverse-hub, then in this repo:
+
+```sh
+# dev server key is Nakama's stock defaultkey; set this for any other host
+# VITE_NAKAMA_SERVER_KEY=...
+# VITE_NAKAMA_URL=http://127.0.0.1:7350
+# VITE_HUB_URL=http://127.0.0.1:5173/hub/
+npm run dev
+```
+
+Open the game from the plaza once the hub lists it (the address has `#t=`). The paddock then shows the hub username and "times in the cloud". A new time-trial record on one signed-in browser shows as the personal best on another browser signed in to the same account. Signing out, or opening the game with no ticket, shows this browser's own times again.
+
+## Relics
+
+A signed-in visit reads that account's Relics from `init` (`relics`, plus `otherRelics` when the hub sends an id this SDK build does not type). The paddock lists each Relic as owned or not. The garage locks a car or character only when [`src/hub/unlocks.js`](src/hub/unlocks.js) names the Relic that unlocks it. That file is the only reward table. Its rows are empty placeholders until Ken fills one. A car or character with no filled row stays selectable, including when nobody is signed in, so a race can still start.
+
+The last confirmed list is kept in this browser. A later launch with no ticket still shows that visit. A new sign-in replaces the list, including when the account owns none. With no visit and no saved list, the paddock says to sign in and the free cars and characters still race.
+
+This game does not grant a Relic. `npm test` covers the table, the account read, the saved list, and the locked garage buttons.
+
 ## Circuits
 
 Select a circuit in the paddock before choosing a mode, driver, and car. Each map shows the driving route and lap length. Each circuit has 12 sectors, a separate Time Trial record, and sector starts in Test Drive.
@@ -23,17 +49,17 @@ Select a circuit in the paddock before choosing a mode, driver, and car. Each ma
 | Crestline Ridge | 7.93 km | Climb the Staircase switchbacks and carry speed through the sweeping descent. The paired ramps have different jump impulses. Landing lanes have brackets every 10 m for 50–120 m, and stronger ramps have a trackside 40 m board. |
 | Switchyard GP | 9.17 km | Brake into the enlarged freight and return hairpins, then switch lines through the container esses. The 75, 50, and 25 m boards mark braking distances. White arrows point past the dividers. |
 
-Item boxes start about 42 m from the line on every circuit. Each row has two or three boxes across five possible positions. The open lanes change with each row. Test Track 01 has 73 rows per lap, Crestline Ridge has 89, and Switchyard GP has 99. In Quick Race, a box fills an empty item slot. In Test Drive, you can practice taking the same pickup lines while keeping your selected unlimited item.
+Item boxes start about 42 m from the line on every circuit. Each row has two or three boxes across five possible positions. The open lanes change with each row. Test Track 01 has 73 rows per lap, Crestline Ridge has 89, and Switchyard GP has 99. In Quick Race, crossing a box with an empty slot starts the item roulette. In Test Drive, you can practice taking the same pickup lines while keeping your selected unlimited item.
 
 ## Modes
 
 - **Quick Race** runs three laps against five AI karts with item pickups.
-- **Time Trial** records the fastest completed three-lap run in browser storage. A subsequent run shows the saved ghost.
+- **Time Trial** records the fastest completed three-lap run. On this browser the ghost is saved with it. Signed in to the hub, the time follows that account to other devices; the ghost stays on the browser that set it. A subsequent run shows the saved ghost when this browser still has it.
 - **Test Drive** offers all twenty items with unlimited supply. Select a section, entry speed, rivals, and lap state before driving. Test tools can reload those conditions during play. Choose a full pack to try area attacks or one rival ahead to practice aimed shots.
 
 ## Garage
 
-Choose a circuit and mode, pick Sproto, Pip, Miso, or Rook, then select a car. The preview shows the exact driver and chassis used in the race. Use **Rear view** to inspect the chase-side silhouette. Your browser remembers the last confirmed pairing.
+Choose a circuit and mode, pick Sproto, Pip, Miso, or Rook, then select a car. The preview shows the exact driver and chassis used in the race. Use **Rear view** to inspect the chase-side silhouette. Your browser remembers the last confirmed pairing. A locked car or character stays on screen and cannot be confirmed. The line above the choices names the Relics this account owns.
 
 | Car | Driving style |
 | --- | --- |
@@ -69,10 +95,13 @@ The garage displays each chassis’s changes relative to Apex. All four drivers 
 | Change camera distance / hold rear view | C / V | LT / RT (L2 / R2) | Left / right stick click |
 | Pause | Esc or P | Menu / Options | Menu / Options |
 | Return to hub | Paddock portal, or pause / results | D-pad to Return to hub, A / Cross. Menu / Options on that control | Same |
+| Send feedback | N twice | — | — |
 | Toggle minimap | M | Y / Triangle | — |
 | Restart section or race | R | Pause menu | Y / Triangle |
 
 The paddock has a hub portal on the grid, beside the preview kart. **Return to hub** leaves for the plaza (`#from=sproto-racer`), from that button, from the results screen, or from the pause menu. Leaving mid-race asks first. **Keep racing** stays selected. Esc, B / Circle, and Menu / Options return to the pause menu. Set `VITE_HUB_URL` when the hub is not same-origin `/hub/`.
+
+Press N twice within a moment to send feedback. One N does nothing. N is ignored while you are typing in a text field or while Controller setup is waiting for a button, and the race does not treat N as a driving key. The window pauses the race, including gamepad steering, until it closes. Sending needs a signed-in visit from the hub. Opened on its own, the game shows a one-line message instead. The pad does not open the window: every gamepad button is already a driving or menu control.
 
 On the grid, press the accelerator late enough to reach the launch window as the light turns green. In a corner, steer and hold the drift button through the hop. The steering direction sets the slide. Countersteer to open the arc. Keep holding drift and tap the boost control when the meter reaches the marked zone. The **Drift Boost** button under the meter also accepts a click or tap. A charge of 70% earns Good, and 90% earns Perfect. Press again in each new window to chain up to three boosts in one slide. You can also release drift in the window and quickly hold it again to continue the chain.
 
@@ -84,7 +113,7 @@ With the wheel centered in normal driving, your kart keeps its heading. Steer in
 
 Karts can bump each other in Quick Race and Test Drive. A rear-end hit transfers speed to the kart ahead. Side contact pushes the karts apart along their racing lines, including during a drift. A high jump can clear another kart, and strong contact gives a short thump and suspension kick.
 
-Steer into the slide to tighten it and countersteer to push the exit wider. The kart carries some of its slide angle as the rear wheels regain grip. Later boosts bank more reserve, with a bonus for completing the third charge. For a tight airborne turn, lift the accelerator and brake while steering. Pulling back on the stick tightens the rotation. A light rail scrape preserves the slide. A hard rail hit cancels the slide and empties the boost reserve.
+Steer into the slide to tighten it and countersteer to push the exit wider. The kart carries some of its slide angle as the rear wheels regain grip. Every Good adds 0.8 seconds of boost and every Perfect adds 1.2 seconds, in any position in the combo. Any mix of grades counts. A mistimed press breaks the combo. The timer counts down as you drive, and boost items add their full duration to the remaining time. For a tight airborne turn, lift the accelerator and brake while steering. Pulling back on the stick tightens the rotation. Kart bumps preserve boost reserve and streaks for both racers. A rail impact or obstacle strike empties the reserve and ends the boost chain. A hard rail hit also ends the slide.
 
 A rival's damaging hit makes your kart lose speed and roll. Steering, throttle, and item use return after 0.9 seconds. A hit breaks your drift chain and clears boost. Hop twice to shake off an attached Pop-Up Box before it pops. Bubble Wrap absorbs one hit and disappears immediately, preserving your speed and drift. An unused shield lasts six seconds.
 
@@ -94,7 +123,9 @@ In Test Drive all twenty unlimited items are available simultaneously. Cycle thr
 
 ## Items
 
-Quick Race uses the same pickup odds for drivers and AI. Leaders get more traps and defensive items. Each position farther back improves the odds of pursuit items and stronger boosts, with some extra help across a large gap. A box fills an empty slot. Triple Soda takes three presses to empty.
+Quick Race uses the same pickup odds for drivers and AI. Leaders get more traps and defensive items. Each position farther back improves the odds of pursuit items and stronger boosts, with some extra help across a large gap. The HUD cycles through item icons for 1.5 seconds of race time, then reveals the item. Press Use after the reveal to fire it. Triple Soda takes three presses to empty.
+
+Firing a targeting item spends it even if there is no eligible rival. Homing Cursor and Relay Rocket fire unguided without a lock. Tow Cable and Soda Siphon miss and give no boost. Test Drive keeps its unlimited supply.
 
 | Slot | Item | Use | Slot | Item | Use |
 | --- | --- | --- | --- | --- | --- |

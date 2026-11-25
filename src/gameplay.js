@@ -3,9 +3,9 @@ import {hasShapedBody} from './kart-footprint.js';
 import * as THREE from 'three';
 import {resolveKartContacts} from './kart-contact.js';
 import {GRAVITY,steerForTurn,stunKart,springJump} from './driving.js';
-import {createBoost,grantBoost} from './boost.js';
+import {interruptBoost,grantBoost} from './boost.js';
 
-import {ITEMS,drawPickup} from './items.js';
+import {ITEMS} from './items.js';
 import {itemModel,projectileModel} from './item-art.js';
 import {contactTime,shapedItemContactTime} from './projectile-contact.js';
 export {ITEMS} from './items.js';
@@ -189,6 +189,7 @@ export function createGameplay(scene, track) {
     const side=Math.abs(k.x-fromX)<.1 ? (a.id%2 ? 1 : -1) : Math.sign(k.x-fromX);
     if(effect==='box') {
       if(s.box>0) return false;
+      interruptBoost(a.boost,k);
       s.box=2.8; s.hops=0;
       const crate=itemModel('box');
       crate.scale.set(1,1,1);
@@ -199,12 +200,12 @@ export function createGameplay(scene, track) {
     if(effect==='obstacle') {
       k.speed*=.78;
       k.travelYaw+=side*.12;
-      a.boost.reserve=Math.max(0,a.boost.reserve-.65);
+      interruptBoost(a.boost,k);
       return true;
     }
 
     stunKart(k,side);
-    Object.assign(a.boost,createBoost());
+    interruptBoost(a.boost,k);
     s.invincible=k.stunRemaining+.35;
     s.draft=a.draft=0;
     s.draftTarget=null;
@@ -260,9 +261,9 @@ export function createGameplay(scene, track) {
       }
       case 5: {
         const target=ahead();
-        if(!target){notify(a,'NO TARGET AHEAD');return false;}
         launch(a,'cursor',1,k.speed+18,{target,height:shotHeight(k,k.s+2.8,1.05),duration:7});
-        notify(target,'CURSOR INCOMING');
+        if(target)notify(target,'CURSOR INCOMING');
+        else message='CURSOR FIRED · NO LOCK';
         break;
       }
       case 6:
@@ -271,8 +272,8 @@ export function createGameplay(scene, track) {
         break;
       case 7: {
         const target=nearestAhead(a,pack,75,towInReach);
-        if(!target){notify(a,'NO TARGET IN RANGE');return false;}
         flourish(a,'spool');
+        if(!target){message='CABLE MISSED';break;}
         add('cable',a,k.s,k.x,2.15,mesh('tether',0x8efaff),{target});
         break;
       }
@@ -320,8 +321,8 @@ export function createGameplay(scene, track) {
       case 17: {
         const target=nearestAhead(a,pack,55,(_,other,d,rival)=>Math.abs(other.x-k.x)<10 &&
           Math.abs(other.y-k.y)<5 && rival.boost.reserve>.15);
-        if(!target){notify(a,'NO CHARGED RIVAL');return false;}
         flourish(a,'siphon');
+        if(!target){message='SIPHON MISSED';break;}
         add('beam',a,k.s,k.x,.40,mesh('tether',0x59fff0),{target});
         if(state(target).shield>0){dropShield(target);notify(target,'SHIELD BLOCK');break;}
         const stolen=Math.min(1.5,target.boost.reserve);
@@ -333,9 +334,10 @@ export function createGameplay(scene, track) {
       case 18: {
         const local=pack.filter(b=>b!==a&&b.finish==null&&b.kart.s>k.s&&b.kart.s-k.s<=240);
         const target=local.reduce((best,b)=>!best||b.kart.s>best.kart.s?b:best,null);
-        if(!target){notify(a,'NO RIVAL IN RANGE');return false;}
         launch(a,'rocket',1,k.speed+34,{target,duration:7});
-        notify(target,'RELAY INCOMING');break;
+        if(target)notify(target,'RELAY INCOMING');
+        else message='ROCKET FIRED · NO LOCK';
+        break;
       }
       case 19:
         grantBoost(a.boost,2.6,2);shield(a,3);flourish(a,'comet');break;
@@ -358,7 +360,7 @@ export function createGameplay(scene, track) {
     let lane=clamp(Math.sin(k.s/128+id*2.1)*2.2+(id-3)*1.3,-7,7);
     // Aim toward geometric rewards early enough to take a natural line.
     let nearestFeature=65;
-    const targets=a.held==null ? rewards : track.pads;
+    const targets=a.held==null && !a.roulette ? rewards : track.pads;
     for(const target of targets) {
       if(target.hidden) continue;
       const d=deltaS(k.s,target.s);
@@ -551,7 +553,7 @@ export function createGameplay(scene, track) {
           else{place(o.model,k.s,k.x,.96+k.y);o.model.rotation.y=elapsed;}
           break;
         case 'cable':
-          if(k.stunRemaining>0 || !towInReach(k,o.target.kart,deltaS(k.s,o.target.kart.s))){o.life=0;break;}
+          if(o.owner.boost.interrupted || k.stunRemaining>0 || !towInReach(k,o.target.kart,deltaS(k.s,o.target.kart.s))){o.life=0;break;}
           grantBoost(o.owner.boost,dt*1.3);
           k.speed+=Math.min(4,Math.max(0,o.target.kart.speed+3-k.speed))*dt;
           tether(o);break;
@@ -603,7 +605,7 @@ export function createGameplay(scene, track) {
         queue(contactTime(o,barrier,h.depth/2+.4,h.width/2+.4,h.height/2+.4,track.length),'barrier',o);
       }
       if(o.type==='ball'||o.type==='disc')for(const other of objects){
-        if(other.owner===o.owner||other.life<=0||!(traps.has(other.type)||other.target&&flying.has(other.type)))continue;
+        if(other.owner===o.owner||other.life<=0||!(traps.has(other.type)||other.type==='cursor'||other.type==='rocket'))continue;
         queue(contactTime(o,other,2.15,1.8,1.35,track.length),'intercept',o,other);
       }
       if(o.ends)queue(1,'end',o);
@@ -629,9 +631,13 @@ export function createGameplay(scene, track) {
       }else if(kind==='barrier')pulseAt(o.owner,s,x,height,0xffdb9c,1.65);
       o.life=0;
     }
-    for(let i=objects.length-1;i>=0;i--)if(objects[i].life<=0)remove(i);
+    for(let i=objects.length-1;i>=0;i--){
+      const o=objects[i];
+      if(o.life<=0 || (o.type==='cable' && o.owner.boost.interrupted))remove(i);
+    }
     for(const a of pack)a.incoming='';
     for(const o of objects){
+      if(!o.target)continue;
       if(o.type==='rocket')o.target.incoming='RELAY INCOMING';
       else if(o.type==='cursor'&&!o.target.incoming)o.target.incoming='CURSOR INCOMING';
     }
@@ -644,6 +650,7 @@ export function createGameplay(scene, track) {
     afterContacts?.();
     actors.forEach(a=>updateActor(a,actors,dt));
     updateObjects(dt,actors);
+    for(const a of actors)a.boost.interrupted=false;
   }
   function hitHazard(a,type) {
     const label=type==='rollingDrum'?'DRUM HIT':type==='loadingDoor'?'DOOR HIT':'OBSTACLE HIT';
@@ -654,5 +661,5 @@ export function createGameplay(scene, track) {
   function setTrack(next){
     reset();track=next;rewards=[...track.pads,...track.pickups];
   }
-  return {setTrack,reset,withdraw,use,fireBlasters,update,decide,drawItem:drawPickup,hitHazard};
+  return {setTrack,reset,withdraw,use,fireBlasters,update,decide,hitHazard};
 }

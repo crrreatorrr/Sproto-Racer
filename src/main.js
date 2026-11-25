@@ -3,8 +3,10 @@ import './style.css';
 import {mountUI,MODES} from './ui.js';
 import {icon} from './icons.js';
 import {createInput,bindingName} from './input.js';
+import {PERFECT_CHARGE} from './boost.js';
 import {driftBoostReady} from './driving.js';
-import {openController} from './controller.js';
+import {controllerIsOpen,openController} from './controller.js';
+import {attachFeedbackSdk,createFeedbackHold,installRaceFeedback,raceBreadcrumbs} from './feedback.js';
 import {createPaddock,lightScene} from './paddock.js';
 import {updateRivalVisibility} from './kart-visibility.js';
 import {makeKart,animateKart,disposeKart} from './kart-art.js';
@@ -14,10 +16,13 @@ import {createChaseCamera} from './chase-camera.js';
 import {mountTrackSelector,savedCourse} from './track-selector.js';
 import {createTrack} from './track.js';
 import {createGameplay,ITEMS} from './gameplay.js';
+import {pickupPreview} from './items.js';
 import {createRaceFX} from './race-fx.js';
 import {createSession,DEFAULT_TEST,timeText} from './session.js';
+import {bootHub} from './hub/boot.js';
+import {chipFrom,paintAccount} from './hub/account.js';
+import {paintRelics} from './hub/relics.js';
 import {controlRole,hubConfirmCopy,lobbyPadAction,menuKeyAction,modalPadAction,padEdges} from './hub/portal.js';
-import {returnToHub} from './hub/sdk.js';
 
 mountUI();
 const $=id=>document.getElementById(id);
@@ -37,7 +42,25 @@ const camera=new THREE.PerspectiveCamera(62,1,.15,2300);
 let chosenCourse=savedCourse();
 let track=createTrack(world,chosenCourse);
 const play=createGameplay(world,track),fx=createRaceFX(world,track);
+const hub=bootHub();
 let session=createSession(track,play,fx),state=session.state;
+function showAccount(){
+  const chip=chipFrom(hub.link,hub.records);
+  document.querySelectorAll('[data-hub-account]').forEach(el=>paintAccount(el,chip));
+  paintRelics($('hub-relic-caption'),$('hub-relics'),hub.relics.view());
+}
+hub.link.subscribe(showAccount);
+hub.records.subscribe(()=>{session.reloadBest();showAccount();});
+hub.relics.subscribe(showAccount);
+showAccount();
+attachFeedbackSdk(hub.link.api);
+function stampAccount(){
+  const el=document.createElement('p');
+  el.className='hub-line';
+  el.setAttribute('data-hub-account','');
+  paintAccount(el,chipFrom(hub.link,hub.records));
+  $('overlay').querySelector('h2')?.after(el);
+}
 const models=[];
 let ghostModel;
 const ghostPaint=new THREE.MeshBasicMaterial({color:'#9ef2e4',transparent:true,opacity:.28,depthWrite:false});
@@ -89,8 +112,46 @@ function home(){
   selectMode(selected);
 }
 $('brand').onclick=e=>{e.preventDefault();home();};
+function feedbackSnapshot(){
+  const racing=screen==='game',kart=state.player?.kart;
+  const sample=racing&&kart?track.sample(kart.s,kart.x):null;
+  const pos=sample?.position;
+  return {
+    racing,screen,garage:!!garage.active,modal,circuitId:track.id,circuitName:track.name,mode:state.mode,
+    elapsed:state.elapsed,lap:state.lap,sectorName:track.sections[state.sector]?.name??'',
+    place:racing&&state.mode==='race'?session.position():null,rivals:Math.max(0,state.actors.length-1),
+    driver:state.player?driverById(state.player.driver).name:'',car:state.player?carById(state.player.car).name:'',
+    x:pos?.x??0,y:pos?.y??0,z:pos?.z??0,speedKmh:kart?(kart.reverseSpeed||kart.speed)*3.6:0,
+    item:state.player?.held!=null?ITEMS[state.player.held].name:'',boost:state.player?.boost?.tier??0,
+    stun:kart?.stunRemaining??0,offTrack:!!kart?.fall,done:!!state.done,countdown:state.countdown,
+  };
+}
+let lastCrumb=null;
+function noteCrumbs(){
+  const snap=feedbackSnapshot();
+  for(const crumb of raceBreadcrumbs(lastCrumb,snap))feedbackHandle.breadcrumb(crumb.type,crumb.data);
+  lastCrumb=snap;
+}
+const feedbackHold=createFeedbackHold(input,{pauseAudio:()=>fx.pause()});
+function renderFeedbackFrame(){
+  if(screen==='lobby')paddock.render(renderer,animation,w||1,h||1);
+  else renderer.render(world,camera);
+}
+const feedbackHandle=installRaceFeedback({
+  hold(){pendingEdges={};pendingSlot=null;return feedbackHold.hold();},
+  release(token){
+    feedbackHold.release(token);
+    const pad=input.rawPad();
+    navPrev=pad?padDirections(pad):[];
+    accumulator=0;previous=performance.now();
+  },
+  renderNow:renderFeedbackFrame,
+  snapshot:feedbackSnapshot,
+  canvases:()=>renderer?.domElement?[renderer.domElement]:[],
+  enabled:()=>!controllerIsOpen(),
+});
 function begin(mode=selected,options=config){
-  closePanel();fx.unlock();fx.mute(muted);
+  closePanel();fx.unlock();fx.mute(muted);lastCrumb=null;
   pendingEdges={};pendingSlot=null;screen='game';$('lobby').hidden=true;$('game').hidden=false;document.querySelector('.topbar').hidden=true;
   $('race-canvas').append(renderer.domElement);w=0;h=0;accumulator=0;previous=performance.now();
   session.start(mode,{...options,...garage.selection()});
@@ -115,10 +176,16 @@ function loadSelectedCourse(){
 const garage=createGarage(paddock,()=>{
   loadSelectedCourse();
   if(selected==='test')testTools(true);else begin();
-});
+},hub.relics);
 mountTrackSelector(chosenCourse,course=>{chosenCourse=course;});
 selectMode(selected);
 $('launch').onclick=()=>garage.open();
+let hubLeaving=false;
+function returnToHub(){
+  if(hubLeaving)return;
+  hubLeaving=true;
+  hub.leaveForHub();
+}
 $('return-hub').onclick=()=>returnToHub();
 const options=(arr,value)=>arr.map(([v,t])=>`<option value="${v}" ${String(v)===String(value)?'selected':''}>${t}</option>`).join('');
 function testTools(first=false){
@@ -136,19 +203,22 @@ function testTools(first=false){
 }
 function restartSection(){if(state.mode==='test')begin('test',{...session.settings,sector:state.sector,lap:state.lap,item:state.player.held});else begin(state.mode);}
 function pause(){
-  if(screen!=='game'||state.done)return;
-  showPanel('pause',`<h2 id="panel-title">Paused</h2><p>${track.name} · ${track.sections[state.sector].name}</p><div class="keys"><span><kbd>WASD / ↑↓←→</kbd> Drive</span><span><kbd>Q</kbd> Hop & drift</span><span><kbd>E</kbd> Drift boost</span><span><kbd>SPACE</kbd> Item</span>${state.player.car==='barrage'&&state.mode!=='trial'?'<span><kbd>F</kbd> Pulse blasters</span>':''}</div><p>Steer and hold drift through the hop. Press boost in the marked zone, then time the next charge. Chain up to three boosts per slide.</p><div class="panel-actions"><button class="primary" id="resume">RESUME ${icon('arrow')}</button>${state.mode==='test'?'<button id="panel-tools">Test tools</button>':''}<button id="retry">${state.mode==='test'?'Restart current section':'Restart race'}</button><button id="edit-pad">Controller setup</button><button id="back-home">Return to paddock</button><button id="pause-hub" type="button">Return to hub</button></div>`);
+  if(screen!=='game'||state.done||feedbackHold.held())return;
+  showPanel('pause',`<h2 id="panel-title">Paused</h2><p>${track.name} · ${track.sections[state.sector].name}</p><div class="keys"><span><kbd>WASD / ↑↓←→</kbd> Drive</span><span><kbd>Q</kbd> Hop & drift</span><span><kbd>E</kbd> Drift boost</span><span><kbd>SPACE</kbd> Item</span><span><kbd>N N</kbd> Feedback</span>${state.player.car==='barrage'&&state.mode!=='trial'?'<span><kbd>F</kbd> Pulse blasters</span>':''}</div><p>Steer and hold drift through the hop. Press boost in the marked zone, then time the next charge. Mix up to three Goods and Perfects per slide. Each Good adds 0.8s and each Perfect adds 1.2s. Boost items add to the same timer. Kart bumps preserve boost. Rail, obstacle, and unblocked item hits cut it.</p><div class="panel-actions"><button class="primary" id="resume">RESUME ${icon('arrow')}</button>${state.mode==='test'?'<button id="panel-tools">Test tools</button>':''}<button id="retry">${state.mode==='test'?'Restart current section':'Restart race'}</button><button id="edit-pad">Controller setup</button><button id="back-home">Return to paddock</button><button id="pause-hub" type="button">Return to hub</button></div>`);
   $('resume').onclick=closePanel;$('retry').onclick=restartSection;$('edit-pad').onclick=controller;$('back-home').onclick=home;$('pause-hub').onclick=confirmHub;if($('panel-tools'))$('panel-tools').onclick=()=>testTools();
+  stampAccount();
 }
 function confirmHub(){
   const copy=hubConfirmCopy();
   showPanel('hub-exit',`<h2 id="panel-title">${copy.title}</h2><p>${copy.body}</p><div class="panel-actions"><button class="primary" id="stay-racing" type="button">${copy.stay}</button><button id="confirm-hub" type="button">${copy.leave}</button></div>`);
   $('stay-racing').onclick=()=>pause();
   $('confirm-hub').onclick=()=>returnToHub();
+  stampAccount();
 }
 function finish(){
   fx.tone('go');showPanel('finish',`<h2 id="panel-title">${state.mode==='trial'?'Time trial complete':'Race complete'}</h2><p class="result-time">${timeText(state.elapsed)}</p><p>${state.mode==='trial'?'Personal best · '+timeText(session.best):'Finished '+session.position()+' / '+state.actors.length+' · 3 laps'}</p><div class="panel-actions"><button class="primary" id="again">RACE AGAIN ${icon('arrow')}</button><button id="back-home">Return to paddock</button><button id="finish-hub" type="button">Return to hub</button></div>`);
   $('again').onclick=()=>begin(state.mode);$('back-home').onclick=home;$('finish-hub').onclick=()=>returnToHub();
+  stampAccount();
 }
 $('game').addEventListener('keydown',e=>{
   if(e.code==='Space'&&!modal)e.preventDefault();
@@ -291,8 +361,10 @@ function timingHUD(){
  const ready=charging && driftBoostReady(b);
  boostButton.disabled=!charging;
  boostButton.classList.toggle('ready',ready);
- setText('meter-label',state.countdown?'LAUNCH':ready?'READY':k.sliding?'DRIFT':b.tier===2?'SUPER TURBO':b.tier?'TURBO':'DRIFT');
- $('meterfill').style.width=((state.countdown?b.rev:b.meter)*100)+'%';$('reservefill').style.width=(b.reserve/5*100)+'%';
+ setText('meter-label',state.countdown?'LAUNCH':ready && b.meter+1e-9>=PERFECT_CHARGE?'PERFECT':ready?'READY':k.sliding?'DRIFT':b.tier===2?'SUPER TURBO':b.tier?'TURBO':'DRIFT');
+ $('meterfill').style.width=((state.countdown?b.rev:b.meter)*100)+'%';
+ $('reservefill').style.width=(100*b.reserve/Math.max(5,b.reservePeak))+'%';
+ setText('reserve-time',b.reserve>0?(Math.ceil(b.reserve*10)/10).toFixed(1)+'s':'');
  }
 function hud(){
  const a=state.player,k=a.kart,b=a.boost;
@@ -305,15 +377,18 @@ function hud(){
  const incoming=a.incoming||'';
  setText('incoming-warning',incoming);$('incoming-warning').hidden=!incoming;
  const notice=a.noticeTime>0&&!a.notice.endsWith(' INCOMING')?a.notice:'';
- let grade=b.feedbackTime>0?b.feedback:'';
- if(notice && (grade==='GOOD'||grade==='PERFECT'))grade+=' BOOST';
+ const grade=b.feedbackTime>0?b.feedback:'';
  const feedback=k.fall?['OFF TRACK']:[notice,k.stunRemaining>0?'STUNNED':grade].filter(Boolean);
  setText('feedback',feedback.join('\n')||(state.splitUntil>state.elapsed?state.split:''));
  setText('announce',state.countdown?Math.ceil(state.countdown):state.elapsed<.7&&state.mode!=='test'?'GO!':'');
- setText('item-name',a.held!=null?ITEMS[a.held].name:'EMPTY');
- const art=$('held-picture');art.hidden=a.held==null;
- if(a.held!=null)art.style.backgroundPosition=itemImagePosition(a.held);
- setText('item-key',state.mode==='test'?'UNLIMITED  ∞':'ITEM');
+ const shownItem=a.roulette?pickupPreview(a.roulette,state.elapsed):a.held;
+ const itemButton=$('item-hud');
+ itemButton.disabled=shownItem==null || !!a.roulette;
+ itemButton.title=a.roulette?'Drawing an item':a.held==null?'Empty item slot':'Use '+ITEMS[a.held].name;
+ setText('item-name',a.roulette?'Drawing…':a.held!=null?ITEMS[a.held].name:'EMPTY');
+ const art=$('held-picture');art.hidden=shownItem==null;
+ if(shownItem!=null)art.style.backgroundPosition=itemImagePosition(shownItem);
+ setText('item-key',a.roulette?'ITEM ROULETTE':state.mode==='test'?'UNLIMITED  ∞':'ITEM');
  if(state.mode==='test'){
    for(let i=0;i<inventory.children.length;i++)inventory.children[i].setAttribute('aria-pressed',String(i===a.held));
    const switchKey=input.deviceName==='Keyboard'?'X / I':bindingName(input.settings.bindings.next);
@@ -329,6 +404,7 @@ function frame(now){
  const dt=Math.min(.1,Math.max(0,(now-previous)/1000));previous=now;animation+=dt;
  const host=screen==='lobby'?$('hero-canvas'):$('race-canvas');const W=host.clientWidth,H=host.clientHeight;
  if(W&&H&&(W!==w||H!==h)){w=W;h=H;renderer.setSize(w,h,false);camera.aspect=w/h;camera.updateProjectionMatrix();}
+ if(feedbackHold.held()){accumulator=0;requestAnimationFrame(frame);return;}
  const c=input.poll();
  if(controllerOpen){menuPad();requestAnimationFrame(frame);return;}
  if(screen==='lobby'){
@@ -368,6 +444,7 @@ function frame(now){
    fx.update(dt,state.actors,true,state.countdown>0);syncWorld(dt,Math.min(1,accumulator*60));timingHUD();
    if(now-lastHUD>45){hud();lastHUD=now;}
    renderer.render(world,camera);
+   noteCrumbs();
    if(state.done){hud();finish();}
  }
  requestAnimationFrame(frame);

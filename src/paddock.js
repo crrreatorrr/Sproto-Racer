@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { makeKart,animateKart,disposeKart } from './kart-art.js';
+import { animateHubPortal, createHubPortal } from './hub/portal-mesh.js';
 
 function lightScene(scene, intensity=2.5) {
   scene.add(new THREE.HemisphereLight(0xf8faff,0xb4aaa0,1.85));
@@ -49,6 +50,7 @@ export function createPaddock() {
     block('#243738',x+.53,3.68,8.36,1.04,.10,.06);
   }
   let kart=makeKart(0);scene.add(kart);
+  const hubPortal=createHubPortal();scene.add(hubPortal);
   let garage=false,rear=false;
   function preview(car,driver) {
     if(kart.userData.car===car.id&&kart.userData.character===driver.id)return;
@@ -112,6 +114,8 @@ export function createPaddock() {
     // Frame the kart opposite the circuit information on wide displays.
     const shift=garage?0:ratio>1.35?.205:.04;
     camera.setViewOffset(w,h,-w*shift,h*.025,w,h);camera.updateProjectionMatrix();
+    hubPortal.visible=!garage;
+    if(!garage)animateHubPortal(hubPortal,time);
     kart.rotation.y=(cart||skipper||saucer||manta||crestline||geep||hexshift||barrage||ironhide)&&garage?0:(geep?.10:-.28)+Math.sin(time*.3)*.055;
     animateKart(kart,{speed:0,s:0}, {tier:0},time);
     renderer.render(scene,camera);

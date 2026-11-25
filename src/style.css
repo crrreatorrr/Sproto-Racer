@@ -12,6 +12,12 @@
 .garage-open .mode-section,.garage-open .launch-row,.garage-open .hero-copy,.garage-open .hero-shade{display:none}
 #turn-model,.garage-back{background:#1a2729;color:var(--paper);border:1px solid #74817e;border-radius:2px;padding:9px 14px;font:700 13px var(--display);letter-spacing:.035em}
 #turn-model{position:absolute;left:14px;bottom:14px}
+#return-hub{position:absolute;z-index:2;top:14px;right:14px;display:grid;gap:3px;padding:8px 11px;text-align:left;background:#152124eb;border:1px solid #d5ee7a;border-radius:2px;color:var(--paper)}
+#return-hub small{font:700 9px var(--mono);letter-spacing:.14em;color:var(--lime)}
+#return-hub span{font:800 16px/1 var(--display);letter-spacing:.06em}
+#return-hub:hover{background:#243033}
+.garage-open #return-hub{display:none}
+@media(max-width:620px){#return-hub{top:8px;right:8px;padding:6px 8px}#return-hub span{font-size:13px}}
 .garage-choices{display:flex;gap:9px;flex-wrap:wrap}
 .garage-choices button{flex:1 1 115px;display:grid;gap:4px;position:relative;text-align:left;background:var(--surface);color:var(--paper);border:1px solid var(--line);border-radius:3px;padding:12px 12px 12px 20px}
 .garage-choices button:before{content:"";position:absolute;left:6px;top:12px;bottom:12px;width:4px;background:var(--paint)}

@@ -5,8 +5,7 @@
  * which car or character is `src/hub/unlocks.js`. This build does not report an event and
  * does not grant a Relic.
  *
- * hub-sdk 0.10.0 does not list `sproto-racer` yet. `src/hub/link.js` still asks for this id, and
- * redeems a portal ticket once a re-vendored SDK includes it. Until then a visit cannot load Relics.
+ * hub-sdk 0.11.0 lists `sproto-racer`. `src/hub/link.js` redeems a portal ticket for this id.
  */
 export const HUB_GAME_ID = 'sproto-racer';
 

@@ -66,28 +66,31 @@ function sessionFor(over = {}) {
 }
 
 describe('hub login', () => {
-  it('asks for sproto-racer, which this SDK build does not list yet', () => {
+  it('asks for sproto-racer, which this SDK lists', () => {
     assert.equal(HUB_GAME_ID, 'sproto-racer');
-    assert.equal(isGameId(HUB_GAME_ID), false);
-    assert.equal(GAME_IDS.includes(HUB_GAME_ID), false);
-    assert.equal(GAME_IDS.includes('sproto-open-world'), true);
+    assert.equal(isGameId(HUB_GAME_ID), true);
+    assert.equal(GAME_IDS.includes(HUB_GAME_ID), true);
+    assert.equal(GAME_IDS.at(-1), 'sproto-racer');
   });
 
-  it('the vendored SDK refuses to redeem an unknown game before any request', async () => {
+  it('init accepts sproto-racer and stays standalone when there is no ticket', async () => {
     const sdk = createHubSdk({
       serverUrl: 'http://127.0.0.1:9',
       serverKey: 'defaultkey',
       hubUrl: '/hub/',
       local: memoryKeyValue(),
       session: memoryKeyValue(),
-      readHash: () => '#t=ticket',
+      readHash: () => '',
       writeHash: () => {},
       assign: () => {},
     });
-    await assert.rejects(() => sdk.init(HUB_GAME_ID), (err) => errorCode(err) === 'bad_game');
+    const profile = await sdk.init(HUB_GAME_ID);
+    assert.notEqual(errorCode(profile), 'bad_game');
+    assert.equal(sdk.getSession(), null);
+    assert.equal(typeof profile.playerId, 'string');
   });
 
-  it('a portal visit says the game is not listed, and standalone play stays offline', async () => {
+  it('without an SDK, a portal visit says bad_game and standalone play stays offline', async () => {
     const blocked = await startHub({ api: null, starting: true }).ready;
     assert.equal(blocked.status, 'error');
     assert.equal(blocked.code, 'bad_game');
@@ -316,7 +319,7 @@ describe('boot', () => {
     assert.equal(handle.saveBeforeLeaving(), false);
   });
 
-  it('a game the hub does not list yet releases the hold and says bad_game', async () => {
+  it('without an SDK, a portal visit releases the hold and says bad_game', async () => {
     const records = createRecordBook({ storage: memory() });
     records.commit('track01', trial(10, { frames: frames() }));
     const handle = bootHub({ force: true, bindPage: false, records, starting: true, api: null });

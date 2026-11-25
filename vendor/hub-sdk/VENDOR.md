@@ -2,11 +2,11 @@
 
 - repo: https://github.com/crrreatorrr/metaverse-hub
 - branch: main
-- sha: 273dfe3
-- package: packages/hub-sdk @ 0.10.0
+- sha: 809d7ae
+- package: packages/hub-sdk @ 0.11.0
 - built with: `node scripts/vendor-sdk.mjs`
 - iife: dist/hub-sdk.iife.js (global HubSDK; classic script, not a CDN import)
-- iife sha256: 6ae110a36d9d128b4a5e48b94ed30befbc3c11a255261007cfc5be4d861323ab
+- iife sha256: 787ccfcea5c91a7d26652af3490920b2ba1641fbf07f76426f321ea78684ffd8
 - source src/createHubSdk.ts: 4ae184ef8b4a6e97192769a4118ea855fcd4463176ee7bac295a884e449ebcdf
 - source src/entry/core.ts: b6afad5f7f92d96304bd06b6d02d54657a2dacf7d54873d0bd1f7441162b0f7f
 - source src/entry/feedback.ts: 583017abb73c657612457bed30032456d56889117feb0b88ef0fcdcac6d163b0
@@ -35,10 +35,10 @@
 - source src/third_party/modern-screenshot.d.ts: 22372ef230b98655ee2597c8c741d75e397405f22dbb5c2f45521e6fe9950056
 - source src/third_party/modern-screenshot.js: c1d44ba7cf8a296754c7013a12c79266235550b0564d17487a76e006f8472721
 - source src/ticket.ts: b01e1635c7031dd0e6855ecb22b99af1654395c41f0296863b627a31ded41033
-- source src/types.ts: 754a7675e3605e3e577c8389d1510e79800b645e75db25cdf45f4e3b10ed6972
+- source src/types.ts: 836e3931f943a9a4e1964d2f629a35ab97eca87cde2917e7b6811c7aa5b7833d
 
-Source hashes match metaverse-hub main `ab23b71` (the same `packages/hub-sdk` source Open World
-vendored at `273dfe3`). `SOURCE.pin.json` is that pin. No source was edited. Layout: `package.json`,
+Built from metaverse-hub main `809d7ae` (hub PR #206). `SOURCE.pin.json` is that pin, and
+`dist/hub-sdk.iife.js` matches its `iifeSha256`. No source was edited. Layout: `package.json`,
 `README.md`, `SOURCE.pin.json`, `dist/**/*.js`, `dist/**/*.d.ts`, including `dist/realtime/` and
 `dist/hub-sdk.iife.js`. No source maps.
 
@@ -51,9 +51,9 @@ Sproto Racer imports this one tree:
 - `@metaverse/hub-sdk/progress`: `createProgressStore` and `hubVisitStarting`, for time-trial
   records in `src/hub/records.js`. Ghost frames stay in this browser. The cloud body is the times.
 
-`GAME_IDS` in this 0.10.0 tree does not list `sproto-racer`. Until the hub adds that id and this
-tree is re-vendored, `init` answers `bad_game` and a portal ticket is not redeemed. Feedback still
-sends through the page's hub session once that session exists.
+`GAME_IDS` in 0.11.0 includes `sproto-racer`, so `init` redeems a portal ticket instead of
+answering `bad_game`. The game still has no Relic and reports no earn event. Feedback still
+sends through the page's hub session.
 
 Re-sync from a metaverse-hub checkout (esbuild writes source paths relative to that working
 directory into the IIFE):

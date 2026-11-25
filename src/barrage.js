@@ -6,20 +6,24 @@ import {barrageAxles,barrageHalfTrack,barrageDriver,barrageMuzzle,barragePerimet
 
 const vermilion=0xe95823,orange=0xfa702a,amber=0xff9442;
 const graphite=0x242b36,carbon=0x151c27,steel=0x535d69,cyan=0x53efff;
-const enamel=new T.MeshPhysicalMaterial({vertexColors:true,metalness:.32,roughness:.35,
-  clearcoat:.85,clearcoatRoughness:.18,envMapIntensity:.58});
-const alloy=new T.MeshStandardMaterial({vertexColors:true,metalness:.80,roughness:.31,envMapIntensity:.85});
-const rubber=new T.MeshStandardMaterial({vertexColors:true,roughness:.84,metalness:.015});
-const graphics=new T.MeshPhysicalMaterial({metalness:.24,roughness:.37,clearcoat:.78,clearcoatRoughness:.19,
-  envMapIntensity:.52,side:T.DoubleSide});
-const sidewall=new T.MeshStandardMaterial({roughness:.81,side:T.DoubleSide});
+let enamel,alloy,rubber,graphics,sidewall,luminous;
+function initMaterials(){
+  if(enamel)return;
+  enamel=new T.MeshPhysicalMaterial({vertexColors:true,metalness:.32,roughness:.35,
+    clearcoat:.85,clearcoatRoughness:.18,envMapIntensity:.58});
+  alloy=new T.MeshStandardMaterial({vertexColors:true,metalness:.80,roughness:.31,envMapIntensity:.85});
+  rubber=new T.MeshStandardMaterial({vertexColors:true,roughness:.84,metalness:.015});
+  graphics=new T.MeshPhysicalMaterial({metalness:.24,roughness:.37,clearcoat:.78,clearcoatRoughness:.19,
+    envMapIntensity:.52,side:T.DoubleSide});
+  sidewall=new T.MeshStandardMaterial({roughness:.81,side:T.DoubleSide});
+  luminous=new T.MeshBasicMaterial({vertexColors:true,toneMapped:false});
+}
 const tiles={hood:[0,0,1024,1280],wing:[1024,0,1024,384],pod:[1024,384,512,768],
   tire:[1536,384,512,512],sill:[0,1280,1024,208],deck:[0,1488,1024,512],fender:[1024,1152,512,848]};
 function atlasUV(tile,u,v){
   const [x,y,w,h]=tiles[tile];
   return [(x+2+(w-4)*u)/2048,1-(y+2+(h-4)*v)/2048];
 }
-const luminous=new T.MeshBasicMaterial({vertexColors:true,toneMapped:false});
 const master=new Map();
 
 // Bake the rigid pieces once. Every garage preview and racer reuses the same buffers.
@@ -288,6 +292,7 @@ function groundShadow(shadow){
 
 export function attachBarrage(body,wheels,shadow){
   if(!master.size){
+    initMaterials();
     const reflections=alloyReflections();
     for(const material of [enamel,alloy,graphics])material.envMap=reflections;
     const map=new T.TextureLoader().load(liveryUrl);

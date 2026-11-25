@@ -10,16 +10,20 @@ export const hexshiftDriver={x:0,y:.84,z:.20,scale:.70};
 const tau=2*Math.PI;
 const enamel=color=>new T.MeshPhysicalMaterial({color,metalness:.26,roughness:.30,
   clearcoat:1,clearcoatRoughness:.12,envMapIntensity:.42});
-const plum=enamel('#461031'),ivory=enamel('#f2d5ad');
-const brass=new T.MeshStandardMaterial({color:'#dba75d',metalness:.86,roughness:.25,envMapIntensity:.83});
-const bronze=new T.MeshStandardMaterial({color:'#81614b',metalness:.78,roughness:.34});
-const steel=new T.MeshStandardMaterial({color:'#767a78',metalness:.8,roughness:.32});
-const leather=new T.MeshStandardMaterial({color:'#33282d',roughness:.76});
-const harness=new T.MeshStandardMaterial({color:'#843f44',roughness:.77});
-const rubber=new T.MeshStandardMaterial({color:'#282529',roughness:.83});
-const mint=new T.MeshBasicMaterial({color:'#abffe0',toneMapped:false});
-const jewel=new T.MeshPhysicalMaterial({color:0xffffff,emissive:'#2bc383',emissiveIntensity:.28,
-  vertexColors:true,flatShading:true,roughness:.12,metalness:.16,clearcoat:1,envMapIntensity:.7});
+let plum,ivory,brass,bronze,steel,leather,harness,rubber,mint,jewel;
+function initMaterials(){
+  if(plum)return;
+  plum=enamel('#461031');ivory=enamel('#f2d5ad');
+  brass=new T.MeshStandardMaterial({color:'#dba75d',metalness:.86,roughness:.25,envMapIntensity:.83});
+  bronze=new T.MeshStandardMaterial({color:'#81614b',metalness:.78,roughness:.34});
+  steel=new T.MeshStandardMaterial({color:'#767a78',metalness:.8,roughness:.32});
+  leather=new T.MeshStandardMaterial({color:'#33282d',roughness:.76});
+  harness=new T.MeshStandardMaterial({color:'#843f44',roughness:.77});
+  rubber=new T.MeshStandardMaterial({color:'#282529',roughness:.83});
+  mint=new T.MeshBasicMaterial({color:'#abffe0',toneMapped:false});
+  jewel=new T.MeshPhysicalMaterial({color:0xffffff,emissive:'#2bc383',emissiveIntensity:.28,
+    vertexColors:true,flatShading:true,roughness:.12,metalness:.16,clearcoat:1,envMapIntensity:.7});
+}
 let templates,contactMap;
 
 export function styleHexshiftShadow(shadow){
@@ -305,6 +309,7 @@ function crystal(){
 }
 export function attachHexshift(body,wheels){
   if(!templates){
+    initMaterials();
     const tread=new T.TextureLoader().load(slickUrl);
     tread.wrapS=tread.wrapT=T.RepeatWrapping;
     tread.anisotropy=4;

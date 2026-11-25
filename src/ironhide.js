@@ -8,7 +8,10 @@ import contactUrl from './assets/ironhide-contact.png';
 import surfaceUrl from './assets/ironhide-surface.webp';
 import panelsUrl from './assets/ironhide-panels.webp';
 
-const paint=new T.MeshStandardMaterial({vertexColors:true,metalness:.16,roughness:.79});
+let paint;
+function initMaterials(){
+  if(!paint)paint=new T.MeshStandardMaterial({vertexColors:true,metalness:.16,roughness:.79});
+}
 // Edge grime and hairline scratches give the upright pane a visible surface in both cameras.
 function windshieldMaterial(){
   const canvas=document.createElement('canvas');canvas.width=768;canvas.height=384;
@@ -263,7 +266,7 @@ function makeWheel(){
 }
 
 export function attachIronhide(body,wheels){
-  if(!templates)templates={body:makeBody(),wheel:makeWheel()};
+  if(!templates){initMaterials();templates={body:makeBody(),wheel:makeWheel()};}
   function attach(group,parts,flip=false){
     for(const {geometry,material} of parts){
       const mesh=new T.Mesh(geometry,material);

@@ -7,12 +7,14 @@ export const mantaTail = 2.02;
 export const mantaEnds = [-2.43,2.17];
 export const mantaCockpit = {z:.04, length:.81, width:.62};
 
+import {exp,sq} from './sim/math.js';
+
 export function cockpitWidth(z) {
   const offset = (z-mantaCockpit.z)/mantaCockpit.length;
   return mantaCockpit.width*Math.sqrt(Math.max(0,1-offset*offset));
 }
 
-const bulge = (distance,radius) => Math.exp(-((distance/radius)**2));
+const bulge = (distance,radius) => exp(-sq(distance/radius));
 function smooth(t){
   t=Math.min(1,Math.max(0,t));
   return t*t*(3-2*t);
@@ -26,7 +28,7 @@ export function mantaSection(z) {
   const frontWheel=bulge(z+1.32,.66), rearWheel=bulge(z-1.33,.72);
   const scoop=bulge(z-.12,.62);
   const width=(1.17+.082*frontWheel+.115*rearWheel-.035*scoop)
-    *(1-.103*(1-front)**2)*(1-.36*(1-rear)**2);
+    *(1-.103*sq(1-front))*(1-.36*sq(1-rear));
   const inner=cockpitWidth(z);
   const deck=.424+.366*front-.13*(1-rear)+.018*bulge(z+1.25,.73);
   const fairing=.48*bulge(z-1.09,.46)*smooth((z-.53)/.51);
@@ -36,7 +38,7 @@ export function mantaSection(z) {
   for(const [axle,r] of mantaAxles){
     const dz=z-axle;
     if(Math.abs(dz)<r+.095){
-      const archTop=r+Math.sqrt(Math.max(0,(r+.068)**2-dz*dz));
+      const archTop=r+Math.sqrt(Math.max(0,sq(r+.068)-dz*dz));
       arch=Math.max(arch,.19+(archTop-.19)*smooth((r+.095-Math.abs(dz))/.055));
     }
   }

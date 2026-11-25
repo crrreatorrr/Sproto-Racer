@@ -19,6 +19,9 @@ import {createGameplay,ITEMS} from './gameplay.js';
 import {pickupPreview} from './items.js';
 import {createRaceFX} from './race-fx.js';
 import {createSession,DEFAULT_TEST,timeText} from './session.js';
+import {createPerfMonitor} from './perf.js';
+import {lerpAngle} from './sim/math.js';
+import {createTrackSample} from './sim/track-core.js';
 import {bootHub} from './hub/boot.js';
 import {chipFrom,paintAccount} from './hub/account.js';
 import {paintRelics} from './hub/relics.js';
@@ -27,6 +30,7 @@ import {controlRole,hubConfirmCopy,lobbyPadAction,menuKeyAction,modalPadAction,p
 mountUI();
 const $=id=>document.getElementById(id);
 const input=createInput();
+const perf=createPerfMonitor();
 let renderer;
 try{renderer=new THREE.WebGLRenderer({antialias:true,alpha:false,powerPreference:'high-performance'});}
 catch(error){$('hero-canvas').innerHTML='<div class="unavailable">WebGL 2 is unavailable. Enable hardware acceleration in your browser and reload.</div>';$('launch').disabled=true;throw error;}
@@ -40,7 +44,26 @@ world.background=new THREE.Color('#b9d9dc');world.fog=new THREE.FogExp2(0xc6d9d4
 lightScene(world,2.1);
 const camera=new THREE.PerspectiveCamera(62,1,.15,2300);
 let chosenCourse=savedCourse();
-let track=createTrack(world,chosenCourse);
+// Defer heavy circuit mesh/atlas build until after the first lobby frame paints.
+let track=createTrack(world,chosenCourse,{deferVisuals:true});
+let trackMountJob=null;
+function cancelTrackMount(){
+  if(trackMountJob===null)return;
+  if(typeof cancelIdleCallback==='function')cancelIdleCallback(trackMountJob);
+  else clearTimeout(trackMountJob);
+  trackMountJob=null;
+}
+function scheduleTrackMount(targetTrack){
+  cancelTrackMount();
+  const mount=()=>{trackMountJob=null;if(targetTrack===track)targetTrack.mountVisuals();};
+  trackMountJob=typeof requestIdleCallback==='function'?requestIdleCallback(mount,{timeout:400}):setTimeout(mount,32);
+}
+function ensureTrackVisuals(){
+  cancelTrackMount();
+  track.mountVisuals();
+}
+scheduleTrackMount(track);
+
 const play=createGameplay(world,track),fx=createRaceFX(world,track);
 const hub=bootHub();
 let session=createSession(track,play,fx),state=session.state;
@@ -81,9 +104,10 @@ fx.mute(muted);
 let previous=performance.now(),animation=0,w=0,h=0,accumulator=0,lastHUD=0;
 let followKart=createChaseCamera(camera,track);
 let wideView=false,lookingBack=false;
-const lastPose=[];
+const lastPose=[],renderPoses=[];
 let cameraRescues=0;
 const poseFields=['s','x','y','yaw','pitch','roll','speed','travelYaw','steer','slipAngle','hopLift','suspension','stunRemaining'];
+const placeSample=createTrackSample();
 function setText(id,value){if($(id).textContent!==String(value))$(id).textContent=value;}
 function selectMode(id){
   selected=id;const idx=MODES.findIndex(m=>m.id===id);
@@ -114,7 +138,7 @@ function home(){
 $('brand').onclick=e=>{e.preventDefault();home();};
 function feedbackSnapshot(){
   const racing=screen==='game',kart=state.player?.kart;
-  const sample=racing&&kart?track.sample(kart.s,kart.x):null;
+  const sample=racing&&kart?track.sampleInto(kart.s,kart.x,placeSample):null;
   const pos=sample?.position;
   return {
     racing,screen,garage:!!garage.active,modal,circuitId:track.id,circuitName:track.name,mode:state.mode,
@@ -135,14 +159,14 @@ function noteCrumbs(){
 const feedbackHold=createFeedbackHold(input,{pauseAudio:()=>fx.pause()});
 function renderFeedbackFrame(){
   if(screen==='lobby')paddock.render(renderer,animation,w||1,h||1);
-  else renderer.render(world,camera);
+  else{ensureTrackVisuals();renderer.render(world,camera);}
 }
 const feedbackHandle=installRaceFeedback({
   hold(){pendingEdges={};pendingSlot=null;return feedbackHold.hold();},
   release(token){
     feedbackHold.release(token);
     const pad=input.rawPad();
-    navPrev=pad?padDirections(pad):[];
+    navPrev=pad?padEdges(pad):[];
     accumulator=0;previous=performance.now();
   },
   renderNow:renderFeedbackFrame,
@@ -151,6 +175,7 @@ const feedbackHandle=installRaceFeedback({
   enabled:()=>!controllerIsOpen(),
 });
 function begin(mode=selected,options=config){
+  ensureTrackVisuals();
   closePanel();fx.unlock();fx.mute(muted);lastCrumb=null;
   pendingEdges={};pendingSlot=null;screen='game';$('lobby').hidden=true;$('game').hidden=false;document.querySelector('.topbar').hidden=true;
   $('race-canvas').append(renderer.domElement);w=0;h=0;accumulator=0;previous=performance.now();
@@ -160,12 +185,13 @@ function begin(mode=selected,options=config){
   $('drive-toolbar').hidden=mode!=='test';
   inventory.hidden=mode!=='test';
   setText('mode-tag',track.name.toUpperCase()+' · '+MODES.find(m=>m.id===mode).title.toUpperCase());
-  for(const m of models)m.visible=false;
+  for(const m of models)if(m)m.visible=false;
   if(state.countdown>0)fx.tone('count');
   lookingBack=false;lastPose.length=0;syncWorld(0,1);hud();timingHUD();
 }
 function loadSelectedCourse(){
-  if(chosenCourse.id===track.id)return;
+  if(chosenCourse.id===track.id){ensureTrackVisuals();return;}
+  cancelTrackMount();
   const next=createTrack(world,chosenCourse);
   track.dispose();track=next;
   play.setTrack(track);fx.setTrack(track);
@@ -189,6 +215,7 @@ function returnToHub(){
 $('return-hub').onclick=()=>returnToHub();
 const options=(arr,value)=>arr.map(([v,t])=>`<option value="${v}" ${String(v)===String(value)?'selected':''}>${t}</option>`).join('');
 function testTools(first=false){
+  ensureTrackVisuals();
   const c=first?config:{...session.settings,sector:state.sector,lap:state.lap,item:state.player.held};
   showPanel('tools',`<h2 id="panel-title">Test Drive</h2><p>${track.name} · Choose a repeatable start. All ${ITEMS.length} items have unlimited uses.</p>
   <label>START SECTION<select id="sector-choice">${options(track.sections.map((s,i)=>[i,String(i+1).padStart(2,'0')+' · '+s.name]),c.sector)}</select></label>
@@ -313,19 +340,30 @@ window.addEventListener('keydown',e=>{
 });
 document.addEventListener('visibilitychange',()=>{if(document.hidden&&screen==='game'&&!modal&&!controllerOpen)pause();});
 function placeModel(model,k,b,dt){
-  const f=track.sample(k.s,k.x); model.visible=true;model.position.copy(f.position);
-  model.rotation.order='YXZ';model.rotation.y=Math.atan2(-f.forward.x,-f.forward.z)-(k.yaw||0);
-  model.rotation.x=k.pitch??Math.atan(f.grade);model.rotation.z=k.roll??f.bank;
+  const f=track.sampleInto(k.s,k.x,placeSample);
+  model.visible=true;
+  model.position.set(f.position.x,f.position.y,f.position.z);
+  model.rotation.order='YXZ';
+  model.rotation.y=Math.atan2(-f.forward.x,-f.forward.z)-(k.yaw||0);
+  model.rotation.x=k.pitch??Math.atan(f.grade);
+  model.rotation.z=k.roll??f.bank;
   animateKart(model,k,b,animation);
 }
 function syncWorld(dt,alpha){
   let k;
-  for(const a of state.actors){
-    const pose={...a.kart},prev=lastPose[a.id];
-    if(prev && prev.rescues===pose.rescues)for(const key of poseFields){
-      // A new hit starts upright. Interpolate only the countdown of the active roll.
-      if(key==='stunRemaining' && pose[key]>prev[key])continue;
-      pose[key]=THREE.MathUtils.lerp(prev[key],pose[key],alpha);
+  for(let i=0;i<state.actors.length;i++){
+    const a=state.actors[i];
+    const pose=renderPoses[a.id]??={};
+    Object.assign(pose,a.kart);
+    const prev=lastPose[a.id];
+    if(prev && prev.rescues===pose.rescues){
+      for(let j=0;j<poseFields.length;j++){
+        const key=poseFields[j];
+        // A new hit starts upright. Interpolate only the countdown of the active roll.
+        if(key==='stunRemaining' && pose[key]>prev[key])continue;
+        if(key==='yaw' || key==='travelYaw')pose[key]=lerpAngle(prev[key],pose[key],alpha);
+        else pose[key]=THREE.MathUtils.lerp(prev[key],pose[key],alpha);
+      }
     }
     placeModel(models[a.id],pose,a.boost,dt);
     if(a.isPlayer)k=pose;
@@ -339,15 +377,28 @@ function syncWorld(dt,alpha){
   updateRivalVisibility(camera,models,dt);
 }
 const map=$('minimap'),ctx=map.getContext('2d');
-let mapPath,mapXY;
+const mapBgCanvas=document.createElement('canvas');
+mapBgCanvas.width=map.width;mapBgCanvas.height=map.height;
+const mapBgCtx=mapBgCanvas.getContext('2d');
+const mapPtScratch={x:0,z:0};
+let mapScale=1,mapOriginX=0,mapOriginZ=0,mapMinX=0,mapMinZ=0;
 function rebuildMap(){
   const points=track.mapPoints,xs=points.map(p=>p.x),zs=points.map(p=>p.z);
-  const mx=Math.min(...xs),mz=Math.min(...zs),dx=Math.max(...xs)-mx,dz=Math.max(...zs)-mz;
-  const scale=Math.min((map.width-24)/dx,(map.height-17)/dz);
-  mapXY=p=>[(map.width-dx*scale)/2+(p.x-mx)*scale,(map.height-dz*scale)/2+(p.z-mz)*scale];
-  mapPath=new Path2D();
-  points.forEach((p,i)=>{const [x,y]=mapXY(p);if(i)mapPath.lineTo(x,y);else mapPath.moveTo(x,y);});
-  mapPath.closePath();
+  mapMinX=Math.min(...xs);mapMinZ=Math.min(...zs);
+  const dx=Math.max(...xs)-mapMinX,dz=Math.max(...zs)-mapMinZ;
+  mapScale=Math.min((map.width-24)/dx,(map.height-17)/dz);
+  mapOriginX=(map.width-dx*mapScale)/2;
+  mapOriginZ=(map.height-dz*mapScale)/2;
+  mapBgCanvas.width=map.width;mapBgCanvas.height=map.height;
+  mapBgCtx.clearRect(0,0,map.width,map.height);
+  mapBgCtx.strokeStyle='#80968e';mapBgCtx.lineWidth=3;mapBgCtx.lineJoin='round';
+  mapBgCtx.beginPath();
+  for(let i=0;i<points.length;i++){
+    const p=points[i];
+    const x=mapOriginX+(p.x-mapMinX)*mapScale,y=mapOriginZ+(p.z-mapMinZ)*mapScale;
+    if(i)mapBgCtx.lineTo(x,y);else mapBgCtx.moveTo(x,y);
+  }
+  mapBgCtx.closePath();mapBgCtx.stroke();
 }
 rebuildMap();
 function timingHUD(){
@@ -365,7 +416,7 @@ function timingHUD(){
  $('meterfill').style.width=((state.countdown?b.rev:b.meter)*100)+'%';
  $('reservefill').style.width=(100*b.reserve/Math.max(5,b.reservePeak))+'%';
  setText('reserve-time',b.reserve>0?(Math.ceil(b.reserve*10)/10).toFixed(1)+'s':'');
- }
+}
 function hud(){
  const a=state.player,k=a.kart,b=a.boost;
  const binding=input.settings.bindings.driftBoost;
@@ -395,13 +446,21 @@ function hud(){
    setText('item-cycle',(a.held===8?a.charges+' CHARGES · ':'')+switchKey+' · NEXT');
  }else setText('item-cycle',a.held===8?a.charges+' CHARGES':'');
  $('item-hud').hidden=state.mode==='trial';
- ctx.clearRect(0,0,map.width,map.height);ctx.strokeStyle='#80968e';ctx.lineWidth=3;ctx.lineJoin='round';ctx.stroke(mapPath);
- for(const actor of [...state.actors].reverse()){const p=track.sample(actor.kart.s,0).position;const [x,y]=mapXY(p);ctx.beginPath();ctx.fillStyle=actor.isPlayer?'#d5ee7a':'#ff7853';ctx.arc(x,y,actor.isPlayer?4.8:2.7,0,Math.PI*2);ctx.fill();}
+ ctx.clearRect(0,0,map.width,map.height);
+ ctx.drawImage(mapBgCanvas,0,0);
+ for(let i=state.actors.length-1;i>=0;i--){
+   const actor=state.actors[i];
+   track.mapXYAt(actor.kart.s,mapPtScratch);
+   const x=mapOriginX+(mapPtScratch.x-mapMinX)*mapScale,y=mapOriginZ+(mapPtScratch.z-mapMinZ)*mapScale;
+   ctx.beginPath();ctx.fillStyle=actor.isPlayer?'#d5ee7a':'#ff7853';ctx.arc(x,y,actor.isPlayer?4.8:2.7,0,Math.PI*2);ctx.fill();
+ }
 }
 const edgeFlags=['driftPressed','driftReleased','driftBoostPressed','itemPressed','blastersPressed','prevPressed','nextPressed'];
+const tickInputScratch={};
 let pendingEdges={},pendingSlot=null;
 function frame(now){
- const dt=Math.min(.1,Math.max(0,(now-previous)/1000));previous=now;animation+=dt;
+ const rawDt=Math.max(0,(now-previous)/1000);
+ const dt=Math.min(.1,rawDt);previous=now;animation+=dt;
  const host=screen==='lobby'?$('hero-canvas'):$('race-canvas');const W=host.clientWidth,H=host.clientHeight;
  if(W&&H&&(W!==w||H!==h)){w=W;h=H;renderer.setSize(w,h,false);camera.aspect=w/h;camera.updateProjectionMatrix();}
  if(feedbackHold.held()){accumulator=0;requestAnimationFrame(frame);return;}
@@ -409,6 +468,7 @@ function frame(now){
  if(controllerOpen){menuPad();requestAnimationFrame(frame);return;}
  if(screen==='lobby'){
    menuPad();paddock.render(renderer,animation,w,h);
+   perf.recordFrame(rawDt*1000,renderer,now);
    const label=input.gamepadName?'GAMEPAD CONNECTED':'KEYBOARD';
    if($('device-info').lastElementChild.textContent!==label)$('device-info').innerHTML=icon(input.gamepadName?'pad':'keyboard')+'<span>'+label+'</span>';
    const bindings=input.settings.bindings;
@@ -429,21 +489,29 @@ function frame(now){
    if(c.mapPressed)$('minimap').hidden=!$('minimap').hidden;
    lookingBack=c.lookBack;
    // Preserve button edges between render frames, including on high-refresh screens.
-   for(const key of edgeFlags)if(c[key])pendingEdges[key]=true;
+   for(let i=0;i<edgeFlags.length;i++){const key=edgeFlags[i];if(c[key])pendingEdges[key]=true;}
    if(c.slot!=null)pendingSlot=c.slot;
    accumulator+=dt;
    while(accumulator>=1/60&&!state.done){
-     for(const a of state.actors){
+     for(let i=0;i<state.actors.length;i++){
+       const a=state.actors[i];
        const pose=lastPose[a.id]??={};
        pose.rescues=a.kart.rescues;
-       for(const key of poseFields)pose[key]=a.kart[key];
+       for(let j=0;j<poseFields.length;j++){const key=poseFields[j];pose[key]=a.kart[key];}
      }
-     session.tick({...c,...Object.fromEntries(edgeFlags.map(k=>[k,!!pendingEdges[k]])),slot:pendingSlot},1/60);
-     pendingEdges={};pendingSlot=null;accumulator-=1/60;
+     Object.assign(tickInputScratch,c);
+     for(let i=0;i<edgeFlags.length;i++){const key=edgeFlags[i];tickInputScratch[key]=!!pendingEdges[key];}
+     tickInputScratch.slot=pendingSlot;
+     perf.beginSim();
+     session.tick(tickInputScratch,1/60);
+     perf.endSim();
+     for(let i=0;i<edgeFlags.length;i++)pendingEdges[edgeFlags[i]]=false;
+     pendingSlot=null;accumulator-=1/60;
    }
    fx.update(dt,state.actors,true,state.countdown>0);syncWorld(dt,Math.min(1,accumulator*60));timingHUD();
    if(now-lastHUD>45){hud();lastHUD=now;}
    renderer.render(world,camera);
+   perf.recordFrame(rawDt*1000,renderer,now);
    noteCrumbs();
    if(state.done){hud();finish();}
  }

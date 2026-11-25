@@ -37,18 +37,25 @@ export function pickupWeights(actor,pack){
 
 export const PICKUP_SPIN_SECONDS=1.5;
 
-export function startPickup(actor,pack,now){
+export function startPickup(actor,pack,now,random=Math.random){
   if(actor.finish!=null || actor.held!=null || actor.roulette || actor.unlimited)return;
   const weights=pickupWeights(actor,pack);
-  let ticket=Math.random()*weights.reduce((sum,w)=>sum+w,0);
-  const item=weights.findIndex(w=>(ticket-=w)<0);
+  let total=0;
+  for(let i=0;i<weights.length;i++)total+=weights[i];
+  let ticket=random()*total;
+  let item=0;
+  for(let i=0;i<weights.length;i++){
+    ticket-=weights[i];
+    if(ticket<0){item=i;break;}
+  }
   actor.roulette={item:Math.max(0,item),started:now};
 }
 
 export function pickupPreview(roulette,now){
   const progress=Math.min(1,Math.max(0,(now-roulette.started)/PICKUP_SPIN_SECONDS));
+  const rem=1-progress;
   // Cycle quickly at first, then linger on the final candidates before the reveal.
-  const stepsLeft=Math.ceil(12*(1-progress)**1.5);
+  const stepsLeft=Math.ceil(12*rem*Math.sqrt(rem));
   return (roulette.item+stepsLeft*7)%ITEMS.length;
 }
 

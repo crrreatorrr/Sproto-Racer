@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { makeKart,animateKart,disposeKart } from './kart-art.js';
 import { animateHubPortal, createHubPortal } from './hub/portal-mesh.js';
 
@@ -11,10 +12,24 @@ export {lightScene};
 export function createPaddock() {
   const scene=new THREE.Scene(),camera=new THREE.PerspectiveCamera(35,2,.1,180);
   scene.background=new THREE.Color('#b8d4d0');scene.fog=new THREE.Fog('#cee0d5',35,112);lightScene(scene);
-  const geo=new THREE.BoxGeometry();
+  const boxGeo=new THREE.BoxGeometry().toNonIndexed();boxGeo.deleteAttribute('uv');
+  const cone4Geo=new THREE.ConeGeometry(1,1,4).toNonIndexed();cone4Geo.deleteAttribute('uv');
+  const cone5Geo=new THREE.ConeGeometry(1,1,5).toNonIndexed();cone5Geo.deleteAttribute('uv');
+  const staticParts=[],mat4=new THREE.Matrix4(),quat=new THREE.Quaternion(),eul=new THREE.Euler();
+  const posV=new THREE.Vector3(),scaleV=new THREE.Vector3(),col=new THREE.Color();
+  function pushPart(template,color,x,y,z,w,h,d,ry=0) {
+    const g=template.clone();
+    quat.setFromEuler(eul.set(0,ry,0));
+    mat4.compose(posV.set(x,y,z),quat,scaleV.set(w,h,d));
+    g.applyMatrix4(mat4);
+    const n=g.attributes.position.count,colors=new Float32Array(n*3);
+    col.set(color);
+    for(let i=0;i<n;i++){colors[i*3]=col.r;colors[i*3+1]=col.g;colors[i*3+2]=col.b;}
+    g.setAttribute('color',new THREE.BufferAttribute(colors,3));
+    staticParts.push(g);
+  }
   function block(color,x,y,z,w,h,d,ry=0) {
-    const m=new THREE.Mesh(geo,new THREE.MeshStandardMaterial({color,flatShading:true}));
-    m.scale.set(w,h,d);m.position.set(x,y,z);m.rotation.y=ry;scene.add(m);return m;
+    pushPart(boxGeo,color,x,y,z,w,h,d,ry);
   }
   block('#696e70',0,-.25,0,180,.5,130);
   // Grid boxes and pit apron stripes establish the scale of the starting grid.
@@ -35,13 +50,12 @@ export function createPaddock() {
   for(let i=0;i<42;i++){
     const x=(random()-.5)*155,z=17+random()*53;
     const h=3.5+random()*15;
-    const m=new THREE.Mesh(new THREE.ConeGeometry(1,1,4),new THREE.MeshStandardMaterial({color:['#77958c','#697f74','#8d9f86','#839d8e'][i%4],flatShading:true}));
-    m.position.set(x,h/2-1,z);m.rotation.y=random()*3;m.scale.set(6+random()*14,h,6+random()*7);scene.add(m);
+    const ry=random()*3,sx=6+random()*14,sz=6+random()*7;
+    pushPart(cone4Geo,['#77958c','#697f74','#8d9f86','#839d8e'][i%4],x,h/2-1,z,sx,h,sz,ry);
   }
   for(let i=0;i<60;i++){
     const x=(random()-.5)*105,z=13+random()*23,h=2+random()*3;
-    const m=new THREE.Mesh(new THREE.ConeGeometry(1,1,5),new THREE.MeshStandardMaterial({color:['#375e54','#436b5c','#587966'][i%3],flatShading:true}));
-    m.position.set(x,h/2,z);m.scale.set(h*.31,h,h*.31);scene.add(m);
+    pushPart(cone5Geo,['#375e54','#436b5c','#587966'][i%3],x,h/2,z,h*.31,h,h*.31,0);
   }
   for(let i=-2;i<4;i++){
     const x=i*6.5;
@@ -49,6 +63,11 @@ export function createPaddock() {
     block(i%2?'#e76d4d':'#d7e6a4',x+.53,4.08,8.4,1.04,1.22,.05);
     block('#243738',x+.53,3.68,8.36,1.04,.10,.06);
   }
+  const mergedStatic=mergeGeometries(staticParts);
+  staticParts.forEach(g=>g.dispose());boxGeo.dispose();cone4Geo.dispose();cone5Geo.dispose();
+  mergedStatic.computeVertexNormals();
+  const backdrop=new THREE.Mesh(mergedStatic,new THREE.MeshStandardMaterial({vertexColors:true,roughness:1,metalness:0,flatShading:true}));
+  backdrop.name='paddockBackdrop';scene.add(backdrop);
   let kart=makeKart(0);scene.add(kart);
   const hubPortal=createHubPortal();scene.add(hubPortal);
   let garage=false,rear=false;
@@ -56,7 +75,7 @@ export function createPaddock() {
     if(kart.userData.car===car.id&&kart.userData.character===driver.id)return;
     disposeKart(kart);kart=makeKart(0,car,driver);scene.add(kart);
   }
-  return {preview,setGarage(open){garage=open;rear=false},turn(){rear=!rear},render(renderer,time,w,h){
+  return {scene,camera,preview,setGarage(open){garage=open;rear=false},turn(){rear=!rear},render(renderer,time,w,h){
     const ratio=w/h;
     camera.aspect=ratio;
     const geep=kart.userData.car==='geep';

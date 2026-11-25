@@ -22,15 +22,19 @@ function coachworkSky(){
   map.mapping=T.EquirectangularReflectionMapping;map.needsUpdate=true;
   return map;
 }
-const lacquer=new T.MeshPhysicalMaterial({vertexColors:true,metalness:.10,roughness:.29,envMapIntensity:.27,clearcoat:.68,clearcoatRoughness:.18,side:T.DoubleSide});
-const metal=new T.MeshStandardMaterial({vertexColors:true,metalness:.86,roughness:.21});
-const trim=new T.MeshStandardMaterial({vertexColors:true,roughness:.73});
-const glass=new T.MeshPhysicalMaterial({color:'#b6cbd0',metalness:.18,roughness:.13,transparent:true,opacity:.22,depthWrite:false,side:T.DoubleSide,forceSinglePass:true});
+let lacquer,metal,trim,glass,painted,textile,lens;
+function initMaterials(){
+  if(lacquer)return;
+  lacquer=new T.MeshPhysicalMaterial({vertexColors:true,metalness:.10,roughness:.29,envMapIntensity:.27,clearcoat:.68,clearcoatRoughness:.18,side:T.DoubleSide});
+  metal=new T.MeshStandardMaterial({vertexColors:true,metalness:.86,roughness:.21});
+  trim=new T.MeshStandardMaterial({vertexColors:true,roughness:.73});
+  glass=new T.MeshPhysicalMaterial({color:'#b6cbd0',metalness:.18,roughness:.13,transparent:true,opacity:.22,depthWrite:false,side:T.DoubleSide,forceSinglePass:true});
+  painted=lacquer.clone();painted.vertexColors=false;
+  textile=new T.MeshStandardMaterial({roughness:.89,side:T.DoubleSide});
+  lens=new T.MeshStandardMaterial({vertexColors:true,emissive:'#a73c12',emissiveIntensity:.20,roughness:.22});
+}
 const black='#141619',wing='#101216',roofBlack='#1b1c20',chrome='#c5c7c4',silver='#8b9193',ivory='#f4e7c9',hide='#9b6344';
 const brass='#d6ac72',claret='#812d40',enamel='#246869';
-const painted=lacquer.clone();painted.vertexColors=false;
-const textile=new T.MeshStandardMaterial({roughness:.89,side:T.DoubleSide});
-const lens=new T.MeshStandardMaterial({vertexColors:true,emissive:'#a73c12',emissiveIntensity:.20,roughness:.22});
 // Pixel rectangles share the same mipmapped atlas across every Crestline instance.
 const patches={doors:[8,8,2032,472],hood:[8,496,1008,1008],roof:[1032,496,1008,1008],
   trunk:[8,1520,1008,252],pocket:[1032,1520,1008,252],walnut:[8,1788,1008,246],badge:[1032,1788,240,240],tire:[1280,1788,752,244]};
@@ -347,6 +351,7 @@ function fitShadow(shadow){
 }
 export function attachCrestline(body,wheels,shadow){
   if(!templates){
+    initMaterials();
     const sheet=new T.TextureLoader().load(coachworkUrl);
     sheet.colorSpace=T.SRGBColorSpace;sheet.anisotropy=8;
     painted.map=textile.map=sheet;

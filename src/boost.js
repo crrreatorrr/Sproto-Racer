@@ -1,4 +1,5 @@
 import {driftBoostReady} from './driving.js';
+import {exp} from './sim/math.js';
 
 const GOOD = 0.70;
 export const PERFECT_CHARGE = 0.90;
@@ -56,10 +57,10 @@ export function gradeLaunch(boost) {
 
 export function stepBoost(boost, kart, input, dt) {
   boost.interrupted=false;
-  boost.ignition*=Math.exp(-dt*8);
+  boost.ignition*=exp(-dt*8);
   if(boost.tier)boost.flameTier=boost.tier;
   const target=boost.tier?1:0;
-  boost.plume=target+(boost.plume-target)*Math.exp(-dt*(target?20:9));
+  boost.plume=target+(boost.plume-target)*exp(-dt*(target?20:9));
   boost.reserve = Math.max(0, boost.reserve - dt);
   if (!boost.reserve) {
     boost.tier = 0;

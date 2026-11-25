@@ -9,11 +9,15 @@ import metalUrl from './assets/skipper-alloy.webp';
 import shadowUrl from './assets/skipper-shadow.png';
 
 const navy='#17314e',ivory='#f0e1bb',alloy='#a4a7a3',orange='#e36b16',ink='#232a2d';
-const enamel=new T.MeshPhysicalMaterial({vertexColors:true,roughness:.37,clearcoat:.47,side:T.DoubleSide});
-const metal=new T.MeshStandardMaterial({vertexColors:true,metalness:.72,roughness:.36,side:T.DoubleSide});
-const rubber=new T.MeshStandardMaterial({vertexColors:true,roughness:.88,side:T.DoubleSide});
-const glass=new T.MeshPhysicalMaterial({color:'#99cbd4',transparent:true,opacity:.21,roughness:.13,
-  depthWrite:false,side:T.DoubleSide,forceSinglePass:true});
+let enamel,metal,rubber,glass;
+function initMaterials(){
+  if(enamel)return;
+  enamel=new T.MeshPhysicalMaterial({vertexColors:true,roughness:.37,clearcoat:.47,side:T.DoubleSide});
+  metal=new T.MeshStandardMaterial({vertexColors:true,metalness:.72,roughness:.36,side:T.DoubleSide});
+  rubber=new T.MeshStandardMaterial({vertexColors:true,roughness:.88,side:T.DoubleSide});
+  glass=new T.MeshPhysicalMaterial({color:'#99cbd4',transparent:true,opacity:.21,roughness:.13,
+    depthWrite:false,side:T.DoubleSide,forceSinglePass:true});
+}
 let templates;
 
 function strip(p,rows,mat,color,uv){
@@ -232,6 +236,7 @@ function sternDetails(p){
 }
 export function attachSkipper(body,wheels,shadow){
   if(!templates){
+    initMaterials();
     enamel.envMap=metal.envMap=glass.envMap=alloyReflections();
     const map=new T.TextureLoader().load(hullUrl);map.colorSpace=T.SRGBColorSpace;map.anisotropy=8;
     const painted=new T.MeshPhysicalMaterial({map,roughness:.45,clearcoat:.35,envMap:enamel.envMap,side:T.DoubleSide});

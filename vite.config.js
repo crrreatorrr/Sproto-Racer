@@ -9,4 +9,22 @@ export default defineConfig({
       '/ws': { target: 'http://127.0.0.1:7350', ws: true, changeOrigin: true },
     },
   },
+  build: {
+    chunkSizeWarningLimit: 650,
+    rolldownOptions: {
+      output: {
+        codeSplitting: {
+          groups: [
+            { name: 'three-core', test: /node_modules[\\/]three[\\/]build[\\/]/ },
+            { name: 'three-addons', test: /node_modules[\\/]three[\\/]examples[\\/]/ },
+            { name: 'hub-sdk', test: /vendor[\\/]hub-sdk|node_modules[\\/]@heroiclabs/ },
+            {
+              name: 'car-art',
+              test: /src[\\/](hexshift|crestline|barrage|ironhide|geep|skipper|manta|saucer|shopping-cart|kart-assembly)\.js$/,
+            },
+          ],
+        },
+      },
+    },
+  },
 });

@@ -1,5 +1,6 @@
 import {fullLockCurvature,tireTurnRate,demandForRate} from './steering.js';
 import {hasShapedBody,laneBounds} from './kart-footprint.js';
+import {atan,atan2,cos,exp,pow4,sin,tan} from './sim/math.js';
 // SI units throughout. s measures progress along the centre line; x is right
 // of it. Both yaw and travelYaw are relative to the local road tangent.
 export const CRUISE_SPEED = 55;
@@ -24,7 +25,7 @@ export function driftBoostReady(boost) {
 
 const clamp = (value, lo, hi) => Math.min(hi, Math.max(lo, value));
 const approach = (current, target, rate, dt) =>
-  target + (current - target) * Math.exp(-rate * dt);
+  target + (current - target) * exp(-rate * dt);
 
 // Inverse of the player's steering curve, used by rivals to follow a racing line.
 export function steerForTurn(kart,rate) {
@@ -87,7 +88,7 @@ export function springJump(kart){
   kart.hopping=false;
   kart.pendingDrift=false;
   kart.pendingDirection=0;
-  takeOff(kart,10+kart.speed*Math.sin(kart.pitch));
+  takeOff(kart,10+kart.speed*sin(kart.pitch));
   return true;
 }
 
@@ -136,10 +137,10 @@ export function launchFromRamp(kart,ramp,input,steer) {
 // heading when the driver holds a straight line, including while reversing.
 function advanceKart(kart,road,signedSpeed,dt){
   const curve=road.curvature||0, radius=clamp(1-kart.x*curve,.55,1.65);
-  const midpointYaw=kart.travelYaw-.5*curve*signedSpeed*Math.cos(kart.travelYaw)*dt/radius;
-  const ds=(signedSpeed*Math.cos(midpointYaw)+(kart.bumpVelocityS||0))*dt/radius;
+  const midpointYaw=kart.travelYaw-.5*curve*signedSpeed*cos(kart.travelYaw)*dt/radius;
+  const ds=(signedSpeed*cos(midpointYaw)+(kart.bumpVelocityS||0))*dt/radius;
   kart.s+=ds;
-  kart.lateralSpeed=signedSpeed*Math.sin(midpointYaw)+kart.bumpVelocityX;
+  kart.lateralSpeed=signedSpeed*sin(midpointYaw)+kart.bumpVelocityX;
   kart.x+=kart.lateralSpeed*dt;
   kart.travelYaw-=curve*ds;
   kart.yaw-=curve*ds;
@@ -169,19 +170,20 @@ function advanceKart(kart,road,signedSpeed,dt){
     kart.suspensionVelocity=-Math.max(.65,2.4*severity);
     kart.wallCooldown=.3;
   }
-  if(signedSpeed*Math.sin(kart.travelYaw)*side>0){
-    const rebound=Math.atan2(-.12*Math.sin(kart.travelYaw),Math.cos(kart.travelYaw));
+  const sinYaw = sin(kart.travelYaw);
+  if(signedSpeed*sinYaw*side>0){
+    const rebound=atan2(-.12*sinYaw,cos(kart.travelYaw));
     const change=rebound-kart.travelYaw;
-    kart.travelYaw+=Math.atan2(Math.sin(change),Math.cos(change));
+    kart.travelYaw+=atan2(sin(change),cos(change));
   }
   if(kart.bumpVelocityX*side>0)kart.bumpVelocityX=0;
-  kart.lateralSpeed=(kart.speed-kart.reverseSpeed)*Math.sin(kart.travelYaw)+kart.bumpVelocityX;
+  kart.lateralSpeed=(kart.speed-kart.reverseSpeed)*sin(kart.travelYaw)+kart.bumpVelocityX;
 }
 
 function stepFall(kart,road,dt){
   const f=kart.fall;
   f.time+=dt;
-  const drag=Math.exp(-1.9*f.time),oldFloor=road.heightAt?.(kart.s,kart.x)??0;
+  const drag=exp(-1.9*f.time),oldFloor=road.heightAt?.(kart.s,kart.x)??0;
   kart.s+=f.along*drag*dt;kart.x+=f.across*drag*dt;
   kart.y+=oldFloor-(road.heightAt?.(kart.s,kart.x)??0)+kart.vy*dt-.5*GRAVITY*dt*dt;
   kart.vy-=GRAVITY*dt;
@@ -195,7 +197,7 @@ function stepFall(kart,road,dt){
 function driveFrame(kart, input, road, boost, steer, throttle, brake, dt) {
   const width = Math.max(3, road.width ?? 16);
   const curvature = road.curvature || 0;
-  const gradeAngle = Math.atan(road.grade || 0);
+  const gradeAngle = atan(road.grade || 0);
   const bank = clamp(road.bank || 0, -0.8, 0.8);
   const tier = clamp(Math.trunc(boost.tier || 0), 0, 2);
   const topSpeed = CRUISE_SPEED * kart.tuning.speed * (SPEED_TIERS[tier]+STRAIGHT_SPEED_GAIN*kart.straightRun)
@@ -203,7 +205,7 @@ function driveFrame(kart, input, road, boost, steer, throttle, brake, dt) {
   const edgeDepth = Math.abs(kart.x) - (width / 2 - HALF_KART_WIDTH - Math.min(1.0, width * 0.06));
   kart.offroad = edgeDepth > 0;
   kart.wallCooldown = Math.max(0, kart.wallCooldown - dt);
-  const bumpDecay=Math.exp(-5*dt);
+  const bumpDecay=exp(-5*dt);
   kart.bumpVelocityX *= bumpDecay;
   kart.bumpVelocityS = (kart.bumpVelocityS||0)*bumpDecay;
   kart.suspensionVelocity+=(-240*kart.suspension-18*kart.suspensionVelocity)*dt;
@@ -231,11 +233,11 @@ function driveFrame(kart, input, road, boost, steer, throttle, brake, dt) {
   // Smooth drag on tier loss lets the player feel the transition out of turbo.
   const ignitionThrust=tier?24*(boost.ignition||0):0;
   const driveThrottle=throttle*(1-.65*groundedBrake);
-  const thrust = (28 + tier * 14 + ignitionThrust) * kart.tuning.accel * driveThrottle * Math.max(0, 1 - speedRatio ** 4);
+  const thrust = (28 + tier * 14 + ignitionThrust) * kart.tuning.accel * driveThrottle * Math.max(0, 1 - pow4(speedRatio));
   const rollingDrag = 0.6 + (1 - throttle) * (1.1 + 0.035 * kart.speed);
   const engineDrag = Math.max(0, kart.speed - topSpeed) * 2.8;
   const gravel = kart.offroad && kart.grounded ? 3.0 + kart.speed * 0.10 : 0;
-  const gravity = kart.grounded ? 7 * Math.sin(gradeAngle) : 0;
+  const gravity = kart.grounded ? 7 * sin(gradeAngle) : 0;
   const accel = thrust - rollingDrag - engineDrag - gravel - 41 * groundedBrake - gravity;
   kart.speed = clamp(kart.speed + accel * dt, 0, 100);
 
@@ -315,8 +317,9 @@ function driveFrame(kart, input, road, boost, steer, throttle, brake, dt) {
     const rotated=laneBounds(kart,road,HALF_KART_WIDTH);
     kart.x=clamp(kart.x,rotated.min,rotated.max);
   }
-  const rollTarget=kart.grounded ? bank + clamp(lateralAccel*.00135,-.105,.105) : kart.takeoffRoll * Math.exp(-3*kart.airtime);
-  const pitchTarget=kart.grounded ? gradeAngle : kart.takeoffPitch * Math.exp(-3*kart.airtime) + clamp(kart.vy * 0.015, -0.16, 0.16);
+  const airDecay = kart.grounded ? 0 : exp(-3*kart.airtime);
+  const rollTarget=kart.grounded ? bank + clamp(lateralAccel*.00135,-.105,.105) : kart.takeoffRoll * airDecay;
+  const pitchTarget=kart.grounded ? gradeAngle : kart.takeoffPitch * airDecay + clamp(kart.vy * 0.015, -0.16, 0.16);
   kart.roll = approach(kart.roll, rollTarget, 7, dt);
   kart.pitch = approach(kart.pitch, pitchTarget, 7, dt);
 }
@@ -339,7 +342,7 @@ export function stepKart(kart, input = {}, road = {}, boost = {}, dt = 1 / 60) {
   const released=input.driftReleased || (!held && wasHeld);
   kart.boostRelease=false;
   // Steer chooses the slide, and countersteer adjusts its radius until exit.
-  const across=Math.sin(kart.travelYaw);
+  const across=sin(kart.travelYaw);
   const direction=Math.abs(steer)>.12 ? Math.sign(steer)
     : Math.abs(kart.steer)>.12 ? Math.sign(kart.steer)
     : Math.abs(across)>.09 ? Math.sign(across) : 0;
@@ -360,11 +363,11 @@ export function stepKart(kart, input = {}, road = {}, boost = {}, dt = 1 / 60) {
     kart.pendingDrift=true;
     kart.pendingDirection=direction;
     if(kart.grounded && !kart.reverseSpeed){
-      const along=kart.speed*Math.cos(kart.travelYaw)*(road.grade||0);
-      const across=kart.speed*Math.sin(kart.travelYaw)*Math.tan(road.bank||0);
+      const along=kart.speed*cos(kart.travelYaw)*(road.grade||0);
+      const acrossSlope=kart.speed*sin(kart.travelYaw)*tan(road.bank||0);
       takeOff(kart,HOP_SPEED);
       // Spring away from the moving contact plane, including on the uphill helix.
-      kart.vy=HOP_SPEED+along+across;
+      kart.vy=HOP_SPEED+along+acrossSlope;
       kart.hopping=true;
       kart.suspensionVelocity=-1.8;
     }

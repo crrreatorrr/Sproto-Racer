@@ -16,7 +16,9 @@ export const saucerProfile=[
   [1.17,1.129],[.91,1.159],[saucerCockpitRadius,saucerLipHeight]
 ];
 
+import {sin,cos} from './sim/math.js';
+
 export function screenPoint(t,top=false){
   const angle=t*1.04,r=top?.718:.758;
-  return [Math.sin(angle)*r,saucerLipHeight+(top?.14+.118*(1-t*t):.012),-Math.cos(angle)*r];
+  return [sin(angle)*r,saucerLipHeight+(top?.14+.118*(1-t*t):.012),-cos(angle)*r];
 }

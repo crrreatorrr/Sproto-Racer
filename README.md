@@ -140,4 +140,17 @@ Firing a targeting item spends it even if there is no eligible rival. Homing Cur
 | 9 | Triple Soda | Take three separately timed turbo bursts. | 19 | Relay Rocket | Pursue the frontmost rival within 240 metres ahead. The target receives a warning. |
 | 10 | Express Lane | Lay four temporary boost strips usable by everyone. | 20 | Comet Candy | Gain 2.6 seconds of super turbo and a three-second, one-hit shield. |
 
-Hold brake while firing the Bumper Ball, Ricochet Disc, or Confetti Fan to aim behind you. Both the ball and disc can clear hostile traps and intercept homing shots. Run the focused item checks with `node qa/projectiles.mjs`.
+Hold brake while firing the Bumper Ball, Ricochet Disc, or Confetti Fan to aim behind you. Both the ball and disc can clear hostile traps and intercept homing shots. Run the focused item checks with `npm run test:qa`.
+
+## Architecture & Multiplayer Readiness
+
+- **Rendering & Cold Boot**:
+  - Static paddock geometry is merged into a single vertex-colored mesh (`src/paddock.js`), circuit signs are shelf-packed into a `2048×2048` canvas atlas with 16 px mipmap gutters (`src/track.js`), item crates animate in the vertex shader (`uTime` uniform with dirty-only instance matrix uploads), and custom car materials initialize lazily on first use.
+  - Circuit visual meshes mount asynchronously after the first lobby frame (`deferVisuals` / `mountVisuals`), Rival line-of-sight fading uses cached per-car compound AABBs in body-local space (`src/kart-visibility.js`), and active projectiles/traps use detached scene-graph free-lists (`src/gameplay.js`).
+  - Append `?perf=1` to the URL to show the frame-time / sim-time / WebGL draw-call HUD (`src/perf.js`).
+- **Deterministic 60 Hz Simulation (`src/sim/` & `build/racer-sim.js`)**:
+  - `src/sim/` runs the full 60 Hz driving, drift-boost, track spline, fixture, hazard, 20-item projectile/trap, and AI simulation with zero Three.js, DOM, timer, or `Math.random` dependencies, using polynomial Cody-Waite/Horner transcendentals (`src/sim/math.js`) and seeded `sfc32` PRNG (`src/sim/rng.js`) for bit-identical execution across browser JS engines and Nakama's Goja VM.
+  - Run `npm run build:server-sim` to regenerate `build/racer-sim.js`, `build/racer-sim.pin.json`, and `src/sim/version.js` (`npm run check:server-sim` verifies freshness and Nakama `Object.freeze` compatibility in CI).
+- **Shared Hub Realtime Layer (`src/net/`)**:
+  - Built on `@metaverse/hub-sdk/realtime` (`realtimeFromSdk`, `MatchHandle`, socket RPCs `racer.room_create`, `racer.room_join`, `racer.online_count`, and `+label.kind:sproto_racer +label.open:T` queries) with 11-byte binary `IntentFrame`s, edge-preserving `RemoteInputBuffer`, unwrapped multi-lap `SnapshotBuffer`, and 60 Hz `ClientPredictor` + `PredictionSmoother`. Online UI remains hidden until Hub registration and server handlers go live.
+

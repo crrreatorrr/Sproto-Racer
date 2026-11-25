@@ -1,5 +1,7 @@
 import {HALF_KART_WIDTH} from './driving.js';
 import {kartFootprint,footprintContact,laneBounds} from './kart-footprint.js';
+import {cos,sin} from './sim/math.js';
+import {createTrackSample} from './sim/track-core.js';
 
 const clamp = (value, low, high) => Math.max(low, Math.min(high, value));
 // Includes both chassis at any steering angle. Most pairs exit before track sampling.
@@ -7,7 +9,7 @@ const diameter = 5.4;
 
 function applyImpulse(kart, along, across) {
   const oldSpeed = kart.speed - kart.reverseSpeed;
-  const c=Math.cos(kart.travelYaw),s=Math.sin(kart.travelYaw);
+  const c=cos(kart.travelYaw),s=sin(kart.travelYaw);
   const speed=clamp(oldSpeed+along*c+across*s,kart.grounded?-8:0,100);
   kart.speed=Math.max(0,speed);
   kart.reverseSpeed=Math.max(0,-speed);
@@ -18,6 +20,9 @@ function applyImpulse(kart, along, across) {
   kart.lateralSpeed=speed*s+kart.bumpVelocityX;
 }
 
+let sampleScratchA = null;
+let sampleScratchB = null;
+
 function resolvePair(track, first, second) {
   const a = first.kart, b = second.kart;
   if(a.fall || b.fall)return false;
@@ -26,7 +31,18 @@ function resolvePair(track, first, second) {
   const dx = b.x - a.x;
   if (Math.abs(ds) > diameter / .55 || Math.abs(dx) > diameter) return false;
 
-  const roadA = track.sample(a.s, a.x), roadB = track.sample(b.s, b.x);
+  let roadA, roadB;
+  if (track.sampleInto) {
+    if (!sampleScratchA) {
+      sampleScratchA = createTrackSample();
+      sampleScratchB = createTrackSample();
+    }
+    roadA = track.sampleInto(a.s, a.x, sampleScratchA);
+    roadB = track.sampleInto(b.s, b.x, sampleScratchB);
+  } else {
+    roadA = track.sample(a.s, a.x);
+    roadB = track.sample(b.s, b.x);
+  }
   const height=roadB.position.y+b.y-roadA.position.y-a.y;
   const shapeA=kartFootprint(a),shapeB=kartFootprint(b);
   const scale = clamp(1 - (a.x + b.x) * (roadA.curvature + roadB.curvature) / 4, .55, 1.65);
@@ -55,8 +71,8 @@ function resolvePair(track, first, second) {
   b.x += shareB;
 
   const va = a.speed - a.reverseSpeed, vb = b.speed - b.reverseSpeed;
-  const along = va * Math.cos(a.travelYaw) + (a.bumpVelocityS||0) - vb * Math.cos(b.travelYaw) - (b.bumpVelocityS||0);
-  const across = va * Math.sin(a.travelYaw) + a.bumpVelocityX - vb * Math.sin(b.travelYaw) - b.bumpVelocityX;
+  const along = va * cos(a.travelYaw) + (a.bumpVelocityS||0) - vb * cos(b.travelYaw) - (b.bumpVelocityS||0);
+  const across = va * sin(a.travelYaw) + a.bumpVelocityX - vb * sin(b.travelYaw) - b.bumpVelocityX;
   const closing = along * normalS + across * normalX;
   if (closing > 0) {
     const impulse = closing * .53; // Equal masses, with a small rebound.

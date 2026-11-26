@@ -5,13 +5,13 @@ const catalog=[
   {id:'track-formula',name:'Pepper Seed',role:'Open-wheel formula racer',color:'#e92921',trim:'#f3efde',
     wheels:[[-1.22,.435,1.05,.35],[1.08,.49,1.07,.46]],driver:{x:0,y:.51,z:.035,scale:.64},extent:[1.44,-2.08,1.89,1.69],tail:1.83},
   {id:'track-rally',name:'Golden Switchback',role:'Classic rally coupe',color:'#fac222',trim:'#29282b',
-    wheels:[[-1.14,.41,1.00,.33],[1.14,.41,1.00,.33]],driver:{x:0,y:.61,z:.025,scale:.61},extent:[1.31,-1.95,1.89,1.92],tail:1.89},
+    wheels:[[-1.14,.41,1.00,.33],[1.14,.41,1.00,.33]],driver:{x:0,y:.61,z:.025,scale:.61},extent:[1.31,-1.96,1.92,1.92],tail:1.89},
   {id:'track-prototype',name:'Glass Dart',role:'Bubble-canopy endurance prototype',color:'#68bcf2',trim:'#eff4f4',
     wheels:[[-1.17,.365,1.075,.3],[1.13,.415,1.075,.35]],driver:{x:0,y:.415,z:.02,scale:.61},extent:[1.39,-2.12,2.11,1.81],tail:1.97},
   {id:'track-hot-rod',name:'Whitewall Wasp',role:'Exposed-engine vintage special',color:'#e9d5a3',trim:'#232328',
-    wheels:[[-1.13,.43,.92,.24],[1.17,.50,.97,.32]],driver:{x:0,y:.48,z:.11,scale:.65},extent:[1.28,-1.87,1.95,1.65],tail:1.94},
+    wheels:[[-1.13,.43,.92,.24],[1.17,.50,.97,.32]],driver:{x:0,y:.48,z:.11,scale:.65},extent:[1.28,-1.87,1.99,1.65],tail:1.94},
   {id:'track-drift',name:'Violet Drift',role:'Widebody drift pickup',color:'#933fd1',trim:'#e7af59',
-    wheels:[[-1.17,.375,1.04,.36],[1.15,.39,1.04,.37]],driver:{x:0,y:.565,z:-.12,scale:.615},extent:[1.38,-2.15,2.13,2.04],tail:2.08},
+    wheels:[[-1.17,.375,1.04,.36],[1.15,.39,1.04,.37]],driver:{x:0,y:.565,z:-.12,scale:.615},extent:[1.38,-2.16,2.17,2.04],tail:2.08},
   {id:'track-electric',name:'Twin-Plug',role:'Open battery-pod time-attack racer',color:'#8bd5a3',trim:'#f2ede0',
     wheels:[[-1.21,.385,1.06,.35],[1.16,.42,1.06,.37]],driver:{x:0,y:.42,z:.035,scale:.64},extent:[1.39,-2.22,2.08,1.68],tail:1.99}
 ];
@@ -21,26 +21,58 @@ function trackPainter(h){
   const T=h.T;
   function geometry(g,col,mode='paint',position=[0,0,0],rotation=[0,0,0]){
     if(rotation?.isQuaternion){g.applyQuaternion(rotation);rotation=[0,0,0];}
-    h.mesh(col,g,position??[0,0,0],rotation??[0,0,0],mode==='glass'?'glass':mode==='lights'?'glow':mode==='metal'?'metal':'solid');
+    h.mesh(col,g,position??[0,0,0],rotation??[0,0,0],mode==='glass'?'glass':mode==='lights'?'glow':mode==='metal'?'metal':mode==='paint'?'coat':mode==='rubber'?'rubber':'solid');
   }
   const quad=(points,col,mode='paint')=>skin(points,[[0,1,2],[0,2,3]],col,mode);
-  function skin(points,faces,col,mode='paint'){
-    const g=new T.BufferGeometry().setAttribute('position',new T.Float32BufferAttribute(faces.flatMap(face=>face.flatMap(i=>points[i])),3));
+  function skin(points,faces,col,mode='paint',smooth=false){
+    const g=new T.BufferGeometry();
+    if(smooth){
+      g.setAttribute('position',new T.Float32BufferAttribute(points.flat(),3));
+      g.setIndex(faces.flat());
+    }else g.setAttribute('position',new T.Float32BufferAttribute(faces.flatMap(face=>face.flatMap(i=>points[i])),3));
     g.computeVertexNormals();geometry(g,col,mode);
   }
-  function block(col,p,d,round=.025,mode='paint',rot=null,dest='body'){
-    let g;
-    if(round>.001){
-      const [w,h,l]=d,b=Math.min(round,w*.25,h*.49,l*.27);
-      // Chamfer both width and height, then cap each end with a second smaller ring.
-      const oct=(x,y,z)=>[[-x+b,-y,z],[x-b,-y,z],[x,-y+b,z],[x,y-b,z],[x-b,y,z],[-x+b,y,z],[-x,y-b,z],[-x,-y+b,z]];
-      const profiles=[oct(w/2-b*.42,h/2-b*.42,-l/2),oct(w/2,h/2,-l/2+b),oct(w/2,h/2,l/2-b),oct(w/2-b*.42,h/2-b*.42,l/2)];
-      const points=profiles.flat(),faces=[];
-      for(let j=1;j<profiles.length;j++)for(let i=0;i<8;i++){const a=(j-1)*8+i,b=j*8+i,k=(i+1)%8;faces.push([a,(j-1)*8+k,b],[b,(j-1)*8+k,j*8+k]);}
-      for(let i=1;i<7;i++)faces.push([0,i+1,i],[24,24+i,25+i]);
-      g=new T.BufferGeometry().setAttribute('position',new T.Float32BufferAttribute(faces.flatMap(f=>f.flatMap(i=>points[i])),3));g.computeVertexNormals();
-    }else g=new T.BoxGeometry(...d);
-    geometry(g,col,mode,p,rot,dest);
+  function block(col,p,d,round=.025,mode='paint',rot=null){
+    // Six planar fields with curved bevels, avoiding the old triangular chamfer reflections.
+    if(round>=.009 && Math.min(...d)>=.022){
+      const [w,hh,l]=d,b=Math.min(round,w*.25,hh*.46,l*.27);
+      const G=h.RoundedBoxGeometry;
+      if(G){geometry(new G(...d,2,b),col,mode,p,rot);return;}
+      // h.mesh stays palette-specific; use a rounded 2D outline and a shallow 3D round-over.
+      const step=(x,y,sx,sy)=>[x*sx,y*sy];
+      const smoothOutline=(halfX,halfY,r,z)=>{
+        const arr=[];
+        for(const [i,sx,sy] of [[0,1,1],[1,-1,1],[2,-1,-1],[3,1,-1]]){
+          const cen=step(halfX-r,halfY-r,sx,sy);
+          for(let j=0;j<=3;j++){
+            const a=(3*i+j)*Math.PI/6;
+            arr.push([cen[0]+r*Math.cos(a),cen[1]+r*Math.sin(a),z]);
+          }
+        }
+        return arr;
+      };
+      const k=b*.385, profiles=[
+        smoothOutline(w/2-k,hh/2-k,Math.max(.0001,b-k),-l/2),
+        smoothOutline(w/2-k*.28,hh/2-k*.28,b-k*.28,-l/2+k*.28),
+        smoothOutline(w/2,hh/2,b,-l/2+k),
+        smoothOutline(w/2,hh/2,b,l/2-k),
+        smoothOutline(w/2-k*.28,hh/2-k*.28,b-k*.28,l/2-k*.28),
+        smoothOutline(w/2-k,hh/2-k,Math.max(.0001,b-k),l/2),
+      ];
+      const points=profiles.flat(),faces=[],n=profiles[0].length,end=points.length-n;
+      for(let j=1;j<profiles.length;j++)for(let i=0;i<n;i++){
+        const a=(j-1)*n+i,c=j*n+i,prev=(j-1)*n+(i+1)%n,next=j*n+(i+1)%n;
+        faces.push([a,prev,c],[c,prev,next]);
+      }
+      const side=new T.BufferGeometry().setAttribute('position',new T.Float32BufferAttribute(points.flat(),3));
+      side.setIndex(faces.flat());side.computeVertexNormals();
+      geometry(side,col,mode,p,rot);
+      const capFaces=[];for(let i=1;i<n-1;i++)capFaces.push([0,i+1,i],[end,end+i,end+i+1]);
+      const cap=new T.BufferGeometry().setAttribute('position',new T.Float32BufferAttribute(capFaces.flatMap(f=>f.flatMap(i=>points[i])),3));
+      cap.computeVertexNormals();geometry(cap,col,mode,p,rot);
+      return;
+    }
+    geometry(new T.BoxGeometry(...d),col,mode,p,rot);
   }
   function rod(col,a,b,r,mode='metal',r2=r,n=12,dest='body'){
     const s=new T.Vector3(...a),axis=new T.Vector3(...b).sub(s);
@@ -50,44 +82,90 @@ function trackPainter(h){
   function bulb(col,p,d,mode='paint'){geometry(new T.SphereGeometry(1,20,12).scale(...d),col,mode,p);}
   function path(col,points,r,mode='metal'){
     const c=new T.CatmullRomCurve3(points.map(a=>new T.Vector3(...a)));
-    geometry(new T.TubeGeometry(c,Math.min(36,points.length*5),r,8,false),col,mode);
+    geometry(new T.TubeGeometry(c,Math.min(r<.026?22:36,points.length*(r<.026?3:5)),r,r<.026?6:8,false),col,mode);
   }
-  function loft(col,rows,mode='paint'){
-    // Closed, octagonal longitudinal sections: z, half-width, bottom, crown, centre X, shouldering.
-    const cross=([z,w,b,t,c=0,shape=.78])=>[
-      [c-w*.82,b,z],[c+w*.82,b,z],[c+w,b+(t-b)*.22,z],[c+w,t-(t-b)*.18,z],
-      [c+w*shape,t,z],[c-w*shape,t,z],[c-w,t-(t-b)*.18,z],[c-w,b+(t-b)*.22,z]];
-    const pts=rows.flatMap(cross),faces=[];
-    for(let j=1;j<rows.length;j++)for(let i=0;i<8;i++){const a=(j-1)*8+i,b=j*8+i,k=(i+1)%8;faces.push([a,(j-1)*8+k,b],[b,(j-1)*8+k,j*8+k]);}
-    for(let i=1;i<7;i++){const e=pts.length-8;faces.push([0,i+1,i],[e,e+i,e+i+1]);}
-    skin(pts,faces,col,mode);
-  }
-  function stripes(rows,left,right,col,offset=.010){
-    for(let j=1;j<rows.length;j++){
-      const a=rows[j-1],b=rows[j];
-      quad([[left(a),a[3]+offset,a[0]],[left(b),b[3]+offset,b[0]],
-        [right(b),b[3]+offset,b[0]],[right(a),a[3]+offset,a[0]]],col);
+  function densify(rows){
+    // C1 smooth along a body station; clamp to each envelope to protect wheel and driver clearances.
+    const res=[];
+    const comp=(row,i)=>row[i]??(i===5?.78:0);
+    for(let j=0;j<rows.length-1;j++){
+      const pre=rows[j-1]??rows[j],a=rows[j],b=rows[j+1],post=rows[j+2]??b;
+      const dx=b[0]-a[0];
+      for(let i=0;i<3;i++){
+        const t=i/3,t2=t*t,t3=t2*t,newRow=[a[0]+dx*t];
+        for(let e=1;e<=5;e++){
+          const v=comp(a,e),u=comp(b,e);
+          const d0=(comp(b,e)-comp(pre,e))/(b[0]-pre[0]||1);
+          const d1=(comp(post,e)-comp(a,e))/(post[0]-a[0]||1);
+          const x=(2*t3-3*t2+1)*v+(t3-2*t2+t)*dx*d0+(-2*t3+3*t2)*u+(t3-t2)*dx*d1;
+          newRow.push(Math.max(Math.min(x,Math.max(v,u)),Math.min(v,u)));
+        }
+        res.push(newRow);
+      }
     }
+    res.push(rows.at(-1));return res;
+  }
+  function loft(col,stations,mode='paint'){
+    const rows=densify(stations);
+    const cross=([z,w,b,t,c=0,shape=.78])=>{
+      const hi=t-b,n=w*shape,u=w-n;
+      // Soft low shoulder, then an almost-flat crown allows clean inlaid livery.
+      return [[c-w*.81,b,z],[c+w*.81,b,z],[c+w*.95,b+hi*.095,z],[c+w,b+hi*.22,z],
+        [c+w,t-hi*.195,z],[c+n+u*.73,t-hi*.086,z],[c+n+u*.34,t-hi*.015,z],[c+n,t,z],
+        [c-n,t,z],[c-n-u*.34,t-hi*.015,z],[c-n-u*.73,t-hi*.086,z],[c-w,t-hi*.195,z],
+        [c-w,b+hi*.22,z],[c-w*.95,b+hi*.095,z]];
+    };
+    const n=14,pts=rows.flatMap(cross),faces=[];
+    for(let j=1;j<rows.length;j++)for(let i=0;i<n;i++){
+      const a=(j-1)*n+i,b=j*n+i,k=(i+1)%n;faces.push([a,(j-1)*n+k,b],[b,(j-1)*n+k,j*n+k]);
+    }
+    skin(pts,faces,col,mode,true);
+    const cap=[];for(let i=1;i<n-1;i++){const e=pts.length-n;cap.push([0,i+1,i],[e,e+i,e+i+1]);}
+    skin(pts,cap,col,mode);
+  }
+  function stripes(stations,left,right,col,offset=.005){
+    const rows=densify(stations),pts=rows.flatMap(a=>[
+      [left(a),a[3]+offset,a[0]],[right(a),a[3]+offset,a[0]]
+    ]),fs=[];
+    for(let j=1;j<rows.length;j++){const a=j*2-2,b=a+2;fs.push([a,b,b+1],[a,b+1,a+1]);}
+    skin(pts,fs,col,'paint',true);
   }
   function arch(x,z,r,base,w,col,lip=.04){
-    const pts=[],faces=[],n=12,diff=x>0?1:-1;
+    const pts=[],faces=[],n=24,diff=x>0?1:-1;
     for(let i=0;i<=n;i++){
       const t=i*Math.PI/n;
       for(const [dx,dr] of [[0,0],[0,lip],[-w*diff,lip*.65],[-w*diff,0]])
         pts.push([x+dx,base+Math.sin(t)*(r+dr),z+Math.cos(t)*(r+dr)]);
     }
     for(let i=1;i<=n;i++)for(let j=0;j<3;j++){const a=(i-1)*4+j,b=i*4+j;if(diff>0)faces.push([a,b,a+1],[a+1,b,b+1]);else faces.push([a,a+1,b],[a+1,b+1,b]);}
-    skin(pts,faces,col);
+    skin(pts,faces,col,'paint',true);
   }
   function headlamp(x,y,z,w,h,style='bar'){
     if(style==='round'){
-      rod(chrome,[x,y,z+.07],[x,y,z-.005],w/2,'metal',w/2,22);
-      rod(headWhite,[x,y,z-.005],[x,y,z-.030],w*.425,'lights',w*.378,22);
-      for(let i=-2;i<=2;i++)block('#eac485',[x+i*w*.095,y,z-.028],[.008,w*.71,.007],.001);
+      rod('#4c4643',[x,y,z+.092],[x,y,z+.005],w*.515,'rubber',w*.515,28);
+      rod(chrome,[x,y,z+.075],[x,y,z-.007],w*.504,'metal',w*.494,32);
+      rod('#bdac7f',[x,y,z-.005],[x,y,z-.016],w*.461,'metal',w*.438,32);
+      rod(headWhite,[x,y,z-.016],[x,y,z-.026],w*.428,'matte',w*.412,32);
+      for(let i=-3;i<=3;i++)block('#e5d5a6',[x+i*w*.088,y,z-.031],[.0045,w*.694*Math.sqrt(1-(i*.21)**2),.009],.001);
+      rod('#ffebae',[x,y,z-.031],[x,y,z-.034],w*.188,'lights',w*.179,20);
     }else{
-      block(black,[x,y,z+.007],[w+.06,h+.046,.062],.024,'matte');
-      block(headWhite,[x,y,z-.028],[w,h,.021],.018,'lights');
+      block('#252831',[x,y,z+.014],[w+.064,h+.045,.072],.022,'rubber');
+      block(chrome,[x,y,z-.018],[w+.025,h+.018,.027],.017,'metal');
+      block('#fff2cb',[x,y,z-.033],[w,h,.016],.015,'matte');
+      block(headWhite,[x,y,z-.042],[w*.93,h*.63,.009],.008,'lights');
+      for(const off of [-.25,0,.25])block('#f2e0b0',[x+off*w,y,z-.048],[.007,h*.83,.006],.002,'matte');
     }
+  }
+  function fastener(x,y,z,r=.015,axis='y'){
+    const v=[x,y,z],q=v.slice(),along=axis==='x'?0:axis==='y'?1:2;
+    q[along]+=r*.42*(axis==='x'&&x<0?-1:1);
+    rod('#47434a',v,q,r*1.25,'metal',r*1.10,12);
+    const cap=q.slice();cap[along]+=r*.35*(axis==='x'&&x<0?-1:1);
+    rod(chrome,q,cap,r*.78,'metal',r*.66,6);
+  }
+  function grilleX(s,x,y,z,w,h,slats=6){
+    block('#10151b',[s*x,y,z],[.035,h,w],.013,'rubber');
+    for(let i=0;i<slats;i++)block('#525961',[s*(x+.021),y-h*.33+i*h*.66/Math.max(1,slats-1),z],[.010,.009,w*.91],.002,'metal');
   }
   function seat(d,style='black'){
     const comfort=style==='brown'?'#5b3525':'#282a2d',insert=style==='brown'?'#71452b':'#3d4146';
@@ -101,11 +179,13 @@ function trackPainter(h){
     }
   }
   function wing(y,z,width,col,tip=col,mount=[.30,.47,-.10]){
-    block(col,[0,y,z],[width,.095,.36],.026,'paint',[.10,0,0]);
+    block(col,[0,y,z],[width,.104,.36],.035,'paint',[.10,0,0]);
+    block(col==='#e92921'?'#c21d19':dark,[0,y+.004,z-.171],[width*.978,.050,.041],.013,'matte',[.10,0,0]);
     block(col,[0,y-.037,z+.103],[width*.988,.065,.20],.022,'paint',[.035,0,0]);
     for(const s of [-1,1]){
       rod(dark,[s*mount[0],mount[1],z+mount[2]],[s*width*.265,y-.046,z-.06],.053,'matte');
-      block(tip,[s*(width*.5+.005),y+.028,z],[.067,.275,.41],.031);
+      block(tip,[s*(width*.5+.005),y+.028,z],[.070,.275,.41],.033);
+      for(const d of [-1,1])fastener(s*(width*.5+.041),y+.026,z+d*.11,.013,'x');
     }
   }
   function tails(y,z,w,square=true){
@@ -122,11 +202,11 @@ function trackPainter(h){
     }
   }
   function slot(col,p,d){block(col,p,d,.015,'matte');}
-  return {geometry,block,rod,path,bulb,skin,quad,loft,stripes,arch,headlamp,seat,wing,tails,slot};
+  return {geometry,block,rod,path,bulb,skin,quad,loft,stripes,arch,headlamp,seat,wing,tails,slot,fastener,grilleX};
 }
 
 function formula(k,c){
-  const {loft,block,rod,path,stripes,seat,wing,tails}=k,col=c.color,iv=c.trim;
+  const {loft,block,rod,path,stripes,seat,wing,tails,fastener,grilleX}=k,col=c.color,iv=c.trim;
   loft(dark,[[-1.95,.34,.16,.24],[-1.04,.57,.18,.35],[.68,.77,.19,.36],[1.60,.52,.19,.32]],'matte');
   const nose=[[-2.00,.23,.205,.275],[-1.86,.281,.22,.33],[-1.56,.342,.235,.44],[-1.22,.40,.245,.56],[-.81,.49,.29,.70],[-.48,.52,.36,.735]];
   loft(col,nose);stripes(nose,r=>-Math.min(.16,r[1]*.54),r=>Math.min(.16,r[1]*.54),iv);
@@ -138,6 +218,9 @@ function formula(k,c){
     const rows=[[-.83,.16,.26,.54,s*.63],[-.56,.22,.27,.75,s*.59],[-.15,.25,.26,.745,s*.65],
       [.30,.26,.27,.70,s*.67],[.74,.22,.29,.62,s*.66],[1.09,.13,.30,.53,s*.57]];
     loft(col,rows);
+    grilleX(s,.910,.493,.27,.44,.137);
+    path('#9c1e17',[[s*.802,.29,-.54],[s*.867,.32,-.20],[s*.893,.32,.34],[s*.834,.31,.69]],.011,'paint');
+    for(const [x,y] of [[.328,.244],[.988,.262]])fastener(s*x,y,-1.885,.014);
     path(col,[[s*.49,.69,-.59],[s*.54,.84,-.23],[s*.53,.85,.22],[s*.51,.77,.55],[s*.32,.76,.67]],.051,'paint');
     for(const z of [-1.22,1.08]){
       const r=z<0?.435:.49;
@@ -151,14 +234,16 @@ function formula(k,c){
     block(col,[s*.71,.258,-1.76],[.95,.074,.23],.019,'paint',[.20,0,0]);
     block(iv,[s*1.219,.278,-1.839],[.080,.27,.44],.035,'paint',[.09,0,0]);
     rod(dark,[s*.20,.24,-1.52],[s*.48,.18,-1.82],.05,'matte');
-    rod(chrome,[s*.24,.45,1.61],[s*.24,.445,1.83],.079,'metal',.070);
-    rod(black,[s*.24,.445,1.826],[s*.24,.445,1.835],.053,'matte');
+    rod(chrome,[s*.24,.45,1.60],[s*.24,.445,1.778],.084,'metal',.076,24);
   }
-  wing(1.515,1.50,2.27,col,iv,[.30,.47,-.13]);tails(.42,1.79,.26,false);
+  wing(1.515,1.50,2.27,col,iv,[.30,.47,-.13]);
+  // Central two-chip rain light stays clear of the twin chrome outlet apertures.
+  block(carbon,[0,.511,1.744],[.23,.093,.082],.022,'rubber');
+  for(const x of [-.044,.044])block(brakeRed,[x,.514,1.787],[.059,.041,.012],.006,'lights');
 }
 
 function coupeCage(k,c,{front,rear,topFront,topRear,belt,roof,half,trim,topStripe=0,sideBack=false}){
-  const {rod,quad,loft,path,stripes,block}=k;
+  const {rod,quad,loft,path,stripes,block,fastener}=k;
   const bx=half,tx=half*.78,rearX=half*(sideBack?.96:.80),tl=roof-.065,w=c.color;
   const roofRows=[[topFront-.055,tx*.90,tl,roof-.031],[topFront+.07,tx,tl,roof],[topRear-.073,tx,tl,roof],[topRear+.028,tx*.91,tl,roof-.022]];
   loft(w,roofRows);
@@ -166,9 +251,10 @@ function coupeCage(k,c,{front,rear,topFront,topRear,belt,roof,half,trim,topStrip
   for(const s of [-1,1]){
     const lower=[s*bx,belt,front],upper=[s*tx,tl,topFront],backLower=[s*rearX,belt,rear],backUpper=[s*tx,tl,topRear];
     const middle=.27,midTop=.28;
-    for(const [a,b,r] of [[lower,upper,.055],[backLower,backUpper,.06],[upper,backUpper,.060],
-      [[s*bx,belt+.008,middle],[s*tx,tl,midTop],.039]])rod(w,a,b,r,'paint',r*.94,9);
-    path(trim,[lower,[s*(bx-.017),belt+.19,front+(topFront-front)*.25],upper],.017,'matte');
+    for(const [a,b,r] of [[lower,upper,.067],[backLower,backUpper,.071],[upper,backUpper,.068],
+      [[s*bx,belt+.008,middle],[s*tx,tl,midTop],.044]])rod(w,a,b,r,'paint',r*.94,9);
+    path(trim,[lower,[s*(bx-.017),belt+.19,front+(topFront-front)*.25],upper],.021,'rubber');
+    rod('#4b4c55',[s*(bx-.03),belt+.024,middle-.024],[s*(tx-.012),tl-.014,midTop-.02],.017,'metal');
     rod(trim,lower,backLower,.025,'matte');
     rod(trim,upper,backUpper,.023,'matte');
     rod(chrome,[s*(bx+.01),belt+.024,front+.01],[s*(rearX+.009),belt+.024,rear],.011);
@@ -186,7 +272,7 @@ function coupeCage(k,c,{front,rear,topFront,topRear,belt,roof,half,trim,topStrip
 }
 
 function rally(k,c){
-  const {loft,block,rod,stripes,arch,headlamp,seat,tails,slot,path}=k,col=c.color;
+  const {loft,block,rod,stripes,arch,headlamp,seat,tails,slot,path,fastener}=k,col=c.color;
   const bonnet=[[-1.82,.79,.45,.755],[-1.73,.91,.44,.91],[-1.51,.95,.46,.98],[-1.06,.91,.49,1.04],[-.64,.857,.48,1.075]];
   loft(col,bonnet);
   for(const z of [-.105,.105])stripes(bonnet,()=>z-.071,()=>z+.071,c.trim);
@@ -194,7 +280,13 @@ function rally(k,c){
   loft(col,[[.66,.84,.44,.97],[.96,.90,.44,1.04],[1.45,.92,.48,1.02],[1.73,.88,.46,.92],[1.82,.79,.46,.89]]);
   for(const s of [-1,1]){
     loft(col,[[-.72,.145,.34,1.070,s*.77],[-.50,.17,.41,1.067,s*.76],[.29,.16,.40,1.054,s*.75],[.73,.15,.43,1.043,s*.79],[1.03,.17,.44,1.055,s*.81]]);
-    for(const z of [-1.13,1.13])arch(s*1.13,z,.425,.418,.26,col,.087);
+    for(const z of [-1.13,1.13]){
+      arch(s*1.13,z,.425,.418,.26,col,.087);
+      arch(s*1.132,z,.427,.418,.020,'#e8a421',.021);
+    }
+    path('#bd7910',[[s*.957,.57,-.57],[s*.969,.56,-.41],[s*.968,.54,.16],[s*.967,.535,.48]],.010,'paint');
+    fastener(s*.65,.986,-1.48,.026);
+    block('#252a2e',[s*.74,.528,-1.877],[.22,.078,.015],.012,'rubber');
     slot('#4d4230',[s*.956,.696,.10],[.021,.018,.99]);
     rod('#a9691d',[s*.934,.41,.32],[s*.935,.98,.36],.010,'matte');
     block(chrome,[s*.952,1.00,.26],[.030,.038,.175],.012,'metal');
@@ -209,13 +301,17 @@ function rally(k,c){
   for(const x of [-.495,-.165,.165,.495])headlamp(x,.59,-1.90,.247,.22,'round');
   block(col,[0,1.082,1.69],[1.50,.13,.21],.045,'paint',[.12,0,0]);
   block(chrome,[0,.493,1.819],[1.78,.091,.105],.03,'metal');
+  // Period underbody muffler and a short drop section mate into the positive-Z tip socket.
+  block('#41464a',[.473,.395,1.446],[.262,.144,.42],.040,'metal');
+  path(chrome,[[.475,.397,1.46],[.516,.379,1.545],[.539,.349,1.654],[.54,.338,1.747],[.54,.338,1.813]],.064);
+  rod('#34363c',[.54,.386,1.722],[.54,.454,1.722],.018,'rubber',.015,10);
   tails(.74,1.796,.65);
   seat(c.driver);
   coupeCage(k,c,{front:-.67,rear:.94,topFront:-.35,topRear:.57,belt:1.07,roof:1.88,half:.80,trim:black,topStripe:.135,sideBack:true});
 }
 
 function prototype(k,c,T){
-  const {loft,block,rod,path,stripes,arch,headlamp,seat,wing,tails,slot,geometry}=k,col=c.color,iv=c.trim;
+  const {loft,block,rod,path,stripes,arch,headlamp,seat,wing,tails,slot,geometry,grilleX,fastener}=k,col=c.color,iv=c.trim;
   loft(carbon,[[-2.09,.91,.155,.205],[-1.93,1.22,.155,.229],[-1.60,1.275,.17,.25],[-.58,1.21,.17,.27],
     [1.48,1.23,.18,.28],[1.91,1.155,.185,.268],[2.05,.94,.18,.24]],'matte');
   const nose=[[-2.02,.48,.208,.30],[-1.83,.49,.24,.43],[-1.45,.54,.25,.535],[-1.06,.572,.26,.635],[-.84,.575,.27,.71]];
@@ -235,14 +331,18 @@ function prototype(k,c,T){
     for(const [z,r] of c.wheels)arch(s*1.24,z,r+.045,r,.37,col,.058);
     for(const [y,z] of [[.336,-1.919],[.460,-1.839]])headlamp(s*.924,y,z,.301,.089);
     slot(carbon,[s*.945,.732,-1.24],[.22,.033,.25]);
-    slot(black,[s*1.097,.47,.281],[.020,.23,.41]);slot(black,[s*.925,.79,.983],[.20,.03,.22]);
+    for(let i=0;i<4;i++)block('#7b98a7',[s*.945,.753,-1.32+i*.053],[.198,.011,.009],.003,'metal');
+    grilleX(s,1.095,.491,.27,.37,.186,5);
+    for(const z of [-1.99,-1.56,.39,1.65])fastener(s*(z< -1.85?1.01:1.166),.239,z,.016);
+    slot(black,[s*.925,.79,.983],[.20,.03,.22]);
     path(chrome,[[s*.51,.711,-.85],[s*.63,.762,-.60],[s*.66,.796,-.30],[s*.67,.809,.07],[s*.61,.803,.55],[s*.51,.767,.85]],.028);
   }
-  const dome=new T.SphereGeometry(1,40,20,0,Math.PI*2,0,Math.PI/2);
+  const dome=new T.SphereGeometry(1,36,18,0,Math.PI*2,0,Math.PI/2);
   dome.scale(.668,.98,.878);
   geometry(dome,glassColor,'glass',[0,.798,.016]);
   const rail=(theta)=>[.669*Math.cos(theta),.797,.016+.879*Math.sin(theta)];
   path(chrome,Array.from({length:21},(_,j)=>rail(j*Math.PI/10)),.025);
+  for(let j=0;j<16;j++){const a=j*Math.PI/8;const [x,y,z]=rail(a);fastener(x,y+.014,z,.013);}
   for(const s of [-1,1]){
     const seam=Array.from({length:15},(_,i)=>{
       const a=i*Math.PI/14,cross=Math.cos(a);
@@ -251,15 +351,16 @@ function prototype(k,c,T){
     path('#9faab2',seam,.008);
   }
   wing(1.455,1.63,2.28,col,col,[.41,.53,-.16]);tails(.491,2.002,.79);
-  for(const s of [-1,1])rod(chrome,[s*.38,.34,1.96],[s*.38,.34,2.069],.088,'metal',.083);
+  for(const s of [-1,1])rod(chrome,[s*.38,.34,1.935],[s*.38,.34,1.997],.085,'metal',.084,24);
 }
 
 function hotRod(k,c){
-  const {loft,block,rod,path,stripes,headlamp,seat,tails,quad}=k,iv=c.color,col=c.trim;
+  const {loft,block,rod,path,stripes,headlamp,seat,tails,quad,fastener}=k,iv=c.color,col=c.trim;
   loft(col,[[-1.77,.44,.226,.44],[-1.53,.445,.22,.48],[-.60,.56,.228,.48],[.72,.62,.22,.50],
     [1.38,.53,.23,.49],[1.84,.30,.24,.40]],'matte');
   const bonnet=[[-1.73,.374,.49,.91],[-1.58,.448,.48,1.06],[-1.31,.483,.47,1.13],[-.98,.499,.46,1.16],[-.65,.503,.48,1.12],[-.41,.513,.49,1.09]];
   loft(iv,bonnet);
+  for(const s of [-1,1])for(let j=0;j<7;j++)fastener(s*.348,.998+(j<4?.029*j:.102),-1.62+j*.18,.014);
   for(const z of [-1.28,-.87]){
     const n=.63,points=[[-.502,.73,z],[-.503,.93,z],[-.404,1.153,z],[-.25,1.169,z],[.25,1.169,z],[.404,1.153,z],[.503,.93,z],[.502,.73,z]];
     path('#70422d',points,.022,'matte');
@@ -282,6 +383,7 @@ function hotRod(k,c){
       [.67,.140,.32,.86,s*.60],[.95,.14,.35,.79,s*.60],[1.40,.13,.32,.62,s*.50]];
     loft(col,rails);
     path('#bc9e68',rails.map(([z,w,,y,xc])=>[xc+s*w*.60,y+.009,z]),.013);
+    path('#bc9e68',rails.map(([z,w,b,,xc])=>[xc+s*w+.006,b+.08,z]),.011);
     path(chrome,[[s*.44,.96,-.43],[s*.58,1.015,-.23],[s*.61,.984,.03],[s*.59,.94,.31],[s*.53,.865,.69]],.023);
     for(let i=0;i<5;i++){
       const z=-1.21+i*.143;
@@ -289,7 +391,7 @@ function hotRod(k,c){
         [s*.745,.438,z+.355],[s*.762,.436,z+.54]],.048);
     }
     rod('#8c7763',[s*.760,.435,-.88],[s*.760,.435,.64],.076,'metal',.068,20);
-    rod(black,[s*.760,.435,.638],[s*.760,.435,.642],.051,'matte');
+    path(chrome,[[s*.760,.435,.48],[s*.727,.395,.69],[s*.552,.326,.935],[s*.366,.335,1.18],[s*.35,.335,1.54],[s*.35,.335,1.877]],.071);
     headlamp(s*.615,.515,-1.635,.288,.22,'round');
     for(const z of [-1.13,1.17]){
       const r=z<0?.43:.50;
@@ -309,13 +411,14 @@ function hotRod(k,c){
 }
 
 function drift(k,c){
-  const {loft,block,rod,path,headlamp,seat,tails,arch,slot}=k,col=c.color;
+  const {loft,block,rod,path,headlamp,seat,tails,arch,slot,fastener,grilleX}=k,col=c.color;
   const nose=[[-2.025,.915,.29,.68],[-1.92,1.039,.27,.77],[-1.64,1.05,.29,.87],[-1.17,1.01,.33,.93],[-.66,.91,.34,.97]];
   loft(col,nose);
   loft('#7330a5',[[-2.105,1.012,.172,.275],[-1.97,1.136,.18,.29],[-1.41,1.115,.19,.31],[-1.28,1.051,.195,.34]]);
   loft('#511b7d',[[-.67,1.055,.192,.33],[.20,1.065,.193,.32],[.69,1.052,.206,.36],[1.58,1.012,.23,.44],[1.98,.977,.27,.42]]);
   block(col,[0,.947,-1.075],[.65,.076,.51],.055,'paint',[.16,0,0]);
-  slot(black,[0,.941,-1.335],[.52,.036,.043]);
+  slot(black,[0,.942,-1.372],[.52,.043,.056]);
+  for(const x of [-.20,-.10,0,.10,.20])block('#4a435a',[x,.952,-1.392],[.052,.008,.024],.004,'metal');
   block(black,[0,.623,-2.010],[1.788,.296,.097],.046,'matte');
   block('#6335a1',[0,.443,-2.045],[2.07,.136,.154],.04);
   block(black,[0,.299,-2.082],[1.02,.173,.07],.019,'matte');
@@ -325,6 +428,8 @@ function drift(k,c){
     headlamp(s*.697,.626,-2.056,.42,.182);
     block('#ff962a',[s*.705,.414,-2.123],[.217,.056,.022],.012,'lights');
     slot(black,[s*.835,.304,-2.104],[.314,.166,.04]);
+    path('#9f52d4',[[s*1.062,.285,-.55],[s*1.092,.255,-.27],[s*1.104,.244,.15],[s*1.096,.259,.49]],.030,'paint');
+    fastener(s*.625,.904,-1.554,.022);
     loft(col,[[-.71,.13,.30,.967,s*.857],[-.49,.16,.306,.995,s*.843],[.33,.17,.31,.965,s*.86],[.61,.16,.33,.941,s*.866]]);
     loft(col,[[.43,.12,.45,.95,s*.93],[.72,.14,.47,1.024,s*.96],[1.15,.14,.468,1.012,s*.98],[1.72,.134,.48,.958,s*.95],[1.99,.105,.45,.912,s*.903]]);
     for(const [z,r] of c.wheels){
@@ -354,7 +459,7 @@ function drift(k,c){
 }
 
 function electric(k,c){
-  const {loft,block,rod,path,stripes,arch,headlamp,seat,wing,tails,slot}=k,col=c.color,iv=c.trim;
+  const {loft,block,rod,path,stripes,arch,headlamp,seat,wing,tails,slot,fastener,grilleX}=k,col=c.color,iv=c.trim;
   loft(carbon,[[-2.13,.73,.155,.213],[-2.04,1.208,.155,.223],[-1.61,1.26,.155,.238],
     [-.62,1.23,.172,.244],[.82,1.23,.179,.249],[1.72,1.155,.182,.235],[2.015,.912,.187,.23]],'matte');
   const nose=[[-2.114,.185,.212,.284],[-1.94,.22,.24,.351],[-1.62,.26,.25,.477],[-1.15,.31,.26,.584],[-.786,.415,.29,.73],[-.51,.476,.31,.791]];
@@ -372,10 +477,14 @@ function electric(k,c){
     rod(carbon,[s*.407,.218,-1.88],[s*.919,.224,-1.61],.023,'matte');
     headlamp(s*.879,.434,-1.836,.338,.088);
     slot(black,[s*.877,.297,-1.914],[.42,.134,.044]);slot(black,[s*.889,.70,-1.438],[.33,.035,.17]);
+    for(let z of [-1.49,-1.45,-1.41])block('#597269',[s*.887,.723,z],[.293,.010,.011],.004,'metal');
+    grilleX(s,1.046,.452,.00,.28,.117,5);
+    for(const x of [.58,.854,1.09])fastener(s*x,.24,-1.955,.013);
     path('#ed6b22',[[s*.638,.50,-.35],[s*.757,.52,-.28],[s*.830,.55,-.18],[s*.825,.627,.012],[s*.793,.668,.198],[s*.842,.704,.38],[s*.955,.752,.54],[s*.994,.81,.788]],.046);
   }
   block('#363d44',[-.878,.758,.494],[.524,.55,.868],.07,'matte',[.03,0,0]);
   block('#535c62',[-.878,.777,.077],[.48,.426,.104],.041,'metal');
+  for(const x of [-1.072,-.688])for(const y of [.62,.936])fastener(x,y,.028,.014,'z');
   for(const x of [-.99,-.767]){
     block('#e97825',[x,.776,.020],[.105,.258,.032],.015,'paint');
     block('#ffa132',[x,.777,-.002],[.038,.202,.019],.008,'lights');

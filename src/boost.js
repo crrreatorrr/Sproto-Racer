@@ -86,6 +86,15 @@ export function interruptBoost(boost,kart,label) {
 }
 
 // `scaled` is false for boost that isn't the car's own to earn (stolen boost, test setups).
+/**
+ * The meter's GOOD and PERFECT bands. During the countdown the meter shows the launch revs,
+ * which every car grades on the same 0.70 / 0.90; while racing it shows the car's drift windows.
+ */
+export function meterBands(kart, launching) {
+  if (launching) return { good: GOOD, perfect: PERFECT_CHARGE };
+  return { good: kart?.tuning?.goodAt ?? GOOD, perfect: kart?.tuning?.perfectAt ?? PERFECT_CHARGE };
+}
+
 /** The grade a drift release would get right now: 'PERFECT', 'GOOD' or null. Windows follow the car. */
 export function driftGrade(boost, kart) {
   if (!driftBoostReady(boost, kart)) return null;

@@ -3,7 +3,7 @@ import './style.css';
 import {mountUI,MODES} from './ui.js';
 import {icon} from './icons.js';
 import {createInput,bindingName} from './input.js';
-import {driftGrade} from './boost.js';
+import {driftGrade,meterBands} from './boost.js';
 import {controllerIsOpen,openController} from './controller.js';
 import {attachFeedbackSdk,createFeedbackHold,installRaceFeedback,raceBreadcrumbs} from './feedback.js';
 import {createPaddock,lightScene} from './paddock.js';
@@ -449,12 +449,12 @@ function timingHUD(){
  }
  const charging=k.sliding && k.driftWasHeld && !b.chainClosed && !state.done;
  const grade=charging?driftGrade(b,k):null, ready=!!grade;
- // The meter's GOOD and PERFECT bands follow the player's car (its Boost stat).
- const meterEl=$('meterfill').parentElement, bands=(k.tuning?.goodAt??.7)+'/'+(k.tuning?.perfectAt??.9);
+ // The meter's bands: launch revs share 0.70/0.90; drifts follow the player's car (its Boost stat).
+ const meterEl=$('meterfill').parentElement, band=meterBands(k,state.countdown>0), bands=band.good+'/'+band.perfect;
  if(meterEl.dataset.bands!==bands){
    meterEl.dataset.bands=bands;
-   meterEl.style.setProperty('--good',((k.tuning?.goodAt??.7)*100)+'%');
-   meterEl.style.setProperty('--perfect',((k.tuning?.perfectAt??.9)*100)+'%');
+   meterEl.style.setProperty('--good',(band.good*100)+'%');
+   meterEl.style.setProperty('--perfect',(band.perfect*100)+'%');
  }
  boostButton.disabled=!charging;
  boostButton.classList.toggle('ready',ready);

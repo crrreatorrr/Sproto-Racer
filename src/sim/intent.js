@@ -19,6 +19,10 @@ export const BTN_BLASTERS_PRESSED = 1 << 7;
 export const PITCH_SHIFT = 8;
 export const PITCH_MASK = 0xff << PITCH_SHIFT;
 
+// Bits 16-23 live in the frame's twelfth byte.
+export const BTN_ITEM_SWAP_PRESSED = 1 << 16;
+export const BUTTONS_MASK = 0xffffff;
+
 export function quantizePitch(pitch) {
   const p = clamp(pitch || 0, -1, 1);
   return Math.abs(p) < 1 / 254 ? 0 : Math.round(p * 127) + 128;
@@ -31,9 +35,9 @@ export function dequantizePitch(q) {
 
 export const HELD_BUTTON_MASK = BTN_DRIFT_HELD | BTN_ITEM_BACKWARD | BTN_BLASTERS_HELD | PITCH_MASK;
 export const EDGE_BUTTON_MASK =
-  BTN_DRIFT_PRESSED | BTN_DRIFT_RELEASED | BTN_DRIFT_BOOST_PRESSED | BTN_ITEM_PRESSED | BTN_BLASTERS_PRESSED;
+  BTN_DRIFT_PRESSED | BTN_DRIFT_RELEASED | BTN_DRIFT_BOOST_PRESSED | BTN_ITEM_PRESSED | BTN_BLASTERS_PRESSED | BTN_ITEM_SWAP_PRESSED;
 
-export const INTENT_FRAME_BYTES = 11;
+export const INTENT_FRAME_BYTES = 12;
 
 export function quantizeSteer(steer) {
   return Math.round(clamp(steer || 0, -1, 1) * 32767);
@@ -58,6 +62,7 @@ export function packButtons(controls = {}) {
   if (controls.driftReleased) mask |= BTN_DRIFT_RELEASED;
   if (controls.driftBoostPressed) mask |= BTN_DRIFT_BOOST_PRESSED;
   if (controls.itemPressed) mask |= BTN_ITEM_PRESSED;
+  if (controls.itemSwapPressed) mask |= BTN_ITEM_SWAP_PRESSED;
   const itemBack = controls.itemBackward ?? ((controls.brake || 0) > 0.25 || (controls.reverse || 0) > 0.5);
   if (itemBack) mask |= BTN_ITEM_BACKWARD;
   if (controls.blasters) mask |= BTN_BLASTERS_HELD;
@@ -88,6 +93,7 @@ export function intentFrameToControls(frame, out = {}) {
     out.driftReleased = false;
     out.driftBoostPressed = false;
     out.itemPressed = false;
+    out.itemSwapPressed = false;
     out.itemBackward = false;
     out.blasters = false;
     out.blastersPressed = false;
@@ -104,6 +110,7 @@ export function intentFrameToControls(frame, out = {}) {
   out.driftReleased = Boolean(b & BTN_DRIFT_RELEASED);
   out.driftBoostPressed = Boolean(b & BTN_DRIFT_BOOST_PRESSED);
   out.itemPressed = Boolean(b & BTN_ITEM_PRESSED);
+  out.itemSwapPressed = Boolean(b & BTN_ITEM_SWAP_PRESSED);
   out.itemBackward = Boolean(b & BTN_ITEM_BACKWARD);
   out.blasters = Boolean(b & BTN_BLASTERS_HELD);
   out.blastersPressed = Boolean(b & BTN_BLASTERS_PRESSED);
@@ -136,6 +143,7 @@ export function encodeIntentFrame(frame, target, offset = 0) {
   view.setUint8(7, frame.brake & 0xff);
   view.setUint8(8, frame.reverse & 0xff);
   view.setUint16(9, frame.buttons & 0xffff, true);
+  view.setUint8(11, (frame.buttons >>> 16) & 0xff);
   return bytes;
 }
 
@@ -148,7 +156,7 @@ export function decodeIntentFrame(bytes, offset = 0) {
     throttle: view.getUint8(6),
     brake: view.getUint8(7),
     reverse: view.getUint8(8),
-    buttons: view.getUint16(9, true),
+    buttons: view.getUint16(9, true) | (view.getUint8(11) << 16),
   };
 }
 
@@ -159,7 +167,7 @@ export function intentFrameToTuple(frame) {
     frame.throttle & 0xff,
     frame.brake & 0xff,
     frame.reverse & 0xff,
-    frame.buttons & 0xffff,
+    frame.buttons & BUTTONS_MASK,
   ];
 }
 
@@ -171,7 +179,7 @@ export function tupleToIntentFrame(tuple) {
   if (!Number.isInteger(throttle) || throttle < 0 || throttle > 255) return null;
   if (!Number.isInteger(brake) || brake < 0 || brake > 255) return null;
   if (!Number.isInteger(reverse) || reverse < 0 || reverse > 255) return null;
-  if (!Number.isInteger(buttons) || buttons < 0 || buttons > 0xffff) return null;
+  if (!Number.isInteger(buttons) || buttons < 0 || buttons > BUTTONS_MASK) return null;
   return { tick, steer, throttle, brake, reverse, buttons };
 }
 

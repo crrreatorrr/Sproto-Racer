@@ -173,8 +173,11 @@ check('A box reserves one roll, shows changing icons, then awards the correct ch
   assert(previews.size>5);
   settlePickup(a,5+PICKUP_SPIN_SECONDS);
   assert.equal(a.held,roll.item);assert.equal(a.charges,ITEMS[roll.item].charges??1);assert.equal(a.roulette,null);
-  startPickup(a,f.racers,8);assert.equal(a.roulette,null);
-  a.held=null;a.unlimited=true;startPickup(a,f.racers,9);assert.equal(a.roulette,null);
+  // One held item leaves the second slot open; two fill the kart.
+  startPickup(a,f.racers,8);assert.ok(a.roulette);settlePickup(a,8+PICKUP_SPIN_SECONDS);
+  assert.equal(a.held,roll.item);assert.notEqual(a.reserve,null);
+  startPickup(a,f.racers,10);assert.equal(a.roulette,null);
+  a.held=null;a.reserve=null;a.unlimited=true;startPickup(a,f.racers,9);assert.equal(a.roulette,null);
 });
 check('Rank-weighted draws use full race distance and award stronger items to trailing karts',()=>{
   const f=fixture([502,501,499,498,497,496]),strong=[8,17,18,19];let previous=0;

@@ -74,7 +74,7 @@ Every lane ends on straight road. The corridor funnels down onto the landing dec
 | Carve | Hold Q | Hold Drift |
 | Barrel roll | Tap Q with A or D held | Tap Drift while steering |
 
-Rivals chase Cells, steer for a box when their item slot is empty, read the obstacles ahead, ram and dodge. Some take the Sky Gate.
+Rivals chase Cells, steer for a box while they have a free item slot (karts carry two items), read the obstacles ahead, ram and dodge. Some take the Sky Gate.
 
 Equipped karts unfold side wings on launch: a short mount slide clears the chassis, then the panels swing out and settle. On exit the assemblies reverse the move and disappear into the stock silhouette. Wings are visual only: handling, hitboxes, and boost are unchanged. The 48 non-saucer karts use vehicle-specific wing assemblies, including the revised Ironhide tilt-fans, Crestline Eight crown wings, and Golden Switchback split foils. Silver Saucer and Violet Orbit use their native flying silhouettes. A Test Drive checkpoint already inside a lane starts with wings deployed. With reduced motion enabled, wings switch directly between poses. New local Time Trial ghosts record flight mode; older ghosts still play normally without opening wings.
 
@@ -123,7 +123,7 @@ The garage displays each chassis’s changes relative to Apex. All four drivers 
 | Hop / drift | Q | RB / R1 | LB / L1 |
 | Activate drift boost | E | Left stick click / L3 | RB / R1 |
 | Reverse at low speed | Hold S / Down | Pull the left stick back | Pull the left stick back |
-| Use item | Space | B / Circle | A / Cross |
+| Use item (tap) · swap your two items (hold) | Space | B / Circle | A / Cross |
 | Fire Barrage blasters (hold, Quick Race or Test Drive) | F | D-pad up | D-pad up |
 | Previous / next test item | Z / X (or I for next) | LB / View (L1 / Share) | D-pad left / right |
 | Select test item directly | 1–0 for slots 1–10, Shift + 1–0 for slots 11–20 | — | — |

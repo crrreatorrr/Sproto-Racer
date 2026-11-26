@@ -78,7 +78,7 @@ describe('protocol, room codes, Bleve labels, and Relic/hostile-key guards', () 
     const f1 = controlsToIntentFrame(11, { throttle: 1, steer: -0.70, driftHeld: true });
     const f0 = controlsToIntentFrame(10, { throttle: 1, steer: -0.65, driftPressed: true, driftHeld: true });
     const bytes = encodeInputPacket(3, [f2, f1, f0]);
-    assert.equal(bytes.byteLength, 2 + 3 * 11);
+    assert.equal(bytes.byteLength, 2 + 3 * 12);
 
     const decoded = decodeInputPacket(bytes);
     assert.equal(decoded.seat, 3);

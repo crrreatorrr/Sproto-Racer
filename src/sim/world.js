@@ -10,7 +10,7 @@ import { ironhideAxles, ironhideHalfTrack } from '../ironhide-layout.js';
 import { geepAxles, geepScale, geepHalfTrack } from '../geep-layout.js';
 import { barrageAxles, barrageHalfTrack } from '../barrage-layout.js';
 import { hasShapedBody, isGeep, kartFootprint, footprintBox, footprintContact } from '../kart-footprint.js';
-import { ITEMS, startPickup, settlePickup } from '../items.js';
+import { ITEMS, startPickup, settlePickup, hasItemRoom, swapItems } from '../items.js';
 import { carById, driverById, racerSetup } from '../roster.js';
 import {
   createKart,
@@ -194,6 +194,8 @@ export function createSimWorld(options = {}) {
       held: null,
       roulette: null,
       charges: 0,
+      reserve: null,
+      reserveCharges: 0,
       unlimited: seatDef.id === 0 && state.mode === 'test',
       finish: null,
       finishUs: null,
@@ -325,13 +327,13 @@ export function createSimWorld(options = {}) {
       }
     }
     // Floating item boxes in a Sky Lane draw from the same seeded roulette.
-    if (k.flying && state.mode !== 'trial' && a.finish == null && !a.roulette && (a.held == null || a.unlimited)) {
+    if (k.flying && state.mode !== 'trial' && a.finish == null && !a.roulette && (hasItemRoom(a) || a.unlimited)) {
       if (grabSkyBox(track.sky, track.length, k)) {
         if (!a.unlimited) startPickup(a, state.actors, state.elapsed, rng.nextFloat);
         state.events.push({ type: 'skyBox', seat: a.id });
       }
     }
-    if (state.mode !== 'trial' && a.finish == null && !a.roulette && (a.held == null || a.unlimited)) {
+    if (state.mode !== 'trial' && a.finish == null && !a.roulette && (hasItemRoom(a) || a.unlimited)) {
       const pickups = track.pickups || [];
       for (let i = 0; i < pickups.length; i++) {
         const p = pickups[i];
@@ -467,6 +469,7 @@ export function createSimWorld(options = {}) {
         if (a.car === 'barrage' && state.mode !== 'trial' && (controls.blasters || controls.blastersPressed)) {
           play.fireBlasters(a);
         }
+        if (controls.itemSwapPressed && state.mode !== 'trial') swapItems(a);
         if (controls.itemPressed && state.mode !== 'trial') {
           play.use(a, a.held, state.actors, controls.itemBackward ?? (controls.brake > 0.25 || controls.reverse > 0.5));
         }

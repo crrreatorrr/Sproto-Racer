@@ -1,4 +1,4 @@
-import { ITEMS, startPickup, settlePickup } from './items.js';
+import { ITEMS, startPickup, settlePickup, hasItemRoom, swapItems } from './items.js';
 import { racerSetup } from './roster.js';
 import { createKart, stepKart, launchFromRamp, CRUISE_SPEED, settleInSky } from './driving.js';
 import { createBoost, stepBoost, grantBoost, updateRevs, gradeLaunch } from './boost.js';
@@ -59,6 +59,8 @@ export function createSession(track, play, fx, records = pageRecords, onVisualCu
       held: null,
       roulette: null,
       charges: 0,
+      reserve: null,
+      reserveCharges: 0,
       unlimited: !id && state.mode === 'test',
       finish: null,
       hazardCooldown: 0,
@@ -166,10 +168,10 @@ export function createSession(track, play, fx, records = pageRecords, onVisualCu
       }
     }
     // Floating item boxes in a Sky Lane draw from the same roulette.
-    if (k.flying && state.mode !== 'trial' && a.finish == null && !a.roulette && (a.held == null || a.unlimited)) {
+    if (k.flying && state.mode !== 'trial' && a.finish == null && !a.roulette && (hasItemRoom(a) || a.unlimited)) {
       if (grabSkyBox(track.sky, track.length, k) && !a.unlimited) startPickup(a, state.actors, state.elapsed);
     }
-    if (state.mode !== 'trial' && a.finish == null && !a.roulette && (a.held == null || a.unlimited)) {
+    if (state.mode !== 'trial' && a.finish == null && !a.roulette && (hasItemRoom(a) || a.unlimited)) {
       for (const p of track.pickups) {
         if (!p.hidden && cross(p) && k.y < 2.5) {
           if (!a.unlimited) startPickup(a, state.actors, state.elapsed);
@@ -276,6 +278,7 @@ export function createSession(track, play, fx, records = pageRecords, onVisualCu
         if (a.isPlayer && (k.kartImpact > 3 || k.wallImpact > 0.15)) fx.tone('bump');
         features(a, old, dt);
         if (a.car === 'barrage' && state.mode !== 'trial' && (controls.blasters || controls.blastersPressed)) play.fireBlasters(a);
+        if (controls.itemSwapPressed && state.mode !== 'trial') swapItems(a);
         if (controls.itemPressed && state.mode !== 'trial') useItem(a, controls.itemBackward ?? (controls.brake > 0.25 || controls.reverse > 0.5));
         const line = track.length * 3;
         if (state.mode !== 'test' && a.finish === null && old < line && k.s >= line) {

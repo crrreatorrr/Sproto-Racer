@@ -11,7 +11,7 @@ export { RACER_SIM_VERSION };
 
 export const GAME_ID = 'sproto-racer';
 export const MATCH_KIND = 'sproto_racer';
-export const NET_VERSION = '1';
+export const NET_VERSION = '2';
 export const DEFAULT_MAX_SEATS = 6;
 export const MAX_SEATS_LIMIT = 12;
 

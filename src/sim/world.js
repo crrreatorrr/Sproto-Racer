@@ -1,3 +1,4 @@
+import {conceptCarById} from '../concept-roster.js';
 // Pure Three.js-free deterministic 60 Hz race simulation world (1..12 seats).
 // Supports local, AI, remote, and replay seats identically in browser, Node, and Nakama Goja.
 
@@ -33,6 +34,8 @@ export const MAX_SEATS = 12;
 
 export function chassisContactMetrics(kart) {
   const id = kart.tuning?.id;
+  const concept = conceptCarById(id);
+  if (concept) return concept.contact;
   const geep = isGeep(kart);
   if (id === 'shopping-cart') return { halfTrack: cartHalfTrack, front: -cartAxles[0][0], rear: cartAxles[1][0] };
   if (id === 'skipper') return { halfTrack: skipperHalfTrack, front: -skipperAxles[0][0], rear: skipperAxles[1][0] };

@@ -1,3 +1,4 @@
+import {conceptCarById} from './concept-roster.js';
 import {skipperAxles,skipperHalfTrack} from './skipper-layout.js';
 import {cartAxles,cartHalfTrack} from './shopping-cart-layout.js';
 import {mantaAxles,mantaHalfTrack} from './manta-layout.js';
@@ -13,6 +14,12 @@ function axleGeometry(wheelbase,halfTrack,lock){
 
 let stock = null;
 let chassis = null;
+function geometryFor(id) {
+  ensureSteeringTables();
+  const c=conceptCarById(id);
+  if(c&&!chassis[id])chassis[id]=axleGeometry(...c.steering,.37);
+  return chassis[id]??stock;
+}
 function ensureSteeringTables() {
   if (chassis) return;
   stock = axleGeometry(2.13,1.015,.37);
@@ -30,15 +37,13 @@ function ensureSteeringTables() {
 // Low-speed lock follows the actual chassis. A longer steering ratio at speed
 // gives the driver room for small corrections before the tires saturate.
 export function fullLockCurvature(kart){
-  ensureSteeringTables();
-  const g=chassis[kart.tuning?.id]??stock;
+  const g=geometryFor(kart.tuning?.id);
   const speed=kart.speed||kart.reverseSpeed||0;
   return (kart.tuning?.turn??1)/(g.minRadius+stock.minRadius*speed/12);
 }
 
 export function frontWheelAngle(id,curvature,side){
-  ensureSteeringTables();
-  const g=chassis[id]??stock;
+  const g=geometryFor(id);
   return atan2(g.wheelbase*curvature,1-side*g.halfTrack*curvature);
 }
 

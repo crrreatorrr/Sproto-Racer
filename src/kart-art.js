@@ -1,3 +1,4 @@
+import {attachConcept,conceptFor} from './concept-art.js';
 import {attachSkipper} from './skipper.js';
 import {skipperAxles,skipperHalfTrack,skipperDriver} from './skipper-layout.js';
 import {attachShoppingCart} from './shopping-cart.js';
@@ -194,12 +195,13 @@ export function makeKart(id=0,car=CARS[0],person=DRIVERS[0],ghost=false) {
   const manta=car.id==='manta',crestline=car.id==='crestline';
   const cart=car.id==='shopping-cart';
   const skipper=car.id==='skipper',saucer=car.id==='saucer';
-  const ironhide=car.id==='ironhide',customShell=cart||skipper||saucer||manta||crestline||geep||hexshift||barrage||ironhide;
+  const concept=conceptFor(car.id);
+  const ironhide=car.id==='ironhide',customShell=concept||cart||skipper||saucer||manta||crestline||geep||hexshift||barrage||ironhide;
   if(hexshift)styleHexshiftShadow(shadow);
   if(geep)body.scale.setScalar(geepScale);else if(!customShell)buildShell(body,car);
   const wheels=[];
-  const exhaustY=cart?.54:skipper?1.16:saucer?.72:manta?.38:crestline?.345:geep?.735:.5,tailZ=cart?1.28:skipper?1.69:saucer?1.70:manta?mantaTail:crestline?1.93:ironhide?ironhideTail:geep?1.93:barrage?barrageTail:1.65;
-  for(const side of saucer?[]:[-1,1]){
+  const exhaustY=concept?(concept.tail?.[0]??.62):cart?.54:skipper?1.16:saucer?.72:manta?.38:crestline?.345:geep?.735:.5,tailZ=concept?(concept.tail?.[1]??concept.bounds[2]):cart?1.28:skipper?1.69:saucer?1.70:manta?mantaTail:crestline?1.93:ironhide?ironhideTail:geep?1.93:barrage?barrageTail:1.65;
+  for(const side of (saucer||concept)?[]:[-1,1]){
     const stockRadius=car.id==='pogo'?.50:car.id==='gecko'?.40:.45;
     for(const [z,radius] of (cart?cartAxles:skipper?skipperAxles:manta?mantaAxles:crestline?crestlineAxles:ironhide?ironhideAxles:geep?geepAxles:barrage?barrageAxles:[[-1.10,stockRadius],[1.03,stockRadius]])){
       const axle=new THREE.Group();axle.position.set(side*(cart?cartHalfTrack:skipper?skipperHalfTrack:manta?mantaHalfTrack:crestline?crestlineHalfTrack:ironhide?ironhideHalfTrack:geep?geepHalfTrack:barrage?barrageHalfTrack:1.015),radius,z);body.add(axle);
@@ -219,24 +221,27 @@ export function makeKart(id=0,car=CARS[0],person=DRIVERS[0],ghost=false) {
     cube(body,ink,0,.61,.14,.98,.22,.95);
     const back=cube(body,ink,0,.875,.67,.96,.52,.15);back.rotation.x=.12;
   }
-  const mount=cart?cartDriver:skipper?skipperDriver:saucer?saucerDriver:manta?mantaDriver:crestline?crestlineDriver:ironhide?ironhideDriver:geep?geepDriver:barrage?barrageDriver:hexshift?hexshiftDriver:{x:0,y:.80,z:.12,scale:1};
+  const mount=concept?concept.mount:cart?cartDriver:skipper?skipperDriver:saucer?saucerDriver:manta?mantaDriver:crestline?crestlineDriver:ironhide?ironhideDriver:geep?geepDriver:barrage?barrageDriver:hexshift?hexshiftDriver:{x:0,y:.80,z:.12,scale:1};
   const driver=new THREE.Group();
   driver.position.set(mount.x,mount.y,mount.z);driver.scale.setScalar(mount.scale);
   body.add(driver);buildDriver(driver,person);
+  if(concept?.controls!==false){
   const wheelY=mount.y+.33*mount.scale,wheelZ=mount.z-.55*mount.scale;
   rod(body,metal,[mount.x,wheelY-.47*mount.scale,wheelZ-.09*mount.scale],[mount.x,wheelY,wheelZ],.045*mount.scale);
   rod(body,ink,[mount.x-.28*mount.scale,wheelY,wheelZ],[mount.x+.28*mount.scale,wheelY,wheelZ],.025*mount.scale);
   const wheel=new THREE.Mesh(steering,paint(ink));
   wheel.position.set(mount.x,wheelY,wheelZ);wheel.scale.setScalar(mount.scale);wheel.rotation.x=-.6;body.add(wheel);
+  }
   const num=String(id+1).padStart(2,'0');
   const plateY=cart?.59:skipper?1.34:manta?.39:crestline?.70:ironhide?.78:geep?.991:barrage?.49:.62;
   const plateZ=cart?1.38:manta?2.13:crestline?1.94:ironhide?2.14:barrage?2.00:tailZ;
-  if(!saucer&&!skipper){
+  if(!saucer&&!skipper&&!concept){
     cube(body,ink,0,plateY,plateZ,.88,.24,.12);
     if(!crestline)plate(body,num,0,plateY,plateZ+.065,.33,.16);
   }
   const timingLamp=new THREE.MeshBasicMaterial({color:0x411e18});
   for(const x of [-.32,.32]){
+    if(concept)continue;
     if(saucer){
       const lamp=piece(body,ball,timingLamp,x,.826,1.917,.077,.028,.032);
       lamp.rotation.y=Math.atan2(x,1.917);
@@ -245,7 +250,7 @@ export function makeKart(id=0,car=CARS[0],person=DRIVERS[0],ghost=false) {
   }
   const flames=[];
   for(const side of [-1,1]){
-    const nozzle=new THREE.Group();nozzle.position.set(side*.52,exhaustY,tailZ+.16);
+    const nozzle=new THREE.Group();nozzle.visible=false;nozzle.position.set(side*.52,exhaustY,tailZ+.16);
     const outer=new THREE.Mesh(new THREE.ConeGeometry(.19,1,8),new THREE.MeshBasicMaterial({color:0xff8c34}));
     const core=new THREE.Mesh(new THREE.ConeGeometry(.12,1,7),new THREE.MeshBasicMaterial({color:0xfff3b6}));
     for(const cone of [outer,core]){cone.rotation.x=Math.PI/2;nozzle.add(cone);}
@@ -255,6 +260,7 @@ export function makeKart(id=0,car=CARS[0],person=DRIVERS[0],ghost=false) {
   }
   for(const w of wheels)batchParts(w);
   batchParts(driver);batchParts(body);
+  if(concept)attachConcept(body,wheels,concept);
   if(skipper)attachSkipper(body,wheels,shadow);
   if(cart)attachShoppingCart(body,wheels);
   if(saucer)attachSaucer(body);
@@ -264,9 +270,9 @@ export function makeKart(id=0,car=CARS[0],person=DRIVERS[0],ghost=false) {
   if(geep)attachGeep(body,wheels);
   if(barrage)attachBarrage(body,wheels,shadow);
   const gem=hexshift?attachHexshift(body,wheels):null;
-  const solidMeshes=[...body.children.filter(m=>m.isMesh),...driver.children,...wheels.flatMap(w=>w.children.concat(w.userData.fork?.children??[]))];
+  const solidMeshes=[...body.children.filter(m=>m.isMesh),...driver.children,...wheels.flatMap(w=>(w.userData.conceptParts??w.children).concat(w.userData.fork?.children??[]))];
   const moons=hexshift?makeLunarWake(body):null;
-  g.userData={body,wheels,gem,moons,driver,driverHeight:mount.y,flames,shadow,timingLamp,solidMeshes,car:car.id,character:person.id};return g;
+  g.userData={body,wheels,gem,moons,driver,driverHeight:mount.y,flames,shadow,timingLamp,solidMeshes,car:car.id,concept,character:person.id};return g;
 }
 export function animateKart(g,k,b,time) {
   const a=g.userData;
@@ -282,7 +288,7 @@ export function animateKart(g,k,b,time) {
   a.body.rotation.x=hop*.12+suspension*.42;
   a.body.rotation.z=roll-slip*hop*.36;
   // Scale the smaller buggy occupant’s excursion to the bucket and wheel.
-  const driverMotion=a.driver.scale.x**2;
+  const driverMotion=a.driver.scale.x**2*(a.concept?.hover?.9:a.concept?.mount?.scale<.85?.55:1);
   a.driver.rotation.z=driverMotion*(Math.sin(time*10)*Math.min(k.speed/450,.045)-slip*.26);
   const meter=k.sliding&&!b.chainClosed?b.meter:0;
   a.timingLamp.color.setHex(meter>=.9?0xe8ff75:meter>=.7?0xffa247:a.car==='saucer'?0xffad4f:0x411e18);
@@ -290,15 +296,16 @@ export function animateKart(g,k,b,time) {
   const rack=(k.steer||0)*fullLockCurvature(k);
   for(const w of a.wheels){
     w.position.y=w.userData.rideHeight-(suspension+hop*.10)/a.body.scale.y;
-    const spin=(a.car==='shopping-cart'||a.car==='skipper'||a.car==='manta'||a.car==='crestline'||a.car==='barrage'||a.car==='ironhide')?1/w.userData.rideHeight:a.car==='geep'?1/(w.userData.rideHeight*geepScale):2.2;
-    w.rotation.x=-(k.s||0)*spin;
-    w.rotation.y=w.position.z<0?-frontWheelAngle(a.car,rack,Math.sign(w.position.x)):0;
+    const spin=a.concept?1/w.userData.rideHeight:(a.car==='shopping-cart'||a.car==='skipper'||a.car==='manta'||a.car==='crestline'||a.car==='barrage'||a.car==='ironhide')?1/w.userData.rideHeight:a.car==='geep'?1/(w.userData.rideHeight*geepScale):2.2;
+    w.rotation[w.userData.spinAxis??'x']=-(k.s||0)*spin;
+    w.rotation.y=(a.concept?w.userData.steer:w.position.z<0)?-frontWheelAngle(a.car,rack,Math.sign(w.position.x)):0;
     const fork=w.userData.fork;
     if(fork){fork.position.y=w.position.y;fork.rotation.y=w.rotation.y;}
   }
   a.shadow.visible=!k.fall && lift>=0;
   const shadowSize=1/(1+Math.max(0,lift+bounce)*.19);
-  a.shadow.scale.set((a.car==='saucer'?saucerRadius:a.car==='ironhide'?1.77:a.car==='manta'?1.65:1.32)*shadowSize,(a.car==='saucer'?saucerRadius:a.car==='ironhide'?2.43:a.car==='manta'?2.60:2)*shadowSize,1);
+  a.shadow.scale.set((a.concept?a.concept.bounds[0]:a.car==='saucer'?saucerRadius:a.car==='ironhide'?1.77:a.car==='manta'?1.65:1.32)*shadowSize,(a.concept?Math.max(-a.concept.bounds[1],a.concept.bounds[2]):a.car==='saucer'?saucerRadius:a.car==='ironhide'?2.43:a.car==='manta'?2.60:2)*shadowSize,1);
+  if(a.concept?.hover)a.body.position.y+=.035*Math.sin(time*3.8);
   const flash=b.ignition||0, power=b.plume||0;
   if(a.gem){
     animateLunarWake(a.moons,power,slip,time);
@@ -338,6 +345,7 @@ export function disposeKart(kart) {
     if(!sharedMaterials.has(mesh.material))materials.add(mesh.material);
   });
   for(const g of geometries)g.dispose();
+  if(kart.userData.concept)materials.add(kart.userData.timingLamp);
   for(const m of materials)m.dispose();
   kart.removeFromParent();
 }

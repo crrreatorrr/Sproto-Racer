@@ -34,6 +34,7 @@
 .garage-open #return-hub{display:none}
 @media(max-width:620px){#return-hub{top:8px;right:8px;padding:6px 8px}#return-hub span{font-size:13px}}
 .garage-choices{display:flex;gap:9px;flex-wrap:wrap}
+.garage-car-choices{max-height:clamp(138px,34dvh,320px);overflow-y:auto;overscroll-behavior:contain;scrollbar-gutter:stable;padding:2px 5px 3px 2px;align-content:start}
 .garage-choices button{flex:1 1 115px;display:grid;gap:4px;position:relative;text-align:left;background:var(--surface);color:var(--paper);border:1px solid var(--line);border-radius:3px;padding:12px 12px 12px 20px}
 .garage-choices button:before{content:"";position:absolute;left:6px;top:12px;bottom:12px;width:4px;background:var(--paint)}
 .garage-choices button[aria-pressed=true]{border-color:var(--lime);background:#2a332a}

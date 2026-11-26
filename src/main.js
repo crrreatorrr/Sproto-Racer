@@ -7,7 +7,8 @@ import {PERFECT_CHARGE} from './boost.js';
 import {driftBoostReady} from './driving.js';
 import {controllerIsOpen,openController} from './controller.js';
 import {attachFeedbackSdk,createFeedbackHold,installRaceFeedback,raceBreadcrumbs} from './feedback.js';
-import {createPaddock,lightScene} from './paddock.js';
+import {createPaddock} from './paddock.js';
+import {createCircuitLighting} from './circuit-lighting.js';
 import {updateRivalVisibility} from './kart-visibility.js';
 import {makeKart,animateKart,disposeKart,resetKartWingPose} from './kart-art.js';
 import {createGarage} from './garage.js';
@@ -43,12 +44,13 @@ renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=1.
 $('hero-canvas').append(renderer.domElement);
 const paddock=createPaddock();
 const world=new THREE.Scene();
+const sceneLight=createCircuitLighting(world,renderer,{enabled:new URLSearchParams(location.search).get('shadows')!=='off'});
 function setCircuitAtmosphere(course){
   const look=CIRCUIT_ATMOSPHERE[course.id]??CIRCUIT_ATMOSPHERE.track01;
   world.background=new THREE.Color(look.background);
   world.fog=new THREE.FogExp2(look.fog,look.density);
+  sceneLight.atmosphere(course.id);
 }
-lightScene(world,2.1);
 const camera=new THREE.PerspectiveCamera(62,1,.15,6500);
 let chosenCourse=savedCourse();
 setCircuitAtmosphere(chosenCourse);
@@ -63,12 +65,13 @@ function cancelTrackMount(){
 }
 function scheduleTrackMount(targetTrack){
   cancelTrackMount();
-  const mount=()=>{trackMountJob=null;if(targetTrack===track)targetTrack.mountVisuals();};
+  const mount=()=>{trackMountJob=null;if(targetTrack===track){targetTrack.mountVisuals();sceneLight.prepareTrack(targetTrack.trackGroup);}};
   trackMountJob=typeof requestIdleCallback==='function'?requestIdleCallback(mount,{timeout:400}):setTimeout(mount,32);
 }
 function ensureTrackVisuals(){
   cancelTrackMount();
   track.mountVisuals();
+  sceneLight.prepareTrack(track.trackGroup);
 }
 scheduleTrackMount(track);
 
@@ -107,6 +110,7 @@ function syncModel(old,id,setup,ghost=false){
   }
   const m=makeKart(id,car,driver,ghost,{flightWings:true});
   if(ghost)m.traverse(mesh=>{if(mesh.isMesh){mesh.userData.originalPaint=mesh.material;mesh.material=ghostPaint;}});
+  sceneLight.prepareKart(m,ghost);
   world.add(m);return m;
 }
 let screen='lobby',selected='race',modal='',controllerOpen=false,muted=false,config={...DEFAULT_TEST};
@@ -170,7 +174,7 @@ function noteCrumbs(){
 const feedbackHold=createFeedbackHold(input,{pauseAudio:()=>fx.pause()});
 function renderFeedbackFrame(){
   if(screen==='lobby')paddock.render(renderer,animation,w||1,h||1);
-  else{ensureTrackVisuals();renderer.render(world,camera);}
+  else{ensureTrackVisuals();sceneLight.focus(track,state.player?.kart,animation,true);renderer.render(world,camera);}
 }
 const feedbackHandle=installRaceFeedback({
   hold(){pendingEdges={};pendingSlot=null;return feedbackHold.hold();},
@@ -211,6 +215,7 @@ function loadSelectedCourse(){
   cancelTrackMount();
   const next=createTrack(world,chosenCourse);
   track.dispose();track=next;
+  sceneLight.prepareTrack(next.trackGroup);
   setCircuitAtmosphere(chosenCourse);
   play.setTrack(track);fx.setTrack(track);itemFx.setTrack(track);
   session=createSession(track,play,fx,undefined,itemFx.cue);state=session.state;
@@ -608,7 +613,7 @@ function frame(now){
  const host=screen==='lobby'?$('hero-canvas'):$('race-canvas');const W=host.clientWidth,H=host.clientHeight;
  if(W&&H){
    // Sharper high-DPI paint/deck edges, without sizing a 4K desktop at 2×.
-   const ratio=Math.max(1,Math.min(window.devicePixelRatio||1,2.25,Math.sqrt(5_000_000/(W*H))));
+   const ratio=Math.max(1,Math.min(window.devicePixelRatio||1,2.5,Math.sqrt(6_000_000/(W*H))));
    if(W!==w||H!==h||renderer.getPixelRatio()!==ratio){
     w=W;h=H;
     if(renderer.getPixelRatio()!==ratio)renderer.setPixelRatio(ratio);
@@ -663,6 +668,7 @@ function frame(now){
    fx.update(dt,state.actors,true,state.countdown>0);syncWorld(dt,Math.min(1,accumulator*60));
    itemFx.update(dt,camera);timingHUD();raceCues();skyHUD();
    if(now-lastHUD>45){hud();lastHUD=now;}
+   sceneLight.focus(track,state.player?.kart,animation);
    renderer.render(world,camera);
    perf.recordFrame(rawDt*1000,renderer,now);
    noteCrumbs();

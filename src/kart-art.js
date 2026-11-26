@@ -190,9 +190,22 @@ function buildDriver(driver,person){
     cube(driver,accent,0,1.38,-.42,.60,.072,.11);
   }
 }
+// Soft, resolution-independent contact under the tires; also works without
+// the local directional shadow map (garage, low-power mode, high flight).
+const contactSize=48;
+const contactTexels=new Uint8Array(contactSize*contactSize*4);
+for(let y=0;y<contactSize;y++)for(let x=0;x<contactSize;x++){
+ const r=Math.hypot((x+.5)/contactSize*2-1,(y+.5)/contactSize*2-1);
+ const a=Math.round(Math.max(0,1-r*r)**2*255);
+ const i=4*(x+y*contactSize);contactTexels.set([a,a,a,255],i);
+}
+const softContact=new THREE.DataTexture(contactTexels,contactSize,contactSize);
+softContact.minFilter=THREE.LinearFilter;softContact.magFilter=THREE.LinearFilter;
+softContact.needsUpdate=true;
+
 export function makeKart(id=0,car=CARS[0],person=DRIVERS[0],ghost=false,{flightWings=false}={}) {
   const g=new THREE.Group(),body=new THREE.Group();g.add(body);
-  const shadow=new THREE.Mesh(new THREE.CircleGeometry(1,24),new THREE.MeshBasicMaterial({color:0x16252c,transparent:true,opacity:.28,depthWrite:false,polygonOffset:true,polygonOffsetFactor:-2}));
+  const shadow=new THREE.Mesh(new THREE.CircleGeometry(1,32),new THREE.MeshBasicMaterial({color:0x142638,alphaMap:softContact,transparent:true,opacity:.34,depthWrite:false,polygonOffset:true,polygonOffsetFactor:-2}));
   shadow.rotation.x=-Math.PI/2;shadow.scale.set(1.32,2,1);shadow.position.y=.025;g.add(shadow);
   const geep=car.id==='geep',hexshift=car.id==='hexshift',barrage=car.id==='barrage';
   const manta=car.id==='manta',crestline=car.id==='crestline';

@@ -51,6 +51,8 @@ Select a circuit in the paddock before choosing a mode, driver, and car. Each ma
 
 ### Circuit look and grip
 
+The HD pass uses higher-detail terrain and trackside hardware, weather-specific pavement finishes, a separate lighting palette per circuit, and soft sunlight shadows in a local area around the racer. High-DPI resolution is capped by a fixed pixel budget. For a lower GPU load, add `?shadows=off` to the race URL; the lighting palette and soft tire contact remain.
+
 - **Test Track 01** keeps its training-campus layout with improved road, track fixtures and a deeper foothill skyline. Three shallow rain patches alternate sides, leaving a dry route.
 - **Crestline Ridge** is a snow circuit. Blue ice spans three marked stretches. Braking and turning have less grip on ice, with a smooth change at each edge. The minimap marks the stretches in cyan and the HUD warns before entry. Airborne controls and Sky Lanes are unchanged. Prior course times and ghosts are retained under their original records; post-update runs use new slots on all three courses.
 - **Switchback Summit** replaces the freight-yard setting with a granite mountain pass while preserving the racing line and gaps. Runoff pools cross parts of the bends; take the dry side for more grip.

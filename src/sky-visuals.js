@@ -3,6 +3,7 @@
 // reads the same pure functions as the simulation, so what you see is what hits.
 
 import * as THREE from 'three';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { bladeAngle, partPose } from './sim/sky.js';
 import { itemModel } from './item-art.js';
 import { createSkyCrossingArt } from './sky-crossing-art.js';
@@ -14,6 +15,30 @@ const THEMES = {
 };
 const CELL_COLOR = 0x6ff6ff;
 const MEGA_COLOR = 0xffd34a;
+
+// A cut rather than round gem: crown, bevel and broad center faces stay
+// readable against the horizon while the emissive material catches light.
+function boostCrystal(){
+ const n=6,profile=[[0,-1],[.51,-.58],[.78,-.27],[.78,.26],[.51,.62],[0,1]];
+ const pos=[],tone=[],u=new THREE.Color();
+ const bands=[.77,.93,.85,1,.88,.99];
+ const point=(r,y,x)=>[Math.cos(x*Math.PI/3)*r,y,Math.sin(x*Math.PI/3)*r];
+ function push(a,b,c,shade){
+  pos.push(...a,...b,...c);
+  u.setRGB(shade,shade,shade);
+  for(let i=0;i<3;i++)tone.push(u.r,u.g,u.b);
+ }
+ for(let i=0;i<profile.length-1;i++)for(let j=0;j<n;j++){
+  const [r0,y0]=profile[i],[r1,y1]=profile[i+1],a=point(r0,y0,j),b=point(r0,y0,j+1),c=point(r1,y1,j+1),d=point(r1,y1,j);
+  const g=bands[(i+j)%n];
+  if(r0>0)push(a,d,b,g);
+  if(r1>0)push(d,c,b,Math.min(1,g+.065));
+ }
+ const g=new THREE.BufferGeometry();
+ g.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));
+ g.setAttribute('color',new THREE.Float32BufferAttribute(tone,3));g.computeVertexNormals();
+ return g;
+}
 
 export function createSkyVisuals(group, core) {
   const sky = core.sky;
@@ -51,7 +76,8 @@ export function createSkyVisuals(group, core) {
   const geo = {
     box: keep(new THREE.BoxGeometry(1, 1, 1)),
     scenery: keep(theme.texture==='rig'?new THREE.BoxGeometry(1,1,1):new THREE.IcosahedronGeometry(0.70,1)),
-    cell: keep(new THREE.OctahedronGeometry(1, 0)),
+    cell: keep(boostCrystal()),
+    structure: keep(new RoundedBoxGeometry(1,1,1,1,.024)),
     halo: keep(new THREE.TorusGeometry(1.55, 0.09, 6, 28)),
   };
   const mat = {
@@ -61,9 +87,9 @@ export function createSkyVisuals(group, core) {
     post: keep(new THREE.MeshBasicMaterial({ color: theme.accent, transparent: true, opacity: 0.55 })),
     warn: keep(new THREE.MeshBasicMaterial({ color: 0xffa23a, transparent: true, opacity: 0.75 })),
     crossingWarn: keep(new THREE.MeshBasicMaterial({color:0xffc36a,transparent:true,opacity:.80,depthWrite:false})),
-    cell: keep(new THREE.MeshBasicMaterial({ color: CELL_COLOR })),
+    cell: keep(new THREE.MeshStandardMaterial({ color: CELL_COLOR,emissive:0x1bb4d5,emissiveIntensity:.55,roughness:.35,metalness:.19,vertexColors:true,side:THREE.DoubleSide })),
     cellHalo: keep(new THREE.MeshBasicMaterial({ color: CELL_COLOR, transparent: true, opacity: 0.55, depthWrite: false })),
-    mega: keep(new THREE.MeshBasicMaterial({ color: MEGA_COLOR })),
+    mega: keep(new THREE.MeshStandardMaterial({ color: MEGA_COLOR,emissive:0xec7617,emissiveIntensity:.52,roughness:.35,metalness:.17,vertexColors:true,side:THREE.DoubleSide })),
     megaHalo: keep(new THREE.MeshBasicMaterial({ color: MEGA_COLOR, transparent: true, opacity: 0.6, depthWrite: false })),
     deck: keep(new THREE.MeshLambertMaterial({ color: 0x3e4552, flatShading: true })),
     stripe: keep(new THREE.MeshBasicMaterial({ color: 0xf3efd9 })),
@@ -195,7 +221,7 @@ export function createSkyVisuals(group, core) {
   }
 
   function boxAt(parent, material, s, x, y, w, h, d) {
-    const mesh = new THREE.Mesh(geo.box, material);
+    const mesh = new THREE.Mesh(material.map===livery?geo.structure:geo.box, material);
     place(mesh, s, x, y);
     mesh.scale.set(w, h, d);
     parent.add(mesh);
@@ -307,7 +333,7 @@ export function createSkyVisuals(group, core) {
             place(hub, part.s, part.cx, part.cy);
             const pivot = new THREE.Group();
             hub.add(pivot);
-            const blade = new THREE.Mesh(geo.box, mat.moving);
+            const blade = new THREE.Mesh(geo.structure, mat.moving);
             blade.scale.set(part.length, part.width * 2, part.hs * 2);
             blade.position.x = part.length / 2;
             pivot.add(blade);
@@ -326,7 +352,7 @@ export function createSkyVisuals(group, core) {
             }
             continue;
           }
-          const mesh = new THREE.Mesh(geo.box, material);
+          const mesh = new THREE.Mesh(geo.structure, material);
           place(mesh, pose.s, pose.x, pose.y);
           mesh.scale.set(pose.hx * 2, pose.hy * 2, pose.hs * 2);
           lapGroup.add(mesh);

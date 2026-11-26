@@ -24,7 +24,7 @@ const roadLooks = {
 // Vertex coordinates identify painted road space independent of its world winding.
 // Grain is derivative-filtered so early camera switch/long-distance views do not shimmer.
 function styleRoad(material) {
-  material.customProgramCacheKey = () => 'sproto-paved-ribbon-2';
+  material.customProgramCacheKey = () => 'sproto-paved-ribbon-hd';
   material.onBeforeCompile = (shader) => {
     shader.vertexShader = 'attribute vec3 aPavement; varying vec3 vPavement;\n' + shader.vertexShader.replace(
       '#include <begin_vertex>', '#include <begin_vertex>\n vPavement = aPavement;'
@@ -39,24 +39,76 @@ function styleRoad(material) {
     ` + shader.fragmentShader.replace('#include <color_fragment>', `
       #include <color_fragment>
       if(vPavement.z>=0.) {
-      vec2 q=vPavement.xy;
-      float lod=max(length(dFdx(q)),length(dFdy(q)));
-      float grain=(roadNoise(q*9.)-.5)*(1.-smoothstep(.045,.26,lod));
-      float mottling=(roadNoise(q*vec2(.92,.21))-.48);
-      float darkened=1.+mottling*.13+grain*.19;
-      float drift=(roadNoise(q*vec2(3.,.18))-.5)*.12;
-      float resin=(1.-smoothstep(.18,.25,abs(fract(q.x/3.85+.5)-.5)))*.044;
-      vec3 tar=diffuseColor.rgb*(darkened+drift-resin);
-      vec2 lens=vec2(q.x*1.03+q.y*.093,q.y*.26-q.x*.20);
-      float veins=abs(roadNoise(lens*1.6)-.51);
-      float crack=(1.-smoothstep(.016,.037+lod*.08,veins));
-      float frost=roadNoise(lens*.44);
-      float sheen=pow(max(0.,sin(q.y*.095 + q.x*.25 + frost*2.1)),2.);
-      vec3 ice=mix(vec3(.075,.18,.27),vec3(.17,.34,.45),frost*.77+sheen*.23);
-      ice=mix(ice,vec3(.27,.44,.51),crack*.35*(1.-smoothstep(.31,.7,lod)));
-      // Physics mask is independent from underlying tar tone; feather only inside its edges.
-      diffuseColor.rgb=mix(tar,ice,clamp(vPavement.z,0.,1.)*.97);
+        vec2 q=vPavement.xy;
+        float lod=max(length(dFdx(q)),length(dFdy(q)));
+        float detail=1.-smoothstep(.055,.30,lod);
+        float aggregate=(roadNoise(q*13.)-.5)*detail;
+        float macro=roadNoise(q*vec2(.31,.045));
+        float weather=roadNoise(q*vec2(1.14,.17));
+        float wander=sin(q.y*.043)*.88+sin(q.y*.015)*1.37;
+        float tire=abs(abs(q.x-wander)-1.022);
+        float strip=1.-smoothstep(.14,.52,tire);
+        float shoulders=smoothstep(9.0,18.5,abs(q.x));
+        float polishedRuts=strip*(.04+weather*.105)*(1.-shoulders);
+        float seamX=abs(fract(q.x/6.35+.515+(weather-.5)*.026)-.5)*6.35;
+        float seamY=abs(fract(q.y/22.6+.5+q.x*.002+macro*.009)-.5)*22.6;
+        float groove=1.-smoothstep(.035,.089+lod*.14,min(seamX,seamY));
+        float joints=groove*.068*(1.-smoothstep(.25,.88,lod));
+        vec3 tar=diffuseColor.rgb*(.93+macro*.12+weather*.08+aggregate*.23-polishedRuts-joints);
+        tar+=vec3(.010,.014,.014)*shoulders*weather;
+        if(vPavement.z>.001) {
+          vec2 lens=vec2(q.x*.95+q.y*.13,q.y*.19-q.x*.24);
+          float sheet=roadNoise(lens*.37), ripple=roadNoise(lens*1.06);
+          float fracture=1.-smoothstep(.013,.047+lod*.035,abs(ripple-.51));
+          float snowFrost=smoothstep(.57,.80,sheet*.68+ripple*.32);
+          float edge=vPavement.z*(.87+weather*.13);
+          vec3 ice=mix(vec3(.048,.148,.224),vec3(.153,.31,.41),sheet*.82+ripple*.18);
+          ice+=vec3(.11,.17,.20)*fracture*.24*(1.-smoothstep(.25,.79,lod));
+          ice=mix(ice,vec3(.20,.37,.48),snowFrost*.30);
+          diffuseColor.rgb=mix(tar,ice,clamp(edge,0.,1.));
+        } else diffuseColor.rgb=tar;
       }
+    `);
+    shader.fragmentShader=shader.fragmentShader.replace('#include <opaque_fragment>', `
+      if(vPavement.z>.001) {
+        float glancing=1.-abs(dot(normalize(vViewPosition),normal));
+        float contrast=abs(sin(vPavement.y*.080 + vPavement.x*.11+roadNoise(vPavement.xy*.061)*2.6));
+        outgoingLight+=vec3(.022,.047,.068)*pow(glancing,2.7)*contrast*vPavement.z;
+      }
+      #include <opaque_fragment>
+    `);
+
+  };
+}
+
+function styleGround(material) {
+  material.customProgramCacheKey=()=> 'ground-paint-hd';
+  material.onBeforeCompile=(shader)=>{
+    shader.vertexShader='varying vec2 vGround;\n'+shader.vertexShader.replace('#include <begin_vertex>',
+      '#include <begin_vertex>\n vGround=position.xy;');
+    shader.fragmentShader='varying vec2 vGround;\n'+shader.fragmentShader.replace('#include <color_fragment>', `
+      #include <color_fragment>
+      vec2 q=vGround;
+      float b=sin(q.x*.014 + sin(q.y*.016))*.50+sin((q.x+q.y)*.031)*.28;
+      float g=sin(q.x*.142+q.y*.19)*sin(q.y*.116-q.x*.217);
+      float closeDetail=1.-smoothstep(.15,1.55,max(length(dFdx(q)),length(dFdy(q))));
+      diffuseColor.rgb*=1.+b*.14+g*.052*closeDetail;
+    `);
+  };
+}
+function styleRunoff(material) {
+  material.customProgramCacheKey=()=> 'runoff-hd';
+  material.onBeforeCompile=(shader)=>{
+    shader.vertexShader='attribute vec2 aRunoff; varying vec2 vRunoff;\n'+shader.vertexShader.replace('#include <begin_vertex>',
+      '#include <begin_vertex>\n vRunoff=aRunoff;');
+    shader.fragmentShader='varying vec2 vRunoff;\n'+shader.fragmentShader.replace('#include <opaque_fragment>', `
+      vec2 q=vRunoff;
+      float glancing=1.-abs(dot(normalize(vViewPosition),normal));
+      float ripples=.53+.16*sin(q.x*30.+sin(q.y*17.)*.45)+.17*sin(q.y*55.+q.x*8.);
+      float edge=smoothstep(.66,1.,max(abs(q.x),abs(q.y)));
+      outgoingLight*=1.+ripples*.11-edge*.18;
+      outgoingLight+=vec3(.027,.052,.068)*glancing*glancing*ripples*(1.-edge*.38);
+      #include <opaque_fragment>
     `);
   };
 }
@@ -382,10 +434,14 @@ export function createTrack(scene, course = CIRCUITS[0], options = {}) {
       cone: new THREE.ConeGeometry(0.5, 1, 6),
       drum: new THREE.CylinderGeometry(0.5, 0.5, 1, 10),
       sphere: new THREE.IcosahedronGeometry(0.5, 0),
+      bevel: chamferCase(1,1,1,.105),
+      glaze: new THREE.BoxGeometry(1,1,1),
     };
     const solid = new THREE.MeshLambertMaterial({ flatShading: true });
     const dirt = new THREE.MeshLambertMaterial({ color: C.floor });
-    extraDisposables = [...Object.values(geo), solid, dirt];
+    styleGround(dirt);
+    const windowMaterial = new THREE.MeshPhongMaterial({shininess:68,specular:0x8eafb8,emissive:0x071420});
+    extraDisposables = [...Object.values(geo), solid, dirt, windowMaterial];
 
     const ground = new THREE.Mesh(new THREE.PlaneGeometry(18000, 18000), dirt);
     ground.rotation.x = -Math.PI / 2;
@@ -414,6 +470,22 @@ export function createTrack(scene, course = CIRCUITS[0], options = {}) {
     function world(kind, x, y, z, w, h, d, c, yaw = 0) {
       shape(kind, new THREE.Vector3(x, y, z), w, h, d, c, yaw);
     }
+    const upright = new THREE.Vector3(0,1,0);
+    function beam(a,b,w,d,color,kind='box') {
+      const delta=b.clone().sub(a), p=a.clone().lerp(b,.5), length=delta.length();
+      if(length<.001)return;
+      const key=kind+':'+tile(p);
+      if(!instances.has(key))instances.set(key,{kind,parts:[]});
+      q.setFromUnitVectors(upright,delta.multiplyScalar(1/length));
+      instances.get(key).parts.push([new THREE.Matrix4().compose(p,q,scale.set(w,length,d)),color]);
+    }
+    // Keep props off the route and clear across crossovers; track tiles are long
+    // enough that testing only the nominal sector's center would miss nearby lanes.
+    const clearanceFrames=[];
+    if(original)for(let s=0;s<length;s+=14){
+      const f=frame(s);clearanceFrames.push([f.center.x,f.center.z,f.width*.5]);
+    }
+    const safeCampus=(x,z,r)=>!clearanceFrames.some(([a,b,half])=>(a-x)**2+(b-z)**2<(half+r+13)**2);
     const positiveHeight = (p) => p.y + 6.4;
     function post(s, x, width = 0.76, topOffset = -0.25, color = C.steel) {
       if (roadGone(s)) return;
@@ -453,6 +525,29 @@ export function createTrack(scene, course = CIRCUITS[0], options = {}) {
       }
       vertex(pa,a,x1); vertex(pb,a,x2); vertex(pc,b,x4);
       vertex(pa,a,x1); vertex(pc,b,x4); vertex(pd,b,x3);
+    }
+    function bankLoft(p, radius, depth, height, heading, style) {
+      // Contoured terrain with an inset foot and windward color facets rather than
+      // floating prop cones. Fits below race views and lives in their static tiles.
+      const shades=style===0?[0x799a78,0x8aa77b,0x95ad81]:[0x708f71,0x7e9a75,0x8ca579];
+      const rings=[1,.78,.44,.16], heights=[-.07,.25,.69,.95], radials=10, layers=[];
+      const ca=Math.cos(heading),sa=Math.sin(heading);
+      for(let j=0;j<rings.length;j++){
+        const r=rings[j], y=heights[j];const layer=[];
+        for(let i=0;i<radials;i++){
+          const t=i*TAU/radials, offset=1+.10*Math.cos(i*2.8+p.x*.013)+.14*Math.sin(i*1.85+p.z*.012);
+          const x=Math.cos(t)*radius*r*offset+height*.13*j;
+          const z=Math.sin(t)*depth*r*offset;
+          layer.push(new THREE.Vector3(p.x+x*ca-z*sa,p.y+height*y*(.92+.12*Math.sin(i*.89+j*.26)),p.z+x*sa+z*ca));
+        }
+        layers.push(layer);
+      }
+      const crest=new THREE.Vector3(p.x+.48*height*ca,p.y+height,p.z+.48*height*sa);
+      for(let i=0;i<radials;i++){
+        const k=(i+1)%radials;
+        for(let j=0;j<layers.length-1;j++)quad(layers[j][i],layers[j][k],layers[j+1][k],layers[j+1][i],shades[(j+Math.floor(i*.75))%3]);
+        tri(layers[3][i],layers[3][k],crest,shades[1+(i%2)]);
+      }
     }
     const colorCache = new Map();
     function colorValue(n) {
@@ -737,17 +832,18 @@ export function createTrack(scene, course = CIRCUITS[0], options = {}) {
     // Glossy runoff sits on the actual section cross-slope, below markings. The
     // oval silhouette matches the pure grip mask; the opposite lane stays dry.
     if(core.wetPatches.length){
-      const wetPos=[],wetColors=[];
+      const wetPos=[],wetColors=[],wetUV=[];
       const material=new THREE.MeshPhongMaterial({vertexColors:true,side:THREE.DoubleSide,
-        shininess:95,specular:0xb7dfed,flatShading:false});
-      const swatch=[0x46677a,0x304754,0x293e4d,0x314f60,0x426276];
+        shininess:115,specular:0x557d9b,flatShading:false});
+      styleRunoff(material);
+      const swatch=[0x40535c,0x31454f,0x293d48,0x263947,0x2b414c,0x334d57,0x40535c];
       const slices=[-1,-.87,-.43,0,.43,.87,1];
       function sampleWet(p,u,v){
         const f=frame(p.s0+(u+1)*.5*(p.s1-p.s0));
         const r=Math.sqrt(Math.max(0,1-u*u));
         return lp(f,p.x+v*r*p.width*.5,.063);
       }
-      function addWet(v,hex){wetPos.push(v.x,v.y,v.z);const c=colorValue(hex);wetColors.push(c.r,c.g,c.b);}
+      function addWet(v,hex,u,x){wetPos.push(v.x,v.y,v.z);wetUV.push(x,u);const c=colorValue(hex);wetColors.push(c.r,c.g,c.b);}
       for(const p of core.wetPatches){
         const steps=Math.max(15,Math.ceil((p.s1-p.s0)/2.4));
         for(let i=0;i<steps;i++){
@@ -755,8 +851,8 @@ export function createTrack(scene, course = CIRCUITS[0], options = {}) {
           for(let n=0;n<slices.length-1;n++){
             const lo=slices[n],hi=slices[n+1], low=swatch[Math.min(n,swatch.length-1)],high=swatch[Math.min(n+1,swatch.length-1)];
             const a0=sampleWet(p,a,lo),a1=sampleWet(p,a,hi),b0=sampleWet(p,b,lo),b1=sampleWet(p,b,hi);
-            addWet(a0,low);addWet(a1,high);addWet(b1,high);
-            addWet(a0,low);addWet(b1,high);addWet(b0,low);
+            addWet(a0,low,a,lo);addWet(a1,high,a,hi);addWet(b1,high,b,hi);
+            addWet(a0,low,a,lo);addWet(b1,high,b,hi);addWet(b0,low,b,lo);
           }
         }
         const s=p.s0-37,f=frame(s),side=Math.sign(p.x);
@@ -764,6 +860,7 @@ export function createTrack(scene, course = CIRCUITS[0], options = {}) {
       }
       const geo=new THREE.BufferGeometry();
       geo.setAttribute('position',new THREE.Float32BufferAttribute(wetPos,3));
+      geo.setAttribute('aRunoff',new THREE.Float32BufferAttribute(wetUV,2));
       geo.setAttribute('color',new THREE.Float32BufferAttribute(wetColors,3));
       geo.computeVertexNormals();
       const wetMesh=new THREE.Mesh(geo,material);wetMesh.name='Circuit puddle patches';trackGroup.add(wetMesh);
@@ -786,12 +883,33 @@ export function createTrack(scene, course = CIRCUITS[0], options = {}) {
         trackShape('box',s,side*x,height+1.42,2.28,.55,3.3,C.steel);
         trackShape('pillar',s,side*x,height+2.32,.42,1.2,.42,tower);
         trackShape('sphere',s,side*x,height+3.03,.65,.65,.65,beacon);
+        trackShape('bevel',s-1.18,side*x,1.74,2.30,1.22,.67,tower);
+        for(const offset of [-.42,.42]) {
+          trackShape('glaze',s-1.53,side*x+offset,1.75,.34,.48,.085,beacon);
+          const f=frame(s-.96);
+          beam(lp(f,side*x+offset,2.76),lp(f,side*x-offset,4.25),.09,.16,C.steel);
+        }
+        for(const z of [-.78,.78]) {
+          const f=frame(s+z);
+          beam(lp(f,side*x,height-3.9),lp(f,side*(x-2.6),height-1.32),.23,.25,C.steel);
+        }
+
       }
       trackShape('box', s, 0, height, x * 2 + 1.6, 2.5, 1.58, tower);
       textPanel(s - 0.84, 0, height, 2 * x + 0.95, 2.38, title, kicker, tower, C.milk);
       trackShape('box',s,0,height+1.39,2*x+1.82,.22,2.18,beacon);
       trackShape('box',s,0,height-1.30,2*x+1.80,.16,1.93,C.steel);
-      for(let p=-4;p<=4;p++) trackShape('box',s-.90,(p/5)*x,height-1.34,.89,.16,.42,p%2?C.orange:beacon);
+      for(let p=-4;p<=4;p++){
+        const x0=(p/5)*x;
+        trackShape('box',s-.91,x0,height-1.34,.89,.16,.42,p%2?C.orange:beacon);
+        trackShape('bevel',s+.11,x0,height-1.45,1.37,.31,1.57,tower);
+        trackShape('glaze',s+.12,x0,height-1.63,.78,.09,1.07,beacon);
+      }
+      const trussF=frame(s+.59);
+      for(let i=-4;i<4;i++){
+        beam(lp(trussF,i*x/4,height+1.33),lp(trussF,(i+1)*x/4,height+2.50),.11,.18,C.steel);
+        beam(lp(trussF,i*x/4,height+2.50),lp(trussF,(i+1)*x/4,height+2.50),.10,.14,tower);
+      }
 
     }
     arch(0, original ? 'SPROTO RACING' : course.name.toUpperCase(), 'START  /  FINISH                              COMPETITION RESEARCH UNIT');
@@ -815,8 +933,16 @@ export function createTrack(scene, course = CIRCUITS[0], options = {}) {
       trackShape('box',s,x,base+.55,9.6,.57,9.4,C.steel);
       trackShape('box',s,x-side*6.8,base*.33,.71,1.65,11.6,C.dark);
       for(let j=-2;j<=2;j++){
-        trackShape('box',s+j*2.3,x-side*6.38,base*.71,.45,1.26,1.91,glazing);
+        trackShape('bevel',s+j*2.3,x-side*6.38,base*.71,.46,1.34,2.01,C.ink);
+        trackShape('glaze',s+j*2.3,x-side*6.65,base*.71,.15,1.00,1.78,glazing);
+        trackShape('box',s+j*2.3,x-side*6.74,base*.71,.10,1.03,.10,C.steel);
         trackShape('box',s+j*2.3,x-side*7.2,base*.17,.37,.41,1.84,trim);
+      }
+      for(const z of [-5.4,5.4]){
+        const f=frame(s+z), near=x-side*7.1;
+        beam(lp(f,near,base*.37),lp(f,near+side*2.55,base+.23),.18,.18,C.steel);
+        trackShape('bevel',s+z,near,base*.23,.71,1.46,.73,facilityTint);
+        trackShape('glaze',s+z,near-side*.40,base*.62,.083,.25,.78,trim);
       }
       if(!original && !summit){
         trackShape('box',s,x,base+.91,11.8,.29,11.8,C.snow);
@@ -1183,6 +1309,14 @@ export function createTrack(scene, course = CIRCUITS[0], options = {}) {
           const margin = iw * 0.045;
           const H = ih;
           const small = !!spec.kicker;
+          const accent=spec.headline.includes('ICE')||spec.headline.includes('WET') ? 0x89dcf6 : spec.headline==='DROP'?0x253a42:trim;
+          ctx.fillStyle=css(accent);
+          ctx.fillRect(ix+margin,iy+H*.062,Math.min(iw-2*margin,H*.39),Math.max(2,H*.027));
+          ctx.globalAlpha=.72;
+          ctx.fillRect(ix+margin,iy+H*.92,iw*.71,Math.max(2,H*.025));
+          ctx.globalAlpha=.97;
+          for(let k=0;k<3;k++)ctx.fillRect(ix+iw-margin-(k+1)*H*.123,iy+H*.92,H*.063,Math.max(2,H*.025));
+          ctx.globalAlpha=1;
           ctx.fillStyle = css(spec.fg);
           if (small) {
             ctx.font = '700 ' + Math.max(10, Math.round(H * 0.16)) + 'px Arial, sans-serif';
@@ -1260,6 +1394,66 @@ export function createTrack(scene, course = CIRCUITS[0], options = {}) {
     if(biome)trackGroup.add(biome);
 
     if (original) {
+      // Tarmac research campus: three low wind-tunnel/power annexes face the
+      // outside of the circuit. All footprints explicitly clear every route leg.
+      for(const [i,u,sign,offset] of [[0,.31,1,61],[2,.71,-1,72],[7,.53,1,73],[10,.24,-1,65]]){
+        const s=at(i,u), f=frame(s), x=sign*(f.width*.5+offset);
+        const pt=surface(f,x), footprint=25;
+        if(!safeCampus(pt.x,pt.z,footprint)||roadGone(s))continue;
+        const y=-6.36-pt.y;
+        trackShape('bevel',s,x,y+.4,38,.8,33,0x677a73);
+        trackShape('bevel',s,x,y+3.8,24,7.6,16,0x425d58);
+        trackShape('box',s,x,y+8.26,25,.86,17.4,0x90b5a3);
+        trackShape('bevel',s,x,y+9.58,11,2.3,12,0x375e62);
+        trackShape('glaze',s,x,y+9.96,10.0,1.16,13.0,0x64a9a8);
+        for(let k=-2;k<=2;k++){
+          trackShape('box',s+k*2.7,x-sign*12.3,y+5.4,.46,2.0,2.30,C.dark);
+          trackShape('glaze',s+k*2.7,x-sign*12.6,y+5.4,.23,1.53,1.94,0x70bac6);
+          trackShape('box',s+k*2.7,x-sign*12.8,y+3.6,.19,.42,2.25,k%2?C.orange:C.mint);
+        }
+        for(const k of [-9.3,9.3]){
+          trackShape('bevel',s+k,x+sign*6,y+6.8,6.0,13.6,5.0,0x4a706e);
+          trackShape('pillar',s+k,x+sign*6,y+14.1,5.7,1.0,5.7,C.foam);
+          trackShape('pillar',s+k,x+sign*6,y+11.3,6.05,.62,6.05,C.orange);
+          trackShape('pillar',s+k,x+sign*6,y+15.3,.3,2,.3,C.fascia);
+        }
+        for(const k of [-1,1]){
+          const z=s+12.85*k, f=frame(z), xb=x-sign*14;
+          const attach=surface(f,xb), y0=-6.37-attach.y;
+          beam(lp(f,xb,y0),lp(f,xb+sign*4.5,y0+4.6),.26,.28,C.dark);
+          trackShape('glaze',z,xb+sign*4.5,y0+4.74,1.6,.33,.76,C.lime);
+        }
+      }
+      for(let s=95;s<length;s+=107){
+        const f=frame(s), sign=Math.sin(s*.012)>0?1:-1;
+        const r=12+rand()*20, d=r*.71+rand()*12;
+        const off=sign*(f.width*.5+Math.max(r,d)+26+rand()*49);
+        const p=surface(f,off);
+        if(!safeCampus(p.x,p.z,Math.max(r,d)+2))continue;
+        p.y=-6.42;
+        const h=4.8+rand()*11;
+        bankLoft(p,r,d,h,rand()*TAU,s%2);
+        for(let k=0;k<3;k++){
+          const ang=rand()*TAU, dx=Math.cos(ang)*r*.34, dz=Math.sin(ang)*d*.34;
+          const ht=4+rand()*5;
+          world('pillar',p.x+dx,p.y+h*.57+ht*.46,p.z+dz,.64,ht,.64,0x6c7161);
+          world(k%2?'sphere':'cone',p.x+dx,p.y+h*.58+ht,p.z+dz,ht*.88,ht*.94,ht*.84,k%2?0x618e6b:0x477d69);
+        }
+      }
+      // Roadside verges form an amber/green vegetation rhythm visible from cockpit.
+      for(let s=37;s<length;s+=47){
+        const f=frame(s);
+        if(f.center.y>24||roadGone(s))continue;
+        for(const side of [-1,1]){
+          const x=side*(f.width*.5+9.8+rand()*4.1);
+          const p=surface(f,x);
+          // Decorative grasses are tiny and below the actual retaining edge.
+          if(f.center.y<12){
+            p.y=-4.4+rand()*1.4;
+            shape('sphere',p,3.2+rand()*4.4,1.5+rand()*1.9,3+rand()*5,side>0?0x94ab6d:0x708f62,rand()*TAU);
+          }
+        }
+      }
       const siteColors = [C.mint, C.foam, C.steel, 0xabc2af];
       for (const [sIdx, u, side] of [[0, 0.6, 1], [1, 0.7, -1], [2, 0.2, 1], [6, 0.88, 1], [7, 0.47, 1], [9, 0.3, 1], [10, 0.81, -1]]) {
         const f = frame(at(sIdx, u));
@@ -1271,6 +1465,7 @@ export function createTrack(scene, course = CIRCUITS[0], options = {}) {
           if (nodes.some((n, i) => i % 6 === 0 && n.p.y < h + 4 && Math.hypot(n.p.x - p.x, n.p.z - p.z) < 20 + Math.max(w, d))) continue;
           p.y = -6.3 + h / 2;
           shape('box', p, w, h, d, siteColors[j % 4]);
+          shape('box',p.clone().add(new THREE.Vector3(0,h*.10,-.5*d)),w*.91,.66,.18,0x486665);
           p.y += h / 2;
           shape('box', p, w + 1, 0.72, d + 1, C.foam);
           if (j % 2 === 0) {
@@ -1305,7 +1500,7 @@ export function createTrack(scene, course = CIRCUITS[0], options = {}) {
       const mesh=new THREE.Mesh(g,pavementMaterial);mesh.name='pavedCircuit';trackGroup.add(mesh);
     }
     for (const { kind, parts } of instances.values()) {
-      const mesh = new THREE.InstancedMesh(geo[kind], solid, parts.length);
+      const mesh = new THREE.InstancedMesh(geo[kind], kind==='glaze'?windowMaterial:solid, parts.length);
       parts.forEach(([matrix, hex], index) => {
         mesh.setMatrixAt(index, matrix);
         mesh.setColorAt(index, colorValue(hex));

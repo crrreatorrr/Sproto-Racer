@@ -12,8 +12,9 @@ const SKY_COURSES = {
   track01: {
     theme: 'rig',
     lanes: [
-      { kind: 'main', from: [4, 0.06], to: [6, 0.89], width: 34, floor: 2, ceiling: 26 },
-      { kind: 'gate', from: [8, 0.08], to: [9, 0.1], width: 24, floor: 9, ceiling: 30, entry: [6, 14], openLap: 2 },
+      // Lanes end on straight road, so a kart landing at flight speed can hold its line.
+      { kind: 'main', from: [4, 0.06], to: [7, 0.5], width: 34, floor: 2, ceiling: 26 },
+      { kind: 'gate', from: [8, 0.08], to: [9, 0.85], width: 24, floor: 9, ceiling: 30, entry: [6, 14], openLap: 2 },
     ],
   },
   track02: {
@@ -27,7 +28,7 @@ const SKY_COURSES = {
     theme: 'crane',
     lanes: [
       { kind: 'main', from: [8, 0.1], to: [9, 0.98], width: 34, floor: 2, ceiling: 26 },
-      { kind: 'gate', from: [7, 0.06], to: [7, 0.9], width: 24, floor: 9, ceiling: 30, entry: [5, 13], openLap: 2 },
+      { kind: 'gate', from: [7, 0.06], to: [7, 0.74], width: 24, floor: 9, ceiling: 30, entry: [5, 13], openLap: 2 },
     ],
   },
 };
@@ -277,12 +278,20 @@ export function catapultCrossed(sky, length, s0, x0, s1, x1) {
   return -1;
 }
 
-/** Corridor ceiling, tapering toward the floor over the final stretch. */
-export function laneCeiling(lane, s, length) {
+function exitTaper(lane, s, length) {
   const d = mod(s, length);
   const u = (d - lane.start) / (lane.end - lane.start);
-  const taper = smoothstep(1 - TAPER - 0.04, 1, u);
-  return mix(lane.ceiling, lane.floor + 2.5, taper);
+  return smoothstep(1 - TAPER - 0.04, 1, u);
+}
+
+/** Corridor ceiling, tapering down onto the landing deck over the final stretch. */
+export function laneCeiling(lane, s, length) {
+  return mix(lane.ceiling, 1.2, exitTaper(lane, s, length));
+}
+
+/** Corridor floor, easing down to the deck so a kart touches down as the lane ends. */
+export function laneFloor(lane, s, length) {
+  return mix(lane.floor, 0.3, exitTaper(lane, s, length));
 }
 
 const pose = { s: 0, x: 0, y: 0, hs: 0, hx: 0, hy: 0 };

@@ -1,7 +1,7 @@
 import {fullLockCurvature,tireTurnRate,demandForRate} from './steering.js';
 import {hasShapedBody,laneBounds} from './kart-footprint.js';
 import {atan,atan2,cos,exp,pow4,sin,tan} from './sim/math.js';
-import {catapultCrossed,laneCeiling} from './sim/sky.js';
+import {catapultCrossed,laneCeiling,laneFloor} from './sim/sky.js';
 // SI units throughout. s measures progress along the centre line; x is right
 // of it. Both yaw and travelYaw are relative to the local road tangent.
 export const CRUISE_SPEED = 55;
@@ -68,7 +68,7 @@ export function createKart(tuning = {speed:1, accel:1, turn:1}) {
     flying:false, skyLane:-1, skyY:0, skyVX:0, skyVY:0, skyScrape:0, skyScraped:false,
     skyPrevS:0, skyPrevX:0, skyPrevY:0, skyCarve:false, rollTime:0, rollDir:0, rollCool:0,
     trickTime:0, trickCount:0, trickKind:0, trickLanded:0, trickSloppy:false,
-    tumble:0, tumbleFall:false, wobble:0, towing:0, skyCarry:0, skyDive:false, skyExit:false, skyLaunch:0,
+    tumble:0, tumbleFall:false, wobble:0, towing:0, skyCarry:0, skyDive:false, skyLaunch:0,
   };
 }
 
@@ -378,7 +378,6 @@ export function startFlight(kart,road,index){
   kart.skyPrevX=kart.x;
   kart.skyPrevY=kart.skyY;
   kart.skyDive=false;
-  kart.skyExit=false;
   kart.grounded=false;
   kart.hopping=false;
   kart.pendingDrift=false;
@@ -391,20 +390,28 @@ export function startFlight(kart,road,index){
 }
 
 function leaveFlight(kart,road){
-  const lane=road.sky.lanes[kart.skyLane];
   kart.flying=false;
   kart.skyLane=-1;
-  kart.grounded=false;
-  // The corridor ceiling has tapered to just above the landing deck by now.
-  kart.y=Math.max(0.05,kart.skyY+centreLift(kart,road));
-  kart.vy=Math.min(kart.skyVY,0)-2;
-  if(!lane.optional)kart.y=Math.min(kart.y,lane.floor+2.5);
+  // The corridor has funnelled down onto the deck by now, so the kart touches
+  // down at once and keeps following the road at flight speed.
+  kart.grounded=true;
+  kart.landed=true;
+  kart.y=0;
+  kart.vy=0;
   kart.airtime=0;
+  kart.lastAirTime=0;
   kart.airFloorY=null;
-  kart.takeoffPitch=kart.pitch;
-  kart.takeoffRoll=0;
+  kart.suspensionVelocity=-1.6;
+  kart.pitch=0;
+  kart.roll=0;
+  // A dive onto the deck keeps flight speed; a flat or late landing scrubs it.
+  if(!kart.skyDive)kart.speed*=0.85;
+  // Leave the lane pointing down the road; sideways flight speed is not carried.
+  kart.travelYaw*=0.25;
+  kart.yaw=kart.travelYaw;
+  kart.lateralSpeed=0;
+  kart.bumpVelocityX=0;
   kart.skyCarry=SKY_CARRY_SECONDS;
-  kart.skyExit=true;
   kart.rollTime=0;
   kart.tumble=0;
   kart.towing=0;
@@ -468,7 +475,12 @@ export function stepFlight(kart,input,road,boost,dt){
   kart.x+=vx*dt;
   kart.skyY+=kart.skyVY*dt;
 
-  const half=lane.width/2-HALF_KART_WIDTH;
+  // Over the last stretch the corridor narrows to the landing deck's width, so
+  // the kart touches down between the rails.
+  const toEnd=lane.end-(kart.s-lapBase(kart,road));
+  const deckHalf=(road.widthAt?road.widthAt(lapBase(kart,road)+lane.end+5):lane.width)/2-2.2;
+  const funnel=1-clamp((toEnd-30)/120,0,1);
+  const half=Math.min(lane.width/2,lane.width/2+(deckHalf-lane.width/2)*funnel)-HALF_KART_WIDTH;
   if(Math.abs(kart.x)>half){
     const side=Math.sign(kart.x);
     kart.x=side*half;
@@ -480,9 +492,10 @@ export function stepFlight(kart,input,road,boost,dt){
     if(kart.skyVX*side>0)kart.skyVX=0;
   }
   const ceiling=laneCeiling(lane,kart.s,road.length);
+  const floor=laneFloor(lane,kart.s,road.length);
   if(kart.skyY>ceiling){kart.skyY=ceiling;if(kart.skyVY>0)kart.skyVY=0;}
-  if(kart.skyY<lane.floor){
-    kart.skyY=lane.floor;
+  if(kart.skyY<floor){
+    kart.skyY=floor;
     if(kart.skyVY<0)kart.skyVY=0;
     // Knocked out of the bottom of a main lane: drop into the void and respawn.
     if(kart.tumble>0 && kart.tumbleFall && !lane.optional){
@@ -592,11 +605,6 @@ export function stepKart(kart, input = {}, road = {}, boost = {}, dt = 1 / 60) {
     }else kart.trickLanded=kart.trickCount;
     kart.trickCount=0;
     kart.trickTime=0;
-  }
-  if(kart.landed && kart.skyExit){
-    // A dive onto the deck keeps flight speed; a flat or late landing scrubs it.
-    if(!kart.skyDive)kart.speed*=0.85;
-    kart.skyExit=false;
   }
   if(road.sky && !kart.fall && kart.s>launchS){
     const lane=catapultCrossed(road.sky,road.length,launchS,launchX,kart.s,kart.x);

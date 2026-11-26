@@ -38,7 +38,9 @@ export function openController(input, onClose = () => {}) {
         <label for="ctrl-dz">Stick dead zone <output id="ctrl-out"></output></label>
         <input id="ctrl-dz" type="range" min="0" max="40" step="1">
         <label class="ctrl-check"><input id="ctrl-invert" type="checkbox"> Reverse steering</label>
+        <label class="ctrl-check"><input id="ctrl-invert-pitch" type="checkbox"> Invert Sky Lane pitch</label>
       </div>
+      <p class="ctrl-sky">Sky Lanes: left stick up dives, down climbs. Hold Drift to carve; tap Drift while steering to barrel-roll. Keyboard: W dives, S climbs.</p>
       <div class="ctrl-rowhead"><span>Driving control</span><span>Gamepad input</span><span>Assign</span></div>
       <div class="ctrl-rows"></div>
       <p class="ctrl-help" role="status" aria-live="polite"></p>
@@ -53,7 +55,7 @@ export function openController(input, onClose = () => {}) {
   let raf = 0, capture = '', captureReady = false, captureSince = 0;
   const selects = {}, rows = {}, binders = {};
   let lastSignature = '';
-  const deadzone = el('#ctrl-dz'), inverted = el('#ctrl-invert');
+  const deadzone = el('#ctrl-dz'), inverted = el('#ctrl-invert'), invertedPitch = el('#ctrl-invert-pitch');
 
   function fillOptions(pad) {
     const codes = optionCodes(pad, input.settings);
@@ -76,6 +78,7 @@ export function openController(input, onClose = () => {}) {
     deadzone.value = Math.round(input.settings.deadzone * 100);
     el('#ctrl-out').value = deadzone.value + '%';
     inverted.checked = input.settings.invert;
+    invertedPitch.checked = !!input.settings.invertPitch;
   }
   function endCapture(text = help) {
     capture = '';
@@ -121,6 +124,7 @@ export function openController(input, onClose = () => {}) {
     input.save();
   });
   inverted.addEventListener('change', () => { input.settings.invert = inverted.checked; input.save(); });
+  invertedPitch.addEventListener('change', () => { input.settings.invertPitch = invertedPitch.checked; input.save(); });
   el('.ctrl-restore').addEventListener('click', () => { input.restore(); endCapture('Default controller bindings restored.'); });
 
   const close = () => dialog.close();
@@ -159,7 +163,7 @@ export function openController(input, onClose = () => {}) {
       deadzone.value = Number(deadzone.value) + dir;
       deadzone.dispatchEvent(new Event('input'));
     }
-    if (press(0) && (target instanceof HTMLButtonElement || target === inverted)) target.click();
+    if (press(0) && (target instanceof HTMLButtonElement || target === inverted || target === invertedPitch)) target.click();
   }
   function frame() {
     if (!dialog.open) return;

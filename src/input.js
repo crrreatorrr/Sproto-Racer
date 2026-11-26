@@ -64,7 +64,8 @@ function settingsFromDisk() {
   return {
     bindings,scheme,
     deadzone: Number.isFinite(saved.deadzone) ? Math.max(0, Math.min(0.4, saved.deadzone)) : 0.14,
-    invert: saved.invert === true
+    invert: saved.invert === true,
+    invertPitch: saved.invertPitch === true
   };
 }
 
@@ -142,6 +143,7 @@ export function createInput() {
       settings.bindings = {...PRESETS[settings.scheme]};
       settings.deadzone = 0.14;
       settings.invert = false;
+      settings.invertPitch = false;
       api.save();
     },
     block(value) {

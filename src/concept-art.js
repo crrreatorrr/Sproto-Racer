@@ -1,6 +1,6 @@
 import * as T from 'three';
 import {RoundedBoxGeometry} from 'three/addons/geometries/RoundedBoxGeometry.js';
-import {assembly} from './kart-assembly.js';
+import {assembly,alloyReflections} from './kart-assembly.js';
 import {concepts as tracks} from './concepts/track.mjs';
 import {concepts as terrain} from './concepts/terrain.mjs';
 import {concepts as oddballs} from './concepts/oddballs.mjs';
@@ -10,8 +10,11 @@ export const conceptArt = [...tracks,...terrain,...oddballs,...construction];
 const byId = new Map(conceptArt.map(c=>[c.id,c]));
 export const conceptFor = id => byId.get(id);
 const cache = new Map();
-const solid = new T.MeshStandardMaterial({vertexColors:true,roughness:.57});
-const metal = new T.MeshStandardMaterial({vertexColors:true,roughness:.36,metalness:.48});
+const studio=alloyReflections();
+const solid = new T.MeshStandardMaterial({vertexColors:true,roughness:.57,metalness:.055,envMap:studio,envMapIntensity:.20});
+const coat = new T.MeshPhysicalMaterial({vertexColors:true,roughness:.37,metalness:.12,
+  clearcoat:.64,clearcoatRoughness:.25,envMap:studio,envMapIntensity:.53});
+const metal = new T.MeshStandardMaterial({vertexColors:true,roughness:.32,metalness:.59,envMap:studio,envMapIntensity:.67});
 const rubber = new T.MeshStandardMaterial({vertexColors:true,roughness:.88});
 const glow = new T.MeshBasicMaterial({vertexColors:true});
 const glassMats = new Map();
@@ -20,21 +23,21 @@ const tirePaint = '#24282e';
 function materialOf(type,color){
   if(type==='glass'){
     if(!glassMats.has(color))glassMats.set(color,new T.MeshStandardMaterial({
-      color,roughness:.21,metalness:.08,opacity:.25,transparent:true,depthWrite:false
+      color,roughness:.17,metalness:.09,opacity:.24,transparent:true,depthWrite:false,envMap:studio,envMapIntensity:.47
     }));
     return glassMats.get(color);
   }
-  return type==='glow'?glow:type==='metal'?metal:type==='rubber'?rubber:solid;
+  return type==='glow'?glow:type==='metal'?metal:type==='rubber'?rubber:type==='coat'?coat:solid;
 }
 function model(){
   const a=assembly(solid);
   const mesh=(color,geometry,p=[0,0,0],q=[0,0,0],type='solid')=>a.add(geometry,materialOf(type,color),color,p,q);
   const rounded=(color,p,size,bevel,q,type)=>mesh(color,new RoundedBoxGeometry(...size,1,
     Math.max(0,Math.min(bevel,Math.min(...size)*.46))),p,q,type);
-  const box=(color,p,size,bevel=.03,q=[0,0,0])=>rounded(color,p,size,bevel,q,'solid');
+  const box=(color,p,size,bevel=.03,q=[0,0,0],type='solid')=>rounded(color,p,size,bevel,q,type);
   const glass=(color,p,size,bevel=.03,q=[0,0,0])=>rounded(color,p,size,bevel,q,'glass');
   const pipe=(color,p,q,r,r2=r,n=12)=>a.pipe(color,p,q,r,solid,r2,n);
-  const sphere=(color,p,[x,y,z],q=[0,0,0])=>mesh(color,new T.SphereGeometry(1,16,12).scale(x,y,z),p,q);
+  const sphere=(color,p,[x,y,z],q=[0,0,0],type='solid')=>mesh(color,new T.SphereGeometry(1,16,12).scale(x,y,z),p,q,type);
   return {T,mesh,box,pipe,sphere,glass,finish:a.finish};
 }
 function makeWheel(spec,car){
@@ -95,7 +98,14 @@ function makeWheel(spec,car){
         const a=i*Math.PI/6;h.pipe(rim,[inset,0,0],[inset,spokeR*Math.cos(a),spokeR*Math.sin(a)],r*.035);
       }
     }
-    barrel('#c7a986',r*.27,.048,[inset+side*.035,0,0],'metal');
+    const hubX=inset+side*.035;
+    barrel('#a18560',r*.29,.048,[hubX,0,0],'metal');
+    barrel('#3c414b',r*.135,.034,[hubX+side*.023,0,0],'metal');
+    for(let i=0;i<5;i++){
+      const a=i*Math.PI*.4;
+      h.mesh('#ded3bb',new T.CylinderGeometry(r*.037,r*.048,.021,5),
+        [hubX+side*.026,r*.209*Math.cos(a),r*.209*Math.sin(a)],[0,0,Math.PI/2],'metal');
+    }
   }
   return h.finish();
 }
@@ -132,4 +142,22 @@ export function attachConcept(body,wheels,spec){
     }else for(const part of rolling[i])clonePart(part,axle);
     body.add(axle);wheels.push(axle);
   }
+}
+
+let shadowMap;
+export function styleConceptShadow(mesh){
+  if(!shadowMap){
+    const n=64,rgba=new Uint8Array(n*n*4);
+    for(let y=0;y<n;y++)for(let x=0;x<n;x++){
+      const r=Math.hypot((x+.5)/n*2-1,(y+.5)/n*2-1);
+      const fall=Math.max(0,1-r*r);
+      const i=(y*n+x)*4;
+      rgba[i]=rgba[i+1]=rgba[i+2]=255;rgba[i+3]=Math.round(255*fall*fall);
+    }
+    shadowMap=new T.DataTexture(rgba,n,n,T.RGBAFormat);
+    shadowMap.magFilter=T.LinearFilter;shadowMap.minFilter=T.LinearFilter;
+    shadowMap.needsUpdate=true;
+  }
+  mesh.material.map=shadowMap;
+  mesh.material.opacity=.56;
 }

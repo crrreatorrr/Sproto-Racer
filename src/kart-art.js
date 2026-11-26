@@ -1,4 +1,5 @@
-import {attachConcept,conceptFor} from './concept-art.js';
+import {attachConcept,conceptFor,styleConceptShadow} from './concept-art.js';
+import {animateExhausts,mountExhausts} from './kart-exhaust.js';
 import {attachSkipper} from './skipper.js';
 import {skipperAxles,skipperHalfTrack,skipperDriver} from './skipper-layout.js';
 import {attachShoppingCart} from './shopping-cart.js';
@@ -198,9 +199,10 @@ export function makeKart(id=0,car=CARS[0],person=DRIVERS[0],ghost=false) {
   const concept=conceptFor(car.id);
   const ironhide=car.id==='ironhide',customShell=concept||cart||skipper||saucer||manta||crestline||geep||hexshift||barrage||ironhide;
   if(hexshift)styleHexshiftShadow(shadow);
+  if(concept)styleConceptShadow(shadow);
   if(geep)body.scale.setScalar(geepScale);else if(!customShell)buildShell(body,car);
   const wheels=[];
-  const exhaustY=concept?(concept.tail?.[0]??.62):cart?.54:skipper?1.16:saucer?.72:manta?.38:crestline?.345:geep?.735:.5,tailZ=concept?(concept.tail?.[1]??concept.bounds[2]):cart?1.28:skipper?1.69:saucer?1.70:manta?mantaTail:crestline?1.93:ironhide?ironhideTail:geep?1.93:barrage?barrageTail:1.65;
+  const tailZ=concept?(concept.tail?.[1]??concept.bounds[2]):cart?1.28:skipper?1.69:saucer?1.70:manta?mantaTail:crestline?1.93:ironhide?ironhideTail:geep?1.93:barrage?barrageTail:1.65;
   for(const side of (saucer||concept)?[]:[-1,1]){
     const stockRadius=car.id==='pogo'?.50:car.id==='gecko'?.40:.45;
     for(const [z,radius] of (cart?cartAxles:skipper?skipperAxles:manta?mantaAxles:crestline?crestlineAxles:ironhide?ironhideAxles:geep?geepAxles:barrage?barrageAxles:[[-1.10,stockRadius],[1.03,stockRadius]])){
@@ -214,8 +216,6 @@ export function makeKart(id=0,car=CARS[0],person=DRIVERS[0],ghost=false) {
       const hub=piece(axle,tire,paint(ink),side*.22,0,0,.15,.03,.15);hub.rotation.z=Math.PI/2;
       for(let i=0;i<3;i++){const spoke=cube(axle,car.color,side*.241,0,0,.025,.40,.05);spoke.rotation.x=i*Math.PI/3;}
     }
-    const pipe=piece(body,tire,paint(metal),side*.52,exhaustY,tailZ-.09,.14,.49,.14);pipe.rotation.x=Math.PI/2;
-    const hole=piece(body,tire,paint(ink),side*.52,exhaustY,tailZ+.17,.103,.01,.103);hole.rotation.x=Math.PI/2;
   }
   if(!customShell){
     cube(body,ink,0,.61,.14,.98,.22,.95);
@@ -248,16 +248,6 @@ export function makeKart(id=0,car=CARS[0],person=DRIVERS[0],ghost=false) {
     }else if(skipper)piece(body,box,timingLamp,x*2.35,plateY,1.712,.14,.055,.033);
     else piece(body,box,timingLamp,x,plateY+.02,plateZ+.072,.18,.08,.035);
   }
-  const flames=[];
-  for(const side of [-1,1]){
-    const nozzle=new THREE.Group();nozzle.visible=false;nozzle.position.set(side*.52,exhaustY,tailZ+.16);
-    const outer=new THREE.Mesh(new THREE.ConeGeometry(.19,1,8),new THREE.MeshBasicMaterial({color:0xff8c34}));
-    const core=new THREE.Mesh(new THREE.ConeGeometry(.12,1,7),new THREE.MeshBasicMaterial({color:0xfff3b6}));
-    for(const cone of [outer,core]){cone.rotation.x=Math.PI/2;nozzle.add(cone);}
-    const ring=new THREE.Mesh(new THREE.TorusGeometry(.18,.024,5,12),
-      new THREE.MeshBasicMaterial({color:0xffcf73,transparent:true,depthWrite:false}));
-    nozzle.add(ring);body.add(nozzle);flames.push({nozzle,outer,core,ring,side,outerPaint:outer.material,corePaint:core.material,ringPaint:ring.material});
-  }
   for(const w of wheels)batchParts(w);
   batchParts(driver);batchParts(body);
   if(concept)attachConcept(body,wheels,concept);
@@ -270,6 +260,7 @@ export function makeKart(id=0,car=CARS[0],person=DRIVERS[0],ghost=false) {
   if(geep)attachGeep(body,wheels);
   if(barrage)attachBarrage(body,wheels,shadow);
   const gem=hexshift?attachHexshift(body,wheels):null;
+  const flames=mountExhausts(body,car.id);
   const solidMeshes=[...body.children.filter(m=>m.isMesh),...driver.children,...wheels.flatMap(w=>(w.userData.conceptParts??w.children).concat(w.userData.fork?.children??[]))];
   const moons=hexshift?makeLunarWake(body):null;
   g.userData={body,wheels,gem,moons,driver,driverHeight:mount.y,flames,shadow,timingLamp,solidMeshes,car:car.id,concept,character:person.id};return g;
@@ -313,25 +304,7 @@ export function animateKart(g,k,b,time) {
     a.gem.position.y=.47+.018*Math.sin(time*3);
   }
   a.driver.rotation.x=driverMotion*(flash*.13-hop*.10);
-  for(const {nozzle,outer,core,ring,side,outerPaint,corePaint,ringPaint} of a.flames){
-    nozzle.visible=power>.015 || flash>.02;
-    if(!nozzle.visible)continue;
-    const superFire=b.flameTier===2;
-    const ripple=1+.07*Math.sin(time*31+side*.7);
-    const length=((superFire?1.50:.98)*power+.84*flash)*ripple;
-    outerPaint.color.setHex((a.gem||a.car==='saucer')?(superFire?0xa389ff:0x51efbc):(superFire?0x34aefa:0xff6729));
-    corePaint.color.setHex(superFire?0xdcffff:0xffee95);
-    const radius=Math.sqrt(power+.7*flash);
-    outer.scale.set(radius,length,radius);
-    outer.position.z=length*.50;
-    core.scale.set(radius,length*.68,radius);
-    core.position.set(0,.055,length*.34);
-    ring.visible=flash>.14;
-    ring.scale.setScalar(1+(1-flash)*2);
-    ring.position.z=.12+(1-flash)*1.9;
-    ringPaint.opacity=flash*.8;
-    ringPaint.color.copy(corePaint.color);
-  }
+  animateExhausts(a.flames,b,time);
 }
 
 // Only release resources owned by this instance. Color/number materials are pooled.
@@ -341,7 +314,7 @@ export function disposeKart(kart) {
   const geometries=new Set(),materials=new Set();
   kart.traverse(mesh=>{
     if(!mesh.isMesh||mesh.userData.sharedGeepPart||mesh.userData.sharedKartPart)return;
-    if(!sharedGeometry.has(mesh.geometry))geometries.add(mesh.geometry);
+    if(!sharedGeometry.has(mesh.geometry)&&!mesh.userData.sharedExhaustGeometry)geometries.add(mesh.geometry);
     if(!sharedMaterials.has(mesh.material))materials.add(mesh.material);
   });
   for(const g of geometries)g.dispose();

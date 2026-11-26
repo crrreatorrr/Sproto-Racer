@@ -5,17 +5,17 @@
 export const STAT_BUDGET = 26;
 
 export const CAR_CLASSES = Object.freeze({
-  allrounder: { name: 'All-rounder', bars: { speed: 6, accel: 5, turn: 5, boost: 5, luck: 5 } },
-  speedster: { name: 'Speedster', bars: { speed: 9, accel: 3, turn: 4, boost: 6, luck: 4 } },
+  allrounder: { name: 'All-rounder', bars: { speed: 5, accel: 6, turn: 5, boost: 5, luck: 5 } },
+  speedster: { name: 'Speedster', bars: { speed: 7, accel: 3, turn: 5, boost: 6, luck: 5 } },
   sprinter: { name: 'Sprinter', bars: { speed: 4, accel: 9, turn: 6, boost: 4, luck: 3 } },
   drifter: { name: 'Drifter', bars: { speed: 5, accel: 4, turn: 9, boost: 5, luck: 3 } },
   booster: { name: 'Booster', bars: { speed: 5, accel: 5, turn: 3, boost: 9, luck: 4 } },
-  lucky: { name: 'Lucky', bars: { speed: 4, accel: 6, turn: 5, boost: 3, luck: 8 } },
+  lucky: { name: 'Lucky', bars: { speed: 5, accel: 6, turn: 5, boost: 3, luck: 7 } },
 });
 
 // What one stat step is worth, per unit of t = (bars - 5) / 5 (bar 10 is t = 1, bar 1 is t = -0.8).
 export const STAT_SCALE = Object.freeze({
-  speed: 0.04, // top speed, ground and Sky Lane
+  speed: 0.03, // top speed, ground and Sky Lane
   accel: 0.30, // thrust
   turn: 0.22, // steering rate, lock and drift angle
   good: 0.08, // the GOOD drift window opens this much earlier

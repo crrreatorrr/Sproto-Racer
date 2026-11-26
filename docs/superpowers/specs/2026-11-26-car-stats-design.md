@@ -49,12 +49,12 @@ single-player and multiplayer loops cannot drift apart.
 
 | Class | Speed | Accel | Turning | Boost | Luck | Plays like |
 |---|---|---|---|---|---|---|
-| All-rounder | 6 | 5 | 5 | 5 | 5 | Today's handling, nothing to learn |
-| Speedster | 9 | 3 | 4 | 6 | 4 | Wins on straights, punished by hits and tight sectors |
+| All-rounder | 5 | 6 | 5 | 5 | 5 | Today's handling, nothing to learn |
+| Speedster | 7 | 3 | 5 | 6 | 5 | Wins on straights, punished by hits and tight sectors |
 | Sprinter | 4 | 9 | 6 | 4 | 3 | Recovers instantly from hits and slow corners |
 | Drifter | 5 | 4 | 9 | 5 | 3 | Tightest lines and longest drift chains |
 | Booster | 5 | 5 | 3 | 9 | 4 | Easy PERFECTs, longer boosts everywhere, wide in corners |
-| Lucky | 4 | 6 | 5 | 3 | 8 | Better item rolls in any position, slower on its own |
+| Lucky | 5 | 6 | 5 | 3 | 7 | Better item rolls in any position, slower on its own |
 
 The bar values are a starting point. Balance testing (below) can move a bar, but each class's total
 stays at 26.
@@ -63,7 +63,7 @@ stays at 26.
 Each stat maps to a multiplier. Write `t = (bars − 5) / 5`: bar 1 gives t = −0.8, bar 5 gives 0 (today's
 handling) and bar 10 gives +1. These ranges are where tuning starts.
 
-- **Speed:** top speed × `1 + 0.04·t`, from −3.2% to +4%.
+- **Speed:** top speed × `1 + 0.03·t`, from −2.4% to +3%. Balance testing lowered this from 0.04, because a Speed bar was worth far more lap time than any other bar.
   - It also scales Sky Lane flight speed, which already multiplies by `tuning.speed`.
 - **Acceleration:** thrust × `1 + 0.30·t`.
 - **Turning:** steering rate and lock × `1 + 0.22·t`.

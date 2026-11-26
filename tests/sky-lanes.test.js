@@ -174,7 +174,7 @@ describe('Sky Lane speed', () => {
     const lane = world.track.sky.lanes[index];
     const a = world.state.player;
     const tuning = a.kart.tuning.speed;
-    assert.ok(tuning > 1.02, 'a Speedster');
+    assert.ok(tuning > 1.005, 'a Speedster');
     const k = fly(world, a, index, lane.start + 30, 0, 12);
     let peak = 0;
     for (let t = 0; t < 240; t++) {

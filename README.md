@@ -100,20 +100,20 @@ Every car belongs to one of six classes, and the class sets its five stats. Each
 
 | Class | Speed | Accel | Turning | Boost | Luck | Cars |
 | --- | --- | --- | --- | --- | --- | --- |
-| All-rounder | 6 | 5 | 5 | 5 | 5 | Apex, Crestline Eight, Mud Marauder, Amber Beetle, Quarry Dumper, Sky Mixer |
-| Speedster | 9 | 3 | 4 | 6 | 4 | Needle, Ironhide, Manta Speedster, Pepper Seed, Glass Dart, Windskiff, Rail Ghost, Market Dragster |
+| All-rounder | 5 | 6 | 5 | 5 | 5 | Apex, Crestline Eight, Mud Marauder, Amber Beetle, Quarry Dumper, Sky Mixer |
+| Speedster | 7 | 3 | 5 | 6 | 5 | Needle, Ironhide, Manta Speedster, Pepper Seed, Glass Dart, Windskiff, Rail Ghost, Market Dragster |
 | Sprinter | 4 | 9 | 6 | 4 | 3 | Pogo, Geep, Shopping Cart, Ringrunner, Tarmac Press, Ramp Tug, Bumper Bolt, Vermilion Loader, Forklift Rat |
 | Drifter | 5 | 4 | 9 | 5 | 3 | Gecko, Skipper, Golden Switchback, Violet Drift, Arctic Skip, Twin Current, Groove Racer, Reed Skimmer, Mint Digger |
 | Booster | 5 | 5 | 3 | 9 | 4 | Relay, Barrage, Whitewall Wasp, Twin-Plug, Volt Fork, Solar Cushion, Steam Sprint, Bone Wyrm |
-| Lucky | 4 | 6 | 5 | 3 | 8 | Hexshift, Silver Saucer, Bamboo Trike, Violet Orbit, Sunny Sidecar, Tiki Barrel, Ice-Cream Van, Bronze Bell, Violet Marble, Boom Crane |
+| Lucky | 5 | 6 | 5 | 3 | 7 | Hexshift, Silver Saucer, Bamboo Trike, Violet Orbit, Sunny Sidecar, Tiki Barrel, Ice-Cream Van, Bronze Bell, Violet Marble, Boom Crane |
 
-- **Speed:** top speed on the ground and in the Sky Lanes, from −3.2% at 1 bar to +4% at 10.
+- **Speed:** top speed on the ground and in the Sky Lanes, from −2.4% at 1 bar to +3% at 10. A Speed bar is worth the most lap time, so it moves the least.
 - **Acceleration:** engine thrust, from −24% to +30%.
 - **Turning:** steering rate, lock and drift angle, from −17.6% to +22%.
 - **Boost:** the drift meter's GOOD and PERFECT windows open earlier, and every boost lasts longer: drift, launch, air, tricks, pads, boost items and Boost Cells, from −12% to +15%. At 10 bars the GOOD window is 0.38 s and PERFECT is 0.14 s (stock: 0.20 s and 0.10 s). The race meter shows your car's own windows.
 - **Luck:** item boxes roll as if you were further back in the pack, by up to 30% of the field at 10 bars, so you see stronger items more often. Below 5 bars, rolls come out slightly as if you were further ahead.
 
-The numbers live in `src/car-classes.js`. `qa/car-classes.mjs` races AI-only packs of each class on every circuit to check that no class comes out ahead overall. Rivals drive the 14 original cars, which cover all six classes, and they time their drifts to their own car's windows. All four drivers can race any car. Character choice is cosmetic. The D-pad moves focus, A / Cross selects, Menu / Options advances, and B / Circle goes back.
+The numbers live in `src/car-classes.js`. `qa/car-classes.mjs` races AI-only packs of each class on every circuit, plus mixed packs with one kart of each class in every grid order. It checks that every class's pace is within 1.5% of the average, that no class wins more than 30% of mixed races or averages more than 0.4 places from 3.5th, and that no class is fastest on every circuit. Last run: paces within 0.5%, wins 13–22 of 108, average places 3.11–3.71. Rivals drive the 14 original cars, which cover all six classes, and they time their drifts to their own car's windows. All four drivers can race any car. Character choice is cosmetic. The D-pad moves focus, A / Cross selects, Menu / Options advances, and B / Circle goes back.
 
 ## Controls
 

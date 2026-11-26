@@ -89,30 +89,33 @@ Item boxes start about 42 m from the line on every circuit. Each row has two or 
 ## Modes
 
 - **Quick Race** runs three laps against five AI karts with item pickups.
-- **Time Trial** records the fastest completed three-lap run. On this browser the ghost is saved with it. Signed in to the hub, the time follows that account to other devices; the ghost stays on the browser that set it. A subsequent run shows the saved ghost when this browser still has it. Records carry the circuit layout they were set on. Sky Lanes started layout 2, so earlier times and ghosts are no longer shown and the first run on the new layout sets the record. To reset them again after a layout change, bump `TRIAL_LAYOUT` in `src/hub/config.js`.
+- **Time Trial** records the fastest completed three-lap run. On this browser the ghost is saved with it. Signed in to the hub, the time follows that account to other devices; the ghost stays on the browser that set it. A subsequent run shows the saved ghost when this browser still has it. Records carry the circuit layout they were set on. Sky Lanes started layout 2 and car classes layout 3, so earlier times and ghosts are no longer shown and the first run on the current layout sets the record. To reset them again after a layout change, bump `TRIAL_LAYOUT` in `src/hub/config.js`.
 - **Test Drive** offers all twenty items with unlimited supply. Select a section, entry speed, rivals, and lap state before driving. Test tools can reload those conditions during play. Choose a full pack to try area attacks or one rival ahead to practice aimed shots.
 
 ## Garage
 
 Choose a circuit and mode, pick Sproto, Pip, Miso, or Rook, then select a car. The preview shows the exact driver and chassis used in the race. Use **Rear view** to inspect the chase-side silhouette. Your browser remembers the last confirmed pairing. A locked car or character stays on screen and cannot be confirmed. The line above the choices names the Relics this account owns.
 
-| Car | Driving style |
-| --- | --- |
-| Apex | Baseline speed, acceleration, and turn rate |
-| Needle | Highest top speed, slowest acceleration |
-| Pogo | Quickest acceleration, slightly lower speed and turn rate |
-| Gecko | Tightest turn radius, lower straight-line speed |
-| Relay | Extra speed and acceleration, widest turns |
-| Ironhide | Hardtop off-road truck with a full-width windshield, open cargo bed and black all-terrain tires |
-| Crestline Eight | Black touring saloon with whitewall wire wheels and a three-window passenger cabin |
-| Skipper | Single-bow boat racer with exposed steering wheels, a raised pilothouse and a stern outboard |
-| Geep | Two-seat camo rally buggy with baseline handling |
-| Barrage | Open-cockpit armored supercar with baseline handling and twin pulse blasters |
-| Manta Speedster | Single-seat pearl speedster with recessed cyan headlights and baseline handling |
-| Hexshift | Plum-and-ivory lunar roadster with baseline handling |
-| Shopping Cart | Chrome wire basket with a red folding seat, four casters, and Apex handling |
+### Car classes and stats
 
-The garage displays each chassis’s changes relative to Apex. All four drivers can race any chassis. Character choice is cosmetic. The D-pad moves focus, A / Cross selects, Menu / Options advances, and B / Circle goes back.
+Every car belongs to one of six classes, and the class sets its five stats. Each stat shows as 1–10 bars in the garage. Every class has 26 bars in total, so a strength always costs something somewhere else. Five bars is the stock handling every car had before classes.
+
+| Class | Speed | Accel | Turning | Boost | Luck | Cars |
+| --- | --- | --- | --- | --- | --- | --- |
+| All-rounder | 5 | 5 | 5 | 5 | 6 | Apex, Crestline Eight, Mud Marauder, Amber Beetle, Quarry Dumper, Sky Mixer |
+| Speedster | 6 | 3 | 5 | 6 | 6 | Needle, Ironhide, Manta Speedster, Pepper Seed, Glass Dart, Windskiff, Rail Ghost, Market Dragster |
+| Sprinter | 5 | 9 | 6 | 3 | 3 | Pogo, Geep, Shopping Cart, Ringrunner, Tarmac Press, Ramp Tug, Bumper Bolt, Vermilion Loader, Forklift Rat |
+| Drifter | 5 | 4 | 9 | 5 | 3 | Gecko, Skipper, Golden Switchback, Violet Drift, Arctic Skip, Twin Current, Groove Racer, Reed Skimmer, Mint Digger |
+| Booster | 5 | 5 | 4 | 9 | 3 | Relay, Barrage, Whitewall Wasp, Twin-Plug, Volt Fork, Solar Cushion, Steam Sprint, Bone Wyrm |
+| Lucky | 6 | 6 | 5 | 3 | 6 | Hexshift, Silver Saucer, Bamboo Trike, Violet Orbit, Sunny Sidecar, Tiki Barrel, Ice-Cream Van, Bronze Bell, Violet Marble, Boom Crane |
+
+- **Speed:** top speed on the ground and in the Sky Lanes, from −2.4% at 1 bar to +3% at 10. A Speed bar is worth the most lap time, so it moves the least.
+- **Acceleration:** engine thrust, from −24% to +30%.
+- **Turning:** steering rate, lock and drift angle, from −17.6% to +22%.
+- **Boost:** the drift meter's GOOD and PERFECT windows open earlier, and every boost lasts longer: drift, launch, air, tricks, pads, boost items and Boost Cells, from −12% to +15%. At 10 bars the GOOD window is 0.38 s and PERFECT is 0.14 s (stock: 0.20 s and 0.10 s). The race meter shows your car's own drift windows; the launch revs in the countdown use the same windows for every car.
+- **Luck:** item boxes roll as if you were further back in the pack, by up to 30% of the field at 10 bars, so you see stronger items more often. Below 5 bars, rolls come out slightly as if you were further ahead.
+
+The numbers live in `src/car-classes.js`. `qa/car-classes.mjs` races AI-only packs of each class on every circuit, plus mixed packs with one kart of each class in every grid order. It checks that every class's pace is within 1.5% of the average, that no class wins more than 30% of mixed races or averages more than 0.4 places from 3.5th, and that no class is fastest on every circuit. Set `QA_SEED_OFFSET` to run it on other seeds. Tuned on three seed sets pooled (offsets 0, 100, 200) plus a run with rivals' drift timing error widened to ±0.15 to mimic a person: average places 3.41–3.67, wins 14–21%, pace within 0.1% (retuned after the two-item slots landed). Rivals drive the 14 original cars, which cover all six classes, and they time their drifts to their own car's windows. All four drivers can race any car. Character choice is cosmetic. The D-pad moves focus, A / Cross selects, Menu / Options advances, and B / Circle goes back.
 
 ## Controls
 

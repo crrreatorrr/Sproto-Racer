@@ -31,7 +31,9 @@ export function pickupWeights(actor,pack){
     gap=Math.max(gap,distance);
   }
   const rank=ahead/Math.max(1,pack.length-1);
-  const trailing=Math.min(1,rank*(1+Math.min(gap/150,1)*.22));
+  // Luck (the car's stat) rolls as if the kart sat further back in the pack, or slightly ahead.
+  const luck=actor.kart.tuning?.luckShift??0;
+  const trailing=Math.min(1,Math.max(0,Math.min(1,rank*(1+Math.min(gap/150,1)*.22))+luck));
   return ITEMS.map(({weights:[first,last]})=>first+(last-first)*trailing);
 }
 

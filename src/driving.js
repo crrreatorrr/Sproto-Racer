@@ -24,6 +24,8 @@ const OUTSIDE_STEER = .98;
 // and Boost Cell tiers lift it to 2.2×, well above the 1.4× top ground boost.
 export const SKY_TIER_SPEED = [1.6, 1.8, 2.0, 2.2];
 export const SKY_MAX_SPEED = 2.2;
+/** The fastest a kart may fly: 2.2x cruise, scaled by its Speed stat. */
+export const flightCeiling = (kart) => CRUISE_SPEED * SKY_MAX_SPEED * (kart.tuning?.speed ?? 1);
 const SKY_BOOST_SPEED = 0.1;
 const SKY_TOW = 0.15;
 const SKY_LATERAL = 26;
@@ -38,8 +40,9 @@ const SKY_CARRY_SECONDS = 1.5;
 export const TRICK_SECONDS = 0.45;
 export const MAX_TRICKS = 3;
 
-export function driftBoostReady(boost) {
-  return !boost.chainClosed && boost.meter + 1e-9 >= 0.70;
+// The GOOD window opens at the car's own point (its Boost stat); stock cars open at 0.70.
+export function driftBoostReady(boost, kart) {
+  return !boost.chainClosed && boost.meter + 1e-9 >= (kart?.tuning?.goodAt ?? 0.70);
 }
 
 const clamp = (value, lo, hi) => Math.min(hi, Math.max(lo, value));
@@ -491,7 +494,7 @@ export function stepFlight(kart,input,road,boost,dt){
   const tier=clamp(Math.trunc(boost.skyTier||0),0,3);
   const tuning=kart.tuning.speed;
   let target=CRUISE_SPEED*tuning*(SKY_TIER_SPEED[tier]+(boost.reserve>0?SKY_BOOST_SPEED:0))*(1+SKY_TOW*(kart.towing||0));
-  target=Math.min(target,CRUISE_SPEED*SKY_MAX_SPEED);
+  target=Math.min(target,flightCeiling(kart));
   if(kart.tumble>0)target*=0.7;
   if(kart.speed<target)kart.speed=Math.min(target,kart.speed+95*dt);
   else kart.speed=approach(kart.speed,target,1.4,dt);
@@ -542,8 +545,10 @@ export function stepFlight(kart,input,road,boost,dt){
   if(kart.skyY<floor){
     kart.skyY=floor;
     if(kart.skyVY<0)kart.skyVY=0;
-    // Knocked out of the bottom of a main lane: drop into the void and respawn.
-    if(kart.tumble>0 && kart.tumbleFall && !lane.optional){
+    // Knocked out of the bottom of a main lane: drop into the void and respawn. Once the floor
+    // tapers down onto the landing deck there is deck below, so the kart rides it in instead.
+    const runIn=floor<lane.floor-1e-6;
+    if(kart.tumble>0 && kart.tumbleFall && !lane.optional && !runIn){
       const exitS=kart.s;
       kart.flying=false;
       kart.skyLane=-1;
@@ -601,7 +606,7 @@ export function stepKart(kart, input = {}, road = {}, boost = {}, dt = 1 / 60) {
     if(kart.speed<MIN_DRIFT_SPEED || (pressed && kart.regripTime>0 && boost.chainClosed))leaveSlide(kart);
     else if(released){
       kart.boostRelease=true;
-      if(driftBoostReady(boost))kart.regripTime=.20;
+      if(driftBoostReady(boost,kart))kart.regripTime=.20;
       else leaveSlide(kart);
     }
     if(held)kart.regripTime=0;

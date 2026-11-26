@@ -6,8 +6,11 @@ export const PERFECT_CHARGE = 0.90;
 const GOOD_SECONDS = 0.8;
 const PERFECT_SECONDS = 1.2;
 
-export function createBoost() {
+// gain is the car's Boost stat: every grant lasts this many times longer. It belongs to the car,
+// so resets carry it over.
+export function createBoost(gain = 1) {
   return {
+    gain,
     tier: 0, reserve: 0, reservePeak: 0, meter: 0, pips: 0, rev: 0,
     feedback: '', feedbackTime: 0, chainClosed: false,
     activeSlide: null, comboLength: 0, interrupted: false, ignition: 0, plume: 0, flameTier: 1, revThrottle: 0,
@@ -76,14 +79,31 @@ function report(boost, label) {
 
 // Impacts win over pads, items and drift rewards collected in the same tick.
 export function interruptBoost(boost,kart,label) {
-  Object.assign(boost,createBoost(),{
+  Object.assign(boost,createBoost(boost.gain),{
     interrupted:true, activeSlide:kart.sliding?kart.slideId:null, chainClosed:kart.sliding
   });
   if(label)report(boost,label);
 }
 
-export function grantBoost(boost, seconds, tier = 1) {
+// `scaled` is false for boost that isn't the car's own to earn (stolen boost, test setups).
+/**
+ * The meter's GOOD and PERFECT bands. During the countdown the meter shows the launch revs,
+ * which every car grades on the same 0.70 / 0.90; while racing it shows the car's drift windows.
+ */
+export function meterBands(kart, launching) {
+  if (launching) return { good: GOOD, perfect: PERFECT_CHARGE };
+  return { good: kart?.tuning?.goodAt ?? GOOD, perfect: kart?.tuning?.perfectAt ?? PERFECT_CHARGE };
+}
+
+/** The grade a drift release would get right now: 'PERFECT', 'GOOD' or null. Windows follow the car. */
+export function driftGrade(boost, kart) {
+  if (!driftBoostReady(boost, kart)) return null;
+  return boost.meter + 1e-9 >= (kart?.tuning?.perfectAt ?? PERFECT_CHARGE) ? 'PERFECT' : 'GOOD';
+}
+
+export function grantBoost(boost, seconds, tier = 1, scaled = true) {
   if (seconds <= 0 || boost.interrupted) return;
+  if (scaled) seconds *= boost.gain ?? 1;
   if(seconds>.15 || !boost.tier || tier>boost.tier)boost.ignition=1;
   boost.reserve += seconds;
   boost.reservePeak = Math.max(boost.reservePeak, boost.reserve);
@@ -156,12 +176,12 @@ export function stepBoost(boost, kart, input, dt) {
   }
   if(slide===null || boost.chainClosed)return;
   const pressed=input.driftHeld && input.driftBoostPressed;
-  if((kart.boostRelease || pressed) && driftBoostReady(boost)){
-    const perfect = boost.meter + 1e-9 >= PERFECT_CHARGE;
-    const grade=perfect?'PERFECT':'GOOD';
-    const reserve=perfect ? PERFECT_SECONDS : GOOD_SECONDS;
+  const grade=driftGrade(boost,kart);
+  if((kart.boostRelease || pressed) && grade){
+    const perfect = grade==='PERFECT';
+    const reserve=(perfect ? PERFECT_SECONDS : GOOD_SECONDS)*(boost.gain??1);
     boost.comboLength++;
-    grantBoost(boost,reserve);
+    grantBoost(boost,reserve,1,false);
     boost.pips++;
     boost.meter = 0;
     boost.chainClosed = boost.pips === 3;

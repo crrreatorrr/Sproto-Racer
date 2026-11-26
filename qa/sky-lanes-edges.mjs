@@ -30,7 +30,7 @@ function invariants(world, label) {
       if (!lane) note(`${label}: #${a.id} flying with no lane`);
       else if (Math.abs(k.x) > lane.width / 2 + 0.5) note(`${label}: #${a.id} outside the corridor (x ${k.x.toFixed(1)})`);
       if (k.grounded) note(`${label}: #${a.id} flying and grounded`);
-      if (k.speed > 2.2 * CRUISE_SPEED + 1e-6) note(`${label}: #${a.id} over the speed ceiling`);
+      if (k.speed > 2.2 * CRUISE_SPEED * (k.tuning?.speed ?? 1) + 1e-6) note(`${label}: #${a.id} over the speed ceiling`);
     }
   }
 }

@@ -4,7 +4,7 @@
 import { barrageMuzzle } from '../barrage-layout.js';
 import { hasShapedBody } from '../kart-footprint.js';
 import { resolveKartContacts } from '../kart-contact.js';
-import { GRAVITY, steerForTurn, stunKart, springJump, tumbleKart } from '../driving.js';
+import { GRAVITY, flightCeiling, steerForTurn, stunKart, springJump, tumbleKart } from '../driving.js';
 import { interruptBoost, grantBoost, grantCell, dropSkyTier, stepSkyChain, clearSky } from '../boost.js';
 import { lapOf, laneCeiling, sweepCells, sweepObstacles, SKY_KART_RADIUS } from './sky.js';
 
@@ -80,6 +80,19 @@ function defaultActorState(id = 0) {
     skyHitCool: 0,
     rollRammed: false,
   };
+}
+
+/**
+ * The drift meter value at which a rival lets go, with a fixed per-slide timing error of ±0.06.
+ * Rivals with id % 3 === 2 chase PERFECT: they aim 0.06 inside their own PERFECT window, so the
+ * error never drops them to GOOD, and stop short of TOO LATE. The others aim at their own GOOD
+ * window, so a car's Boost stat sets when they let go.
+ */
+export function rivalDriftAim(id, slideId, tuning) {
+  const goodAt = tuning?.goodAt ?? 0.70, perfectAt = tuning?.perfectAt ?? 0.90;
+  const scatter = (((id * 7919 + slideId * 104729) % 1000) / 1000 - 0.5) * 0.12;
+  if (id % 3 === 2) return Math.min(0.97, perfectAt + 0.06 + scatter);
+  return goodAt + (id % 3 ? 0.68 : 0.35) * (perfectAt - goodAt) + scatter;
 }
 
 export function createGameplayCore(track, hooks = {}) {
@@ -556,7 +569,7 @@ export function createGameplayCore(track, hooks = {}) {
         const stolen = Math.min(1.5, target.boost.reserve);
         target.boost.reserve -= stolen;
         if (target.boost.reserve <= 0) target.boost.tier = 0;
-        grantBoost(a.boost, stolen);
+        grantBoost(a.boost, stolen, 1, false); // stolen boost isn't scaled by the thief's Boost stat
         notify(target, 'SODA SIPHONED');
         cue('hit', 'siphon', target);
         break;
@@ -665,7 +678,7 @@ export function createGameplayCore(track, hooks = {}) {
       input.driftPressed = true;
     }
     if (s.aiDirection) {
-      input.driftHeld = !(k.sliding && !b.chainClosed && b.meter >= 0.77 + (id % 3) * 0.066);
+      input.driftHeld = !(k.sliding && !b.chainClosed && b.meter >= rivalDriftAim(id, k.slideId || 0, k.tuning));
     }
     // Rivals hop at some ramp lips for a trick, set by id, lap and ramp.
     const trickRate = RIVAL_SKY[(id - 1) % RIVAL_SKY.length].tricks;
@@ -1104,6 +1117,7 @@ export function createGameplayCore(track, hooks = {}) {
           }
           grantBoost(o.owner.boost, dt * 1.3);
           k.speed += Math.min(4, Math.max(0, o.target.kart.speed + 3 - k.speed)) * dt;
+          if (k.flying) k.speed = Math.min(k.speed, Math.max(flightCeiling(k), k.speed - 4 * dt));
           break;
         case 'beam':
           break;

@@ -1,13 +1,15 @@
 import {CARS,DRIVERS,carById,driverById} from './roster.js';
+import {className,statBars} from './car-classes.js';
 import {icon} from './icons.js';
 import {isUnlocked,lockReason,playableId} from './hub/unlocks.js';
 import {relicSummary} from './hub/relics.js';
 
 const key='sproto.racing.garage.v1';
 const descriptions=['Striped race cap','Rally goggles','Pointed ears and scarf','Horned helmet'];
-const stats=[['speed','Top speed'],['accel','Acceleration'],['turn','Turning']];
-const percent=value=>Math.round((value-1)*1000)/10;
-const formatStat=value=>value===1?'Base':(value>1?'+':'')+percent(value)+'%';
+// Five stat rows of ten cells, filled to the car's bar count for its class.
+// Each bar is an image with its value as the label, so screen readers hear "Speed 6 of 10".
+export const statRows=car=>'<div class="garage-stats"><b class="garage-class">'+className(car).toUpperCase()+'</b>'+
+  statBars(car).map(({id,title,bars})=>'<span class="stat-row" data-stat="'+id+'"><small aria-hidden="true">'+title+'</small><i role="img" aria-label="'+title+' '+bars+' of 10" style="--bars:'+bars+'"></i></span>').join('')+'</div>';
 const EMPTY_RELICS={
   owned:()=>[],
   source:()=>'unknown',
@@ -46,7 +48,7 @@ export function createGarage(paddock,launch,relics=EMPTY_RELICS,table){
     const detail=panel.querySelector('.garage-detail');
     if(notice)detail.textContent=notice;
     else if(choosingDriver)detail.textContent='Drivers are cosmetic. Your car sets the handling.';
-    else detail.innerHTML='<small>Relative to Apex</small>'+stats.map(([id,title])=>'<span>'+title+' <b>'+formatStat(car[id])+'</b></span>').join('');
+    else detail.innerHTML=statRows(car);
     const next=panel.querySelector('#garage-next');
     const ready=isUnlocked(choiceKind,now.id,owned(),table);
     next.disabled=!ready;
@@ -70,7 +72,7 @@ export function createGarage(paddock,launch,relics=EMPTY_RELICS,table){
       '<p class="garage-relics"></p>'+
       '<div class="garage-choices '+(choosingDriver?'':'garage-car-choices')+'" role="group" aria-label="'+(choosingDriver?'Drivers':'Cars')+'">'+choices.map((choice,i)=>{
         const locked=!isUnlocked(choiceKind,choice.id,owned(),table);
-        const blurb=locked?(lockReason(choiceKind,choice.id,table)??'Locked'):(choice.role??descriptions[i]??'');
+        const blurb=locked?(lockReason(choiceKind,choice.id,table)??'Locked'):choice.class?className(choice)+' · '+choice.role:(choice.role??descriptions[i]??'');
         return '<button data-choice="'+choice.id+'" data-locked="'+locked+'" aria-disabled="'+locked+'" aria-pressed="'+(!locked&&choice===now)+'" style="--paint:'+(choice.color??choice.skin)+'"><b>'+choice.name+'</b><small>'+blurb+'</small></button>';
       }).join('')+'</div>'+
       '<div class="garage-detail" aria-live="polite"></div><div class="garage-actions"><button class="garage-back">Back</button><button class="launch" id="garage-next"></button></div>';

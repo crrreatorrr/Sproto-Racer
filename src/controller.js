@@ -39,6 +39,7 @@ export function openController(input, onClose = () => {}) {
         <input id="ctrl-dz" type="range" min="0" max="40" step="1">
         <label class="ctrl-check"><input id="ctrl-invert" type="checkbox"> Reverse steering</label>
         <label class="ctrl-check"><input id="ctrl-invert-pitch" type="checkbox"> Invert Sky Lane pitch</label>
+        <label class="ctrl-check"><input id="ctrl-speed-lines" type="checkbox"> Reduce Sky Lane speed lines</label>
       </div>
       <p class="ctrl-sky">Sky Lanes: left stick up dives, down climbs. Hold Drift to carve; tap Drift while steering to barrel-roll. Keyboard: W dives, S climbs.</p>
       <div class="ctrl-rowhead"><span>Driving control</span><span>Gamepad input</span><span>Assign</span></div>
@@ -56,6 +57,7 @@ export function openController(input, onClose = () => {}) {
   const selects = {}, rows = {}, binders = {};
   let lastSignature = '';
   const deadzone = el('#ctrl-dz'), inverted = el('#ctrl-invert'), invertedPitch = el('#ctrl-invert-pitch');
+  const calmLines = el('#ctrl-speed-lines');
 
   function fillOptions(pad) {
     const codes = optionCodes(pad, input.settings);
@@ -79,6 +81,7 @@ export function openController(input, onClose = () => {}) {
     el('#ctrl-out').value = deadzone.value + '%';
     inverted.checked = input.settings.invert;
     invertedPitch.checked = !!input.settings.invertPitch;
+    calmLines.checked = !!input.settings.reduceSpeedLines;
   }
   function endCapture(text = help) {
     capture = '';
@@ -125,6 +128,7 @@ export function openController(input, onClose = () => {}) {
   });
   inverted.addEventListener('change', () => { input.settings.invert = inverted.checked; input.save(); });
   invertedPitch.addEventListener('change', () => { input.settings.invertPitch = invertedPitch.checked; input.save(); });
+  calmLines.addEventListener('change', () => { input.settings.reduceSpeedLines = calmLines.checked; input.save(); });
   el('.ctrl-restore').addEventListener('click', () => { input.restore(); endCapture('Default controller bindings restored.'); });
 
   const close = () => dialog.close();
@@ -163,7 +167,7 @@ export function openController(input, onClose = () => {}) {
       deadzone.value = Number(deadzone.value) + dir;
       deadzone.dispatchEvent(new Event('input'));
     }
-    if (press(0) && (target instanceof HTMLButtonElement || target === inverted || target === invertedPitch)) target.click();
+    if (press(0) && (target instanceof HTMLButtonElement || target === inverted || target === invertedPitch || target === calmLines)) target.click();
   }
   function frame() {
     if (!dialog.open) return;

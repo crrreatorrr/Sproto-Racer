@@ -462,6 +462,13 @@ function raceCues(){
 function skyHUD(){
  const a=state.player,k=a.kart,b=a.boost,panel=$('sky-hud');
  panel.hidden=!k.flying;
+ // Speed lines build from air base speed up to the 2.2× ceiling; the reduce
+ // setting keeps them faint and still.
+ const lines=$('speed-lines'),calm=!!input.settings.reduceSpeedLines;
+ const rush=k.flying?Math.min(1,Math.max(0,(k.speed-80)/45)):0;
+ const opacity=(k.flying?.18+.62*rush:0)*(calm?.3:1);
+ if(Math.abs((+lines.dataset.o||0)-opacity)>.02){lines.style.opacity=opacity.toFixed(2);lines.dataset.o=opacity.toFixed(2);}
+ lines.classList.toggle('reduced',calm);
  if(!k.flying)return;
  const lane=track.sky.lanes[k.skyLane];
  panel.dataset.tier=String(b.skyTier);

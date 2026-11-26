@@ -134,6 +134,7 @@ export function createRaceFX(scene,track) {
   const colors={
     smoke:new THREE.Color('#cad1bd'), gravel:new THREE.Color('#c7ae85'),
     spark:new THREE.Color('#ffbf52'), super:new THREE.Color('#83f3ed'),
+    contrail:new THREE.Color('#e9fdff'), gold:new THREE.Color('#ffe08a'),
   };
   let markCursor=0,particleCursor=0,clock=0,states=new WeakMap();
   function reset() {
@@ -170,6 +171,25 @@ export function createRaceFX(scene,track) {
     if(!st) {
       st={timer:0,trail:false,left:new THREE.Vector3(),right:new THREE.Vector3(),side:false};
       states.set(actor,st);
+    }
+    if(k.flying){
+      // Twin contrails stream off a kart in a Sky Lane, gold at tier 3.
+      st.timer-=dt;if(st.timer>0)return;
+      st.timer=.045;
+      const frame=track.sample(k.s,k.x);
+      rear.copy(frame.position).addScaledVector(frame.forward,-1.3);
+      rear.y+=k.y+.35;
+      const tint=(actor.boost.skyTier||0)>=3?colors.gold:colors.contrail;
+      for(const sign of [-1,1]){
+        left.copy(rear).addScaledVector(frame.right,sign*.85);
+        const p=particles[particleCursor++%PARTICLES];
+        p.p.copy(left);
+        p.v.copy(frame.forward).multiplyScalar(-4);
+        p.size=.12+.03*(actor.boost.skyTier||0);
+        p.duration=p.life=.55;
+        p.color.copy(tint);
+      }
+      return;
     }
     const slide=actor.car!=='saucer' && k.grounded && k.sliding && k.speed>6;
     const gravel=k.grounded && k.offroad && k.speed>7;

@@ -9,6 +9,15 @@ function lightScene(scene, intensity=2.5) {
   light.position.set(-24,43,-26);scene.add(light);
 }
 export {lightScene};
+function previewEnvelope(kart){
+  const result=new THREE.Box3();
+  const {body,flames}=kart.userData;
+  for(const child of body.children){
+    if(!flames.some(({nozzle})=>nozzle===child))result.expandByObject(child);
+  }
+  return result;
+}
+
 export function createPaddock() {
   const scene=new THREE.Scene(),camera=new THREE.PerspectiveCamera(35,2,.1,180);
   scene.background=new THREE.Color('#b8d4d0');scene.fog=new THREE.Fog('#cee0d5',35,112);lightScene(scene);
@@ -125,6 +134,16 @@ export function createPaddock() {
       camera.fov=16.6;
       camera.position.set(6.86*zoom,.92+3.09*zoom,-8.85*zoom);
       camera.lookAt(0,.92,-.085);
+    }else if(kart.userData.concept){
+      const model=kart.userData.concept;
+      camera.fov=garage?27:35;
+      const {max,min}=kart.userData.previewBounds??=previewEnvelope(kart);
+      const extent=Math.max(-model.bounds[1],model.bounds[2],model.bounds[0]*1.40,(max.y-min.y)*.86);
+      const amp=Math.max(.87,extent/2.15)*zoom;
+      const y=Math.max(.83,(max.y+min.y)*.43);
+      const side=model.id==='forklift-rat'||model.id==='sky-mixer'?6.4:4.85;
+      camera.position.set(side*amp,y+2.32*amp,(rear?6.65:-6.65)*amp);
+      camera.lookAt(0,y,0);
     }else{
       camera.fov=35;
       camera.position.set((geep?4.65:-4.35)*zoom,garage?2.65:2.37,(garage&&rear?5.55:-5.95)*zoom);
@@ -135,7 +154,7 @@ export function createPaddock() {
     camera.setViewOffset(w,h,-w*shift,h*.025,w,h);camera.updateProjectionMatrix();
     hubPortal.visible=!garage;
     if(!garage)animateHubPortal(hubPortal,time);
-    kart.rotation.y=(cart||skipper||saucer||manta||crestline||geep||hexshift||barrage||ironhide)&&garage?0:(geep?.10:-.28)+Math.sin(time*.3)*.055;
+    kart.rotation.y=(kart.userData.concept||cart||skipper||saucer||manta||crestline||geep||hexshift||barrage||ironhide)&&garage?0:(geep?.10:-.28)+Math.sin(time*.3)*.055;
     animateKart(kart,{speed:0,s:0}, {tier:0},time);
     renderer.render(scene,camera);
   }};

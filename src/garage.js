@@ -68,7 +68,7 @@ export function createGarage(paddock,launch,relics=EMPTY_RELICS,table){
     const now=choosingDriver?driver:car;
     panel.innerHTML='<div class="section-heading"><h2>'+(choosingDriver?'Choose your driver':'Choose your car')+'</h2><span class="mode-counter">'+(choosingDriver?'01':'02')+' / 02</span></div>'+
       '<p class="garage-relics"></p>'+
-      '<div class="garage-choices" role="group" aria-label="'+(choosingDriver?'Drivers':'Cars')+'">'+choices.map((choice,i)=>{
+      '<div class="garage-choices '+(choosingDriver?'':'garage-car-choices')+'" role="group" aria-label="'+(choosingDriver?'Drivers':'Cars')+'">'+choices.map((choice,i)=>{
         const locked=!isUnlocked(choiceKind,choice.id,owned(),table);
         const blurb=locked?(lockReason(choiceKind,choice.id,table)??'Locked'):(choice.role??descriptions[i]??'');
         return '<button data-choice="'+choice.id+'" data-locked="'+locked+'" aria-disabled="'+locked+'" aria-pressed="'+(!locked&&choice===now)+'" style="--paint:'+(choice.color??choice.skin)+'"><b>'+choice.name+'</b><small>'+blurb+'</small></button>';
@@ -98,7 +98,9 @@ export function createGarage(paddock,launch,relics=EMPTY_RELICS,table){
       close();launch();
     };
     update();
-    panel.querySelector('[aria-pressed=true]')?.focus({preventScroll:true});
+    const current=panel.querySelector('[aria-pressed=true]');
+    current?.focus({preventScroll:true});
+    if(!choosingDriver)current?.scrollIntoView({block:'nearest'});
   }
   function close(){
     step='';notice='';
@@ -114,7 +116,9 @@ export function createGarage(paddock,launch,relics=EMPTY_RELICS,table){
   function move(direction){
     const controls=[...panel.querySelectorAll('button'),turn];
     let i=controls.indexOf(document.activeElement);
-    controls[(i+controls.length+direction)%controls.length].focus({preventScroll:true});
+    const target=controls[(i+controls.length+direction)%controls.length];
+    target.focus({preventScroll:true});
+    target.scrollIntoView({block:'nearest'});
   }
   turn.onclick=()=>{paddock.turn();turn.textContent=turn.textContent==='Rear view'?'Front view':'Rear view';};
   coerce();

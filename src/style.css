@@ -34,6 +34,7 @@
 .garage-open #return-hub{display:none}
 @media(max-width:620px){#return-hub{top:8px;right:8px;padding:6px 8px}#return-hub span{font-size:13px}}
 .garage-choices{display:flex;gap:9px;flex-wrap:wrap}
+.garage-car-choices{max-height:clamp(138px,34dvh,320px);overflow-y:auto;overscroll-behavior:contain;scrollbar-gutter:stable;padding:2px 5px 3px 2px;align-content:start}
 .garage-choices button{flex:1 1 115px;display:grid;gap:4px;position:relative;text-align:left;background:var(--surface);color:var(--paper);border:1px solid var(--line);border-radius:3px;padding:12px 12px 12px 20px}
 .garage-choices button:before{content:"";position:absolute;left:6px;top:12px;bottom:12px;width:4px;background:var(--paint)}
 .garage-choices button[aria-pressed=true]{border-color:var(--lime);background:#2a332a}
@@ -102,7 +103,7 @@
   #feedback:not(:empty){margin-bottom:4px}
 }
 
-.item-picture{display:block;aspect-ratio:1;background-image:url('/item-icons.png');background-size:500% 400%;background-repeat:no-repeat}
+.item-picture{display:block;aspect-ratio:1;background-image:url('./assets/item-icons.webp');background-size:500% 400%;background-repeat:no-repeat}
 #item-hud{position:relative;padding-right:42px}
 #incoming-warning{position:absolute;top:clamp(64px,14%,95px);left:50%;transform:translateX(-50%);padding:5px 10px;background:#321e29ed;border:1px solid #ff9cae;color:#ffe1c1;font:700 12px var(--mono);white-space:nowrap;pointer-events:none}
 #held-picture{position:absolute;right:4px;top:50%;transform:translateY(-50%);width:38px}
@@ -140,3 +141,19 @@
 @keyframes speed-lines{from{transform:scale(1.2)}to{transform:scale(1.2) rotate(6.4deg)}}
 @media(prefers-reduced-motion:reduce){#speed-lines{animation:none}}
 #game{overflow:hidden}
+
+/* Compact art cues stay legible without covering the driving line. */
+#item-impact:not([hidden]){position:absolute;display:flex;align-items:center;gap:6px;top:clamp(92px,17%,124px);left:50%;transform:translateX(-50%);z-index:2;pointer-events:none;padding:4px 9px;border:1px solid var(--item-signal,#d4f6ff);border-radius:5px;background:#182427ea;color:var(--item-signal,#d4f6ff);font:800 12px var(--mono);letter-spacing:.045em;text-shadow:0 1px #000;}
+#item-impact-picture{width:25px;flex:0 0 25px;}
+#item-impact-picture[hidden],#held-picture[hidden]{display:none}
+#item-impact[data-kind="block"]{box-shadow:0 0 15px #7cdeff52;}
+#item-impact[data-kind="hit"]{border-left-width:4px;}
+#item-hud[data-slot="ready"]{border-bottom-color:var(--slot-accent,#97ad7a);}
+#item-hud[data-slot="drawing"] #held-picture{animation:item-draw-flicker .32s ease-in-out infinite alternate;}
+#item-hud[data-using="use"]{box-shadow:inset 0 0 12px #d4ffd333;}
+#item-hud[data-using="miss"]{border-left-color:#ffc380;}
+#test-inventory button[aria-pressed="true"] .item-picture{filter:drop-shadow(0 0 4px #f1ff867a);}
+@keyframes item-draw-flicker{from{opacity:.70}to{opacity:1}}
+@media(prefers-reduced-motion:reduce){#item-hud[data-slot="drawing"] #held-picture{animation:none}}
+/* In flight the Sky HUD holds the top centre, so item cues drop beneath it. */
+#game:has(#sky-hud:not([hidden])) #item-impact:not([hidden]){top:clamp(150px,25%,186px)}

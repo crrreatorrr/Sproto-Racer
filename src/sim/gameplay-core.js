@@ -312,8 +312,17 @@ export function createGameplayCore(track, hooks = {}) {
         tagged,
         volleyId,
       });
+      cue('muzzle', 'lightbolt', a, s, x, height);
     }
     return true;
+  }
+
+  // Optional presentation callback. Never added to snapshots, hashes, or net state.
+  function cue(phase, type, actor, s, x, height) {
+    if (!hooks.onVisualCue) return;
+    const k = actor.kart;
+    hooks.onVisualCue({ phase, type, seat: actor.id ?? 0, isPlayer: !!actor.isPlayer,
+      s: s ?? k.s, x: x ?? k.x, height: height ?? k.y + 0.92 });
   }
 
   function dropShield(a) {
@@ -336,6 +345,7 @@ export function createGameplayCore(track, hooks = {}) {
     if (s.shield > 0) {
       dropShield(a);
       notify(a, 'SHIELD BLOCK');
+      cue('block', effect, a);
       return true;
     }
     if (s.invincible > 0) return effect !== 'obstacle';
@@ -360,12 +370,14 @@ export function createGameplayCore(track, hooks = {}) {
       s.hops = 0;
       add('attached', a, k.s, k.x, 3.1, { itemType: 'box' });
       notify(a, 'HOP TWICE!');
+      cue('hit', 'box', a);
       return true;
     }
     if (effect === 'obstacle') {
       k.speed *= 0.78;
       k.travelYaw += side * 0.12;
       interruptBoost(a.boost, k);
+      cue('hit', 'obstacle', a);
       return true;
     }
 
@@ -387,11 +399,13 @@ export function createGameplayCore(track, hooks = {}) {
       k.travelYaw += side * 0.12;
       notify(a, hitLabels[effect] ?? 'ITEM HIT');
     }
+    cue('hit', effect, a);
     return true;
   }
 
   function blast(owner, s, x, height, radius, color, effect, pack, direct = null) {
     pulseAt(owner, s, x, height, color, radius);
+    cue('blast', effect, owner, s, x, height);
     const worldY = pointY(s, x, height);
     for (let i = 0; i < pack.length; i++) {
       const b = pack[i];
@@ -535,6 +549,7 @@ export function createGameplayCore(track, hooks = {}) {
         if (state(target).shield > 0) {
           dropShield(target);
           notify(target, 'SHIELD BLOCK');
+          cue('block', 'siphon', target);
           break;
         }
         const stolen = Math.min(1.5, target.boost.reserve);
@@ -542,6 +557,7 @@ export function createGameplayCore(track, hooks = {}) {
         if (target.boost.reserve <= 0) target.boost.tier = 0;
         grantBoost(a.boost, stolen);
         notify(target, 'SODA SIPHONED');
+        cue('hit', 'siphon', target);
         break;
       }
       case 18: {
@@ -565,6 +581,7 @@ export function createGameplayCore(track, hooks = {}) {
       a.charges = 3;
     }
     notify(a, message);
+    cue(message.endsWith('MISSED') ? 'miss' : 'use', ITEMS[index].model, a);
     return true;
   }
 
@@ -980,6 +997,7 @@ export function createGameplayCore(track, hooks = {}) {
           o.x = side * (2 * edge - Math.abs(o.x));
           o.vx = -side * Math.abs(o.vx);
           o.remainingBounces--;
+          cue('bounce', o.type, o.owner, o.s, side * edge, o.height);
         } else {
           o.x = clamp(o.x, -edge, edge);
           o.ends = true;
@@ -1170,6 +1188,7 @@ export function createGameplayCore(track, hooks = {}) {
       if (kind === 'clear') {
         o.life = 0;
         pulseAt(o.owner, s, x, height, 0x9ff4da, 2);
+        cue('clear', o.type, o.owner, s, x, height);
         continue;
       }
       if (kind === 'intercept') {
@@ -1177,6 +1196,7 @@ export function createGameplayCore(track, hooks = {}) {
         target.life = 0;
         o.life = 0;
         pulseAt(o.owner, s, x, height, 0xffe8be, 2.2);
+        cue('intercept', o.type, o.owner, s, x, height);
         continue;
       }
       if (o.type === 'lob' || o.type === 'puck') {
@@ -1189,6 +1209,7 @@ export function createGameplayCore(track, hooks = {}) {
         if (o.type === 'ring') continue;
       } else if (kind === 'barrier') {
         pulseAt(o.owner, s, x, height, 0xffdb9c, 1.65);
+        cue('bounce', o.type, o.owner, s, x, height);
       }
       o.life = 0;
     }

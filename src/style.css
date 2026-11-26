@@ -103,7 +103,7 @@
   #feedback:not(:empty){margin-bottom:4px}
 }
 
-.item-picture{display:block;aspect-ratio:1;background-image:url('/item-icons.png');background-size:500% 400%;background-repeat:no-repeat}
+.item-picture{display:block;aspect-ratio:1;background-image:url('./assets/item-icons.webp');background-size:500% 400%;background-repeat:no-repeat}
 #item-hud{position:relative;padding-right:42px}
 #incoming-warning{position:absolute;top:clamp(64px,14%,95px);left:50%;transform:translateX(-50%);padding:5px 10px;background:#321e29ed;border:1px solid #ff9cae;color:#ffe1c1;font:700 12px var(--mono);white-space:nowrap;pointer-events:none}
 #held-picture{position:absolute;right:4px;top:50%;transform:translateY(-50%);width:38px}
@@ -113,3 +113,17 @@
 @media(min-width:960px){#test-inventory{grid-template-columns:repeat(10,1fr);width:265px}}
 @media(max-width:480px){#item-hud{padding-right:26px}#held-picture{width:26px;right:1px}#test-inventory button{height:21px}}
 @media(min-width:481px) and (max-height:460px){#test-inventory button{height:19px}}
+
+/* Compact art cues stay legible without covering the driving line. */
+#item-impact:not([hidden]){position:absolute;display:flex;align-items:center;gap:6px;top:clamp(92px,17%,124px);left:50%;transform:translateX(-50%);z-index:2;pointer-events:none;padding:4px 9px;border:1px solid var(--item-signal,#d4f6ff);border-radius:5px;background:#182427ea;color:var(--item-signal,#d4f6ff);font:800 12px var(--mono);letter-spacing:.045em;text-shadow:0 1px #000;}
+#item-impact-picture{width:25px;flex:0 0 25px;}
+#item-impact-picture[hidden],#held-picture[hidden]{display:none}
+#item-impact[data-kind="block"]{box-shadow:0 0 15px #7cdeff52;}
+#item-impact[data-kind="hit"]{border-left-width:4px;}
+#item-hud[data-slot="ready"]{border-bottom-color:var(--slot-accent,#97ad7a);}
+#item-hud[data-slot="drawing"] #held-picture{animation:item-draw-flicker .32s ease-in-out infinite alternate;}
+#item-hud[data-using="use"]{box-shadow:inset 0 0 12px #d4ffd333;}
+#item-hud[data-using="miss"]{border-left-color:#ffc380;}
+#test-inventory button[aria-pressed="true"] .item-picture{filter:drop-shadow(0 0 4px #f1ff867a);}
+@keyframes item-draw-flicker{from{opacity:.70}to{opacity:1}}
+@media(prefers-reduced-motion:reduce){#item-hud[data-slot="drawing"] #held-picture{animation:none}}

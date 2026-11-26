@@ -1,7 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { CIRCUITS } from './circuits.js';
-import { itemModel } from './item-art.js';
 import { createTrackCore, createTrackSample } from './sim/track-core.js';
 
 const TAU = Math.PI * 2;
@@ -13,40 +12,198 @@ const defaultColors = {
   floor: 0x8fb198, grass: 0xb3c9a5, super: 0x6cebdc,
 };
 
+// The case has six planes, 12 edge facets and eight trimmed corners: 44
+// triangles instead of a subdivided box. All pickups share one instanced draw.
+function chamferCase(w, h, d, bevel) {
+  const half = [w * .5, h * .5, d * .5], inner = half.map(x => x - bevel);
+  const positions = [], normals = [];
+  const cross = new THREE.Vector3(), first = new THREE.Vector3(), second = new THREE.Vector3();
+  function polygon(verts) {
+    first.fromArray(verts[1]).sub(new THREE.Vector3(...verts[0]));
+    second.fromArray(verts[2]).sub(new THREE.Vector3(...verts[0]));
+    cross.crossVectors(first, second).normalize();
+    if (cross.dot(new THREE.Vector3(...verts[0])) < 0) {
+      verts.reverse(); cross.negate();
+    }
+    for (let n = 1; n < verts.length - 1; n++) for (const p of [verts[0], verts[n], verts[n + 1]]) {
+      positions.push(...p); normals.push(...cross);
+    }
+  }
+  const signs = [-1, 1];
+  for (let a = 0; a < 3; a++) {
+    const b = (a + 1) % 3, c = (a + 2) % 3;
+    for (const s of signs) polygon([[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([u, v]) => {
+      const p = []; p[a] = s * half[a]; p[b] = u * inner[b]; p[c] = v * inner[c]; return p;
+    }));
+  }
+  for (let a = 0; a < 3; a++) for (let b = a + 1; b < 3; b++) {
+    const c = 3 - a - b;
+    for (const sa of signs) for (const sb of signs) polygon([[0, -1], [1, -1], [1, 1], [0, 1]].map(([along, sc]) => {
+      const p = []; p[a] = sa * (along ? inner[a] : half[a]); p[b] = sb * (along ? half[b] : inner[b]);
+      p[c] = sc * inner[c]; return p;
+    }));
+  }
+  for (const x of signs) for (const y of signs) for (const z of signs) {
+    const sign = [x, y, z];
+    polygon([0, 1, 2].map(a => sign.map((s, i) => s * (a === i ? half[i] : inner[i]))));
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+  return g;
+}
+
+function makePickupGeometry() {
+  const parts = [];
+  function piece(source, color, kind, offset = [0, 0, 0], rotation = 0) {
+    const g = source.index ? source.toNonIndexed() : source;
+    if (g !== source) source.dispose();
+    const n = g.getAttribute('position').count;
+    const uv = g.getAttribute('uv');
+    const panelUV = new Float32Array(n * 2);
+    if (kind === 1) panelUV.set(uv.array);
+    g.deleteAttribute('uv');
+    g.translate(...offset);
+    if (rotation) g.rotateY(rotation);
+    const colors = new Float32Array(n * 3), ids = new Float32Array(n).fill(kind);
+    const c = new THREE.Color(color);
+    for (let i = 0; i < n; i++) c.toArray(colors, i * 3);
+    g.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    g.setAttribute('aPickupPart', new THREE.BufferAttribute(ids, 1));
+    g.setAttribute('aPickupPanel', new THREE.BufferAttribute(panelUV, 2));
+    parts.push(g);
+  }
+  const box = (w, h, d, c, k, p) => piece(new THREE.BoxGeometry(w, h, d), c, k, p);
+  const indigo = 0x13264c, teal = 0x38dae1, gold = 0xffc850;
+  piece(chamferCase(1.31, 1.31, 1.31, .145), indigo, 0);
+  for (const y of [-.562, .562]) piece(chamferCase(1.396, .169, 1.396, .055), gold, 2, [0, y, 0]);
+  box(.47, .021, .47, teal, 2, [0, .655, 0]);
+  for (const x of [-.596, .596]) for (const z of [-.596, .596]) {
+    box(.13, .98, .13, teal, 2, [x, 0, z]);
+  }
+  for (let i = 0; i < 4; i++) {
+    const angle = i * Math.PI * .5;
+    // The text and face circuitry are antialiased distance fields, not tessellated lettering.
+    piece(new THREE.PlaneGeometry(1.125, .934), 0x16417f, 1, [0, 0, .660], angle);
+    piece(new THREE.RingGeometry(.990, 1.090, 5, 1, 0.14, 1.25).rotateX(-Math.PI * .5), teal, 3, [0, 0, 0], angle);
+    piece(new THREE.OctahedronGeometry(.084, 0).scale(.70, 1.36, .70), i % 2 === 0 ? gold : teal,
+      4, [1.00 + i % 2 * .095, i % 2 ? -.185 : .21, 0], angle);
+  }
+  const merged = mergeGeometries(parts);
+  parts.forEach(g => g.dispose());
+  merged.computeBoundingSphere();
+  return merged;
+}
+
 function applyPickupVertexShader(material, uniforms) {
+  // This material is compiled only for pickupCrates. Keep the existing track cache slot.
   material.customProgramCacheKey = () => 'racer-pickup-v1';
   material.onBeforeCompile = (shader) => {
     shader.uniforms.uTime = uniforms.uTime;
-    shader.vertexShader = 'uniform float uTime;\n' + shader.vertexShader
+    shader.vertexShader = `uniform float uTime;
+      attribute vec2 aPickupState;
+      attribute float aPickupPart;
+      attribute vec2 aPickupPanel;
+      varying vec2 vPickupPanel;
+      varying float vPickupPart;
+      varying float vPickupVisible;
+      varying float vPickupGlow;
+      varying float vPickupDim;
+      vec3 pickupY(vec3 p, float a) {
+        float c = cos(a), s = sin(a);
+        return vec3(c*p.x+s*p.z, p.y, c*p.z-s*p.x);
+      }
+      vec3 pickupTilt(vec3 p, float a) {
+        float c = cos(a), s = sin(a);
+        return vec3(p.x*c-p.y*s, p.x*s+p.y*c, p.z);
+      }
+    ` + shader.vertexShader
       .replace(
         '#include <beginnormal_vertex>',
         `#include <beginnormal_vertex>
-        {
-          float pId = float(gl_InstanceID);
-          float ay = uTime * 1.2 + pId * 0.36;
-          float cx = cos(0.15), sx = sin(0.15);
-          float cy = cos(ay), sy = sin(ay);
-          float cz = cos(0.16), sz = sin(0.16);
-          vec3 n0 = vec3(objectNormal.x * cz - objectNormal.y * sz, objectNormal.x * sz + objectNormal.y * cz, objectNormal.z);
-          vec3 n1 = vec3(n0.x * cy + n0.z * sy, n0.y, -n0.x * sy + n0.z * cy);
-          objectNormal = vec3(n1.x, n1.y * cx - n1.z * sx, n1.y * sx + n1.z * cx);
-        }`,
+        float pId = float(gl_InstanceID);
+        float pTurn = uTime * 1.9 + pId * 0.64;
+        float pLean = 0.15 + 0.19 * sin(uTime * 1.7 + pId * .46);
+        float age = max(0.0, uTime - aPickupState.x);
+        bool hidden = aPickupState.y > 0.5;
+        bool disabled = aPickupState.y > 1.5;
+        float recover = smoothstep(0.0, .36, age);
+        float pSpin = pTurn + (hidden ? min(age, .18) * 9.0 : (1.0 - recover) * 1.45);
+        if (aPickupPart < 2.5) objectNormal = pickupY(pickupTilt(objectNormal, pLean), pSpin);`,
       )
       .replace(
         '#include <begin_vertex>',
         `#include <begin_vertex>
-        {
-          float pId = float(gl_InstanceID);
-          float ay = uTime * 1.2 + pId * 0.36;
-          float cx = cos(0.15), sx = sin(0.15);
-          float cy = cos(ay), sy = sin(ay);
-          float cz = cos(0.16), sz = sin(0.16);
-          vec3 p0 = vec3(transformed.x * cz - transformed.y * sz, transformed.x * sz + transformed.y * cz, transformed.z);
-          vec3 p1 = vec3(p0.x * cy + p0.z * sy, p0.y, -p0.x * sy + p0.z * cy);
-          transformed = vec3(p1.x, p1.y * cx - p1.z * sx, p1.y * sx + p1.z * cx);
-          transformed.y += ${(0.21 / 1.16).toFixed(6)} * sin(uTime * 2.0 + pId * 0.57);
-        }`,
+        float bob = 0.29 * sin(uTime * 2.7 + pId * 0.65);
+        float pulse = 0.5 + 0.5 * sin(uTime * 5.3 + pId * 0.39);
+        vPickupVisible = 1.0;
+        vPickupGlow = 0.0;
+        vPickupDim = 1.0;
+        vPickupPart = aPickupPart;
+        vPickupPanel = aPickupPanel;
+        if (aPickupPart < 2.5) {
+          float pop = 0.15 * sin(recover * 3.141593);
+          float scale = hidden ? 1.0 - smoothstep(0.0, .18, age) : 0.16 + 0.84 * recover + pop;
+          transformed = pickupY(pickupTilt(transformed * max(scale, .001), pLean), pSpin);
+          transformed.y += bob + (hidden ? .28 * min(age * 5.0, 1.0) : -.12 * (1.0 - recover));
+          vPickupVisible = hidden && age >= .18 ? 0.0 : 1.0;
+          if (aPickupPart > 0.5) vPickupGlow = aPickupPart < 1.5 ? .90 : .40 + .25 * pulse;
+          if (hidden) vPickupGlow = mix(vPickupGlow, .94, smoothstep(0.0, .10, age));
+        } else if (aPickupPart < 3.5) {
+          transformed = pickupY(transformed, uTime * (hidden ? -.8 : 1.3) + pId * .44);
+          transformed.xz *= hidden ? 0.79 + .06 * pulse : 1.05 + .10 * pulse;
+          transformed.y = -(2.0 - .215) / (hidden ? .98 : 1.16);
+          vPickupGlow = hidden ? .08 + .06 * pulse : .64 + .28 * pulse;
+          vPickupDim = hidden ? .30 + .12 * pulse : 1.0;
+        } else {
+          float spread = hidden ? 1.0 + 1.85 * smoothstep(0.0, .31, age) : 1.0 + .38 * (1.0 - smoothstep(0.0, .48, age));
+          transformed = pickupY(transformed, uTime * (hidden ? 7.0 : 1.95) + pId * .6);
+          transformed.xz *= spread;
+          float burstAge = min(age, .31);
+          transformed.y += bob + (hidden ? burstAge * 2.5 - burstAge * burstAge * 4.2 : .10 * sin(pTurn));
+          vPickupVisible = hidden && age >= .31 ? 0.0 : 1.0;
+          vPickupGlow = hidden ? .98 : .46 + .42 * pulse;
+        }
+        if (disabled) vPickupVisible = 0.0;`,
       );
+    shader.fragmentShader = `uniform float uTime;
+      varying float vPickupVisible;
+      varying float vPickupGlow;
+      varying float vPickupDim;
+      varying vec2 vPickupPanel;
+      varying float vPickupPart;
+      float pickupStroke(vec2 p, vec2 a, vec2 b) {
+        vec2 d = b-a;
+        return length(p-a-d*clamp(dot(p-a,d)/dot(d,d),0.0,1.0));
+      }
+      vec3 pickupFace(vec2 uv) {
+        vec2 p = uv-.5;
+        vec2 arc = p-vec2(0.,.153);
+        float curve = abs(length(arc)-.162);
+        if (arc.y < 0.0 && (arc.x < .09 || arc.y < -.099)) curve = 1.0;
+        float stem = min(pickupStroke(p,vec2(.130,.058),vec2(.036,-.043)),
+          pickupStroke(p,vec2(.036,-.043),vec2(.008,-.115)));
+        stem = min(stem,pickupStroke(p,vec2(.008,-.108),vec2(.008,-.168)));
+        float distanceField = min(min(curve,stem)-.060,length(p-vec2(.008,-.286))-.064);
+        float edge = max(fwidth(distanceField),.009);
+        float glyph = 1.0 - smoothstep(-edge,edge,distanceField);
+        float frame = smoothstep(.437,.479,max(abs(p.x),abs(p.y)));
+        vec2 panelCorner = abs(p)-vec2(.365,.337);
+        float pin = 1.0 - smoothstep(.019,.035,length(panelCorner));
+        float sheen = .035 * exp(-abs((p.x + p.y)-sin(uTime * 1.7)*.54)*9.0);
+        vec3 deep = vec3(.010,.045,.18) + vec3(sheen);
+        vec3 trim = vec3(.036,.48,.70);
+        return mix(mix(deep,trim,max(frame,pin*.68)),vec3(1.0,1.0,.91),glyph);
+      }
+    ` + shader.fragmentShader.replace(
+      '#include <opaque_fragment>',
+      `if (vPickupVisible < 0.5) discard;
+      if (vPickupPart > .5 && vPickupPart < 1.5) {
+        vec3 face = pickupFace(vPickupPanel);
+        outgoingLight = mix(face, vec3(1.0,.94,.66), max(0.,vPickupGlow-.90)*6.0);
+      } else outgoingLight = mix(outgoingLight, diffuseColor.rgb, vPickupGlow) * vPickupDim;
+      #include <opaque_fragment>`,
+    );
   };
 }
 
@@ -89,30 +246,44 @@ export function createTrack(scene, course = CIRCUITS[0], options = {}) {
   let pickupMesh = null;
   let pickupPositions = null;
   let lastHidden = null;
+  let pickupStates = null;
   const pickupUniforms = { uTime: { value: 0 } };
   const pickupTransform = new THREE.Object3D();
 
-  function writePickupMatrix(index, hiddenFlag) {
+  function writePickupMatrix(index, hiddenFlag, partial) {
     const pos = pickupPositions[index];
     pickupTransform.position.set(pos.x, pos.y + 2, pos.z);
     pickupTransform.rotation.set(0, 0, 0);
-    pickupTransform.scale.setScalar(hiddenFlag ? 0 : 1.16);
+    pickupTransform.scale.setScalar(hiddenFlag ? .98 : 1.16);
     pickupTransform.updateMatrix();
     pickupMesh.setMatrixAt(index, pickupTransform.matrix);
+    if (partial) pickupMesh.instanceMatrix.addUpdateRange(index * 16, 16);
   }
 
-  function syncPickups(force = false) {
+  function syncPickups(force = false, animate = true) {
     if (!pickupMesh) return;
     let dirty = false;
     for (let i = 0; i < pickups.length; i++) {
-      const h = pickups[i].hidden ? 1 : 0;
+      const h = !pickups[i].hidden ? 0 : Number.isFinite(pickups[i].readyAt) ? 1 : 2;
       if (force || h !== lastHidden[i]) {
+        const initialized = lastHidden[i] !== 255;
         lastHidden[i] = h;
-        writePickupMatrix(i, h);
+        // Trial mode disables crates with readyAt=Infinity; only collected crates burst.
+        const playChange = initialized && animate && h !== 2;
+        pickupStates.setXY(i, playChange ? lastTime : lastTime - 1.0, h);
+        if (!force) pickupStates.addUpdateRange(i * 2, 2);
+        writePickupMatrix(i, h, !force);
         dirty = true;
       }
     }
-    if (dirty) pickupMesh.instanceMatrix.needsUpdate = true;
+    if (dirty) {
+      if (force) {
+        pickupMesh.instanceMatrix.clearUpdateRanges();
+        pickupStates.clearUpdateRanges();
+      }
+      pickupMesh.instanceMatrix.needsUpdate = true;
+      pickupStates.needsUpdate = true;
+    }
   }
 
   function mountVisuals() {
@@ -778,11 +949,15 @@ export function createTrack(scene, course = CIRCUITS[0], options = {}) {
       }
     }
 
-    // GPU-animated pickup crates: 1 uniform update per frame, dirty-only matrix uploads.
-    const crate = itemModel('pickup');
-    const pickupMat = crate.material.clone();
+    // All crate and availability effects are one draw. Only a uniform changes every frame;
+    // updateRanges upload individual instance data on hide/reveal, not all matrices.
+    const pickupGeometry = makePickupGeometry();
+    pickupStates = new THREE.InstancedBufferAttribute(new Float32Array(pickups.length * 2), 2).setUsage(THREE.DynamicDrawUsage);
+    pickupGeometry.setAttribute('aPickupState', pickupStates);
+    const pickupMat = new THREE.MeshLambertMaterial({ vertexColors: true });
     applyPickupVertexShader(pickupMat, pickupUniforms);
-    pickupMesh = new THREE.InstancedMesh(crate.geometry.clone(), pickupMat, pickups.length);
+    pickupMesh = new THREE.InstancedMesh(pickupGeometry, pickupMat, pickups.length);
+    pickupMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     pickupMesh.name = 'pickupCrates';
     pickupPositions = pickups.map((item) => {
       core.sampleInto(item.s, item.x, sampleScratch, true);
@@ -792,11 +967,11 @@ export function createTrack(scene, course = CIRCUITS[0], options = {}) {
     lastHidden.fill(255);
     for (const item of pickups) {
       trackShape('pillar', item.s, item.x, 0.05, 1.92, 0.12, 1.92, C.dark);
-      trackShape('pillar', item.s, item.x, 0.12, 1.22, 0.08, 1.22, C.lime);
+      trackShape('pillar', item.s, item.x, 0.105, 1.51, 0.07, 1.51, C.steel);
     }
     syncPickups(true);
     pickupMesh.computeBoundingSphere();
-    if (pickupMesh.boundingSphere) pickupMesh.boundingSphere.radius += 2.5;
+    if (pickupMesh.boundingSphere) pickupMesh.boundingSphere.radius += 3.5;
     trackGroup.add(pickupMesh);
 
     const outerRadius = original ? 1240 : Math.max(...nodes.map((n) => Math.hypot(n.p.x, n.p.z))) + 400;
@@ -882,7 +1057,7 @@ export function createTrack(scene, course = CIRCUITS[0], options = {}) {
     if (!visualsMounted) return;
     pickupUniforms.uTime.value = 0;
     syncFixtureVisuals(0);
-    syncPickups(false);
+    syncPickups(true, false);
   }
 
   if (!deferVisuals) mountVisuals();

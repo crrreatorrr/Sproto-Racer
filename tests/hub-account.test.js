@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { createHubSdk, GAME_IDS, isGameId, memoryKeyValue } from '@metaverse/hub-sdk/core';
 import { chipFrom, hubChipText, paintAccount } from '../src/hub/account.js';
-import { HUB_GAME_ID } from '../src/hub/config.js';
+import { HUB_GAME_ID, TRIAL_LAYOUT } from '../src/hub/config.js';
 import { bootHub } from '../src/hub/boot.js';
 import {
   errorCode, hubExitUrl, startHub, trustedHubUrl, usernameFromToken,
@@ -27,7 +27,7 @@ function memory() {
 }
 
 function trial(time, extra = {}) {
-  return { time, length: 100, car: 'apex', driver: 'sproto', ...extra };
+  return { time, length: 100, car: 'apex', driver: 'sproto', layout: TRIAL_LAYOUT, ...extra };
 }
 
 function frames(n = 2) {
@@ -226,7 +226,7 @@ describe('time-trial records', () => {
     assert.equal(round.trials.track01.frames, undefined);
     const kept = mergeRecords(local, round);
     assert.equal(kept.trials.track01.frames.length, 8000);
-    const faster = recordsFromCloud({ v: 1, trials: { track01: { t: 14000, len: 100, car: 'apex', driver: 'sproto' } } });
+    const faster = recordsFromCloud({ v: 1, trials: { track01: { t: 14000, len: 100, car: 'apex', driver: 'sproto', lay: TRIAL_LAYOUT } } });
     const won = mergeRecords(local, faster);
     assert.equal(won.trials.track01.time, 14);
     assert.equal(won.trials.track01.frames, undefined);
@@ -256,7 +256,7 @@ describe('time-trial records', () => {
     assert.equal(JSON.stringify(cloud.cloud.data).includes('frames'), false);
 
     const other = api(null);
-    other.cloud.data = { v: 1, trials: { track01: { t: 11000, len: 100, car: 'needle', driver: 'rook' } } };
+    other.cloud.data = { v: 1, trials: { track01: { t: 11000, len: 100, car: 'needle', driver: 'rook', lay: TRIAL_LAYOUT } } };
     await book.follow({ bankable: true, playerId: 'player-b', api: other, noteSessionError() {} });
     assert.equal(book.get('track01').time, 11);
     assert.equal(book.get('track01').car, 'needle');
@@ -276,10 +276,37 @@ describe('time-trial records', () => {
   });
 
   it('drops a broken ghost and still keeps the time', () => {
-    const trialWith = acceptTrial({ time: 9, length: 100, car: 'apex', driver: 'sproto', frames: [[1, 0, 0, 0, 0], [1, 1, 0, 0, 0]] }, 100);
+    const trialWith = acceptTrial({ time: 9, length: 100, car: 'apex', driver: 'sproto', layout: TRIAL_LAYOUT, frames: [[1, 0, 0, 0, 0], [1, 1, 0, 0, 0]] }, 100);
     assert.equal(trialWith.frames, undefined);
     assert.equal(trialWith.time, 9);
     assert.equal(acceptTrial(trialWith, 101), null);
+  });
+
+  it('drops records set on an older circuit layout, on this browser, an account and the cloud', async () => {
+    const old = (time) => ({ time, length: 100, car: 'apex', driver: 'sproto', frames: frames() });
+    const storage = memory();
+    storage.setItem('sproto.track01.ghost.v1', JSON.stringify(old(9)));
+    storage.setItem('sproto.racer.progress', JSON.stringify({ trials: { track02: old(8) } }));
+    storage.setItem('sproto.racer.progress@player-a', JSON.stringify({ trials: { track03: old(7) } }));
+    const book = createRecordBook({ storage, pushDelayMs: 1 });
+    assert.equal(book.get('track01'), null);
+    assert.equal(book.get('track02'), null);
+    assert.equal(acceptTrial(old(9), 100), null);
+    assert.deepEqual(Object.keys(recordsFromCloud({ v: 1, trials: { track01: { t: 5000, len: 100, car: 'apex', driver: 'sproto' } } }).trials), []);
+
+    const cloud = api(null);
+    cloud.cloud.data = { v: 1, trials: { track01: { t: 5000, len: 100, car: 'apex', driver: 'sproto' } } };
+    await book.follow({ bankable: true, playerId: 'player-a', api: cloud, noteSessionError() {} });
+    assert.equal(book.get('track01'), null);
+    assert.equal(book.get('track03'), null);
+
+    // A slower run on the new layout is the record now, and replaces the old cloud time.
+    const saved = noteTrial(book, 'track01', null, { time: 30, length: 100, car: 'apex', driver: 'sproto' });
+    assert.equal(saved.time, 30);
+    assert.equal(saved.layout, TRIAL_LAYOUT);
+    await book.flush();
+    assert.equal(cloud.cloud.data.trials.track01.t, 30000);
+    assert.equal(cloud.cloud.data.trials.track01.lay, TRIAL_LAYOUT);
   });
 });
 

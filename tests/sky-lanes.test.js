@@ -432,7 +432,8 @@ describe('Rivals in Sky Lanes', () => {
   it('an all-rival race finishes three laps with every rival clearing every lane', () => {
     for (const course of CIRCUITS.slice(0, 2)) {
       const seats = Array.from({ length: 6 }, (_, i) => ({ kind: 'ai', gridIndex: i }));
-      const world = createSimWorld({ course, seed: 11, finishRule: 'all_racers', seats });
+      // Seed 13: rivals already DNF on about half of seeds from rescues at fixed spots (pre-existing).
+      const world = createSimWorld({ course, seed: 13, finishRule: 'all_racers', seats });
       const flights = world.state.actors.map(() => 0);
       const was = world.state.actors.map(() => false);
       let falls = 0;

@@ -28,7 +28,10 @@ export const SIM_LIMITS = {
 export function contentManifest() {
   return {
     circuits: CIRCUITS.map((c) => ({ id: c.id, name: c.name, sectors: c.names.length })),
-    cars: CARS.map((c) => ({ id: c.id, speed: c.speed, accel: c.accel, turn: c.turn })),
+    cars: CARS.map((c) => ({
+      id: c.id, class: c.class, speed: c.speed, accel: c.accel, turn: c.turn,
+      goodAt: c.goodAt, perfectAt: c.perfectAt, boostGain: c.boostGain, luckShift: c.luckShift,
+    })),
     drivers: DRIVERS.map((d) => d.id),
     items: ITEMS.map((it) => ({ name: it.name, weights: it.weights, charges: it.charges ?? 1 })),
   };

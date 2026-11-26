@@ -1,7 +1,7 @@
 {
   "game": "sproto-racer",
-  "simVersion": "faecadbb04e70517",
-  "bundleSha256": "d986897be7b9f89ea903371e4ec69b00c9c1b7755efaf1d22d7767d738998431",
-  "contentSha256": "32c1087b0d9d66765b8b9157255451ada5c1aa5cd67bd512cda0b6ecd4479190",
+  "simVersion": "98b453c211688a05",
+  "bundleSha256": "eaf8d95865facbfce4c8a860daf774dc45992caeae35a29234b5fc85dd13d647",
+  "contentSha256": "ae9b4e53bb513f6c7182bd28fa8e5c2d5f4af28e06e0a9f776976be90ff68a83",
   "smokeHash240": "7e51b2ae87b7e387"
 }

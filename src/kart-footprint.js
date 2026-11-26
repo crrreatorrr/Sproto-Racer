@@ -1,3 +1,4 @@
+import {conceptCarById} from './concept-roster.js';
 import {cartAxles,cartHalfTrack,cartDriver,cartHandle,cartFloor,basketPoint} from './shopping-cart-layout.js';
 import {skipperSection,skipperStations,skipperAxles,skipperHalfTrack,skipperWheelWidth,skipperCabin,skipperMotor,skipperDriver} from './skipper-layout.js';
 import {saucerRadius,saucerDriver,saucerProfile,saucerLipHeight,saucerSeatBack,screenPoint} from './saucer-layout.js';
@@ -10,7 +11,7 @@ import {geepScale,geepAxles,geepHalfTrack,geepTireWidthScale} from './geep-layou
 import {PI,cos,hypot,sin} from './sim/math.js';
 
 export const isGeep = kart => kart.tuning?.id === 'geep';
-export const hasShapedBody = kart => kart.tuning?.id==='shopping-cart' || kart.tuning?.id==='skipper' || kart.tuning?.id==='saucer' || kart.tuning?.id==='manta' || kart.tuning?.id==='crestline' || isGeep(kart) || kart.tuning?.id==='barrage' || kart.tuning?.id==='ironhide';
+export const hasShapedBody = kart => !!conceptCarById(kart.tuning?.id) || kart.tuning?.id==='shopping-cart' || kart.tuning?.id==='skipper' || kart.tuning?.id==='saucer' || kart.tuning?.id==='manta' || kart.tuning?.id==='crestline' || isGeep(kart) || kart.tuning?.id==='barrage' || kart.tuning?.id==='ironhide';
 const rotate = (s,x,c,sn) => ({s:s*c-x*sn,x:s*sn+x*c});
 
 function convexHull(points) {
@@ -421,12 +422,16 @@ function skipperShape(t,curvature){
 
 export function kartFootprint(kart){
   const t=getTables();
-  const id=kart.tuning?.id,yaw=kart.yaw||0;
-  const steering=id!=='saucer'&&id!=='shopping-cart'&&hasShapedBody(kart)?Math.round((kart.steer||0)*fullLockCurvature(kart)*512):0;
+  const id=kart.tuning?.id,yaw=kart.yaw||0,concept=conceptCarById(id);
+  const steering=!concept&&id!=='saucer'&&id!=='shopping-cart'&&hasShapedBody(kart)?Math.round((kart.steer||0)*fullLockCurvature(kart)*512):0;
   const old=kart._fp;
   if(old && old.yaw===yaw && old.steering===steering && old.id===id)return old;
   let body,bands;
-  if(id==='shopping-cart'){
+  if(concept){
+    const [w,minZ,maxZ]=concept.bounds;
+    body=orient(bodySection([[minZ,w*.78],[minZ*.78,w],[maxZ*.78,w],[maxZ,w*.78]]),yaw);
+    bands=[{hull:body,low:concept.hover?.18:0,high:concept.height}];
+  }else if(id==='shopping-cart'){
     body=orient(t.shoppingCart.outline,yaw);
     bands=t.shoppingCart.bands.map(({shape,low,high})=>({hull:orient(shape,yaw),low,high}));
   }else if(id==='saucer'){

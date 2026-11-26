@@ -8,7 +8,7 @@
     "check:server-sim": "node scripts/build-server-sim.mjs --check",
     "preview": "vite preview --host 127.0.0.1",
     "test:qa": "for f in qa/*.mjs; do node --import ./tests/register-sdk-hook.js \"$f\" || exit 1; done",
-    "test": "npm run check:server-sim && vitest run && node --import ./tests/register-sdk-hook.js --test tests/*.test.js"
+    "test": "node scripts/build-concept-roster.mjs --check && npm run check:server-sim && vitest run && node --import ./tests/register-sdk-hook.js --test tests/*.test.js"
   },
   "dependencies": {
     "@metaverse/hub-sdk": "file:vendor/hub-sdk",

@@ -1,5 +1,6 @@
+import {CONCEPT_CARS} from './concept-roster.js';
 // The garage and simulation share the same multipliers. Characters are cosmetic.
-export const CARS = [
+const LEGACY_CARS = [
   {id:'apex',name:'Apex',role:'All-rounder',color:'#f65a32',trim:'#fff1c9',speed:1,accel:1,turn:1},
   {id:'needle',name:'Needle',role:'Straight-line speed',color:'#47a6ca',trim:'#e0f5da',speed:1.017,accel:.88,turn:.93},
   {id:'pogo',name:'Pogo',role:'Quick recovery',color:'#efa834',trim:'#522f43',speed:.990,accel:1.18,turn:.95},
@@ -15,6 +16,7 @@ export const CARS = [
   {id:'shopping-cart',name:'Shopping Cart',role:'Wire-basket racer',color:'#dd392b',trim:'#ced7dc',speed:1,accel:1,turn:1},
   {id:'skipper',name:'Skipper',role:'Amphibious racer',color:'#193754',trim:'#f1dfbc',speed:1,accel:1,turn:1}
 ];
+export const CARS = [...LEGACY_CARS,...CONCEPT_CARS];
 export const DRIVERS = [
   {id:'sproto',name:'Sproto',skin:'#a9c989',suit:'#354448',accent:'#f7663f',cap:'#f7eaca'},
   {id:'pip',name:'Pip',skin:'#8bc9d2',suit:'#326179',accent:'#ffbe4f',cap:'#273d52'},
@@ -26,7 +28,7 @@ export const driverById = id => DRIVERS.find(driver=>driver.id===id) ?? DRIVERS[
 export function racerSetup(id, selection={}) {
   const car=carById(selection.car),driver=driverById(selection.driver);
   return {
-    car: CARS[(CARS.indexOf(car)+id)%CARS.length],
+    car: id===0?car:LEGACY_CARS[((LEGACY_CARS.indexOf(car)>=0?LEGACY_CARS.indexOf(car):0)+id)%LEGACY_CARS.length],
     driver: DRIVERS[(DRIVERS.indexOf(driver)+id)%DRIVERS.length]
   };
 }

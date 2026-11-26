@@ -121,7 +121,7 @@ function makeWheel(spec,car){
       // The chromed rim face is dished: the axle sits inward of the bead and the
       // road lip curves back into the sidewall. It replaces the old flat disk.
       const dish=[[.19,-.025],[.38,-.021],[.56,-.012],[.635,.018],[.70,.023],[.704,-.012]];
-      const dishGeometry=new T.LatheGeometry(dish.map(([rr,dd])=>new T.Vector2(r*rr,dd)),16)
+      const dishGeometry=new T.LatheGeometry(dish.slice().reverse().map(([rr,dd])=>new T.Vector2(r*rr,dd)),16)
         .rotateZ(-side*Math.PI/2);
       h.mesh(rim,dishGeometry,[inset,0,0],[0,0,0],'metal');
     }

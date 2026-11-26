@@ -6,6 +6,22 @@ import {CARS,DRIVERS} from '../src/roster.js';
 
 const directVisibilityPoints=[[-.24,1.19,-.62],[.24,1.19,-.62],[0,.76,-.53]];
 describe('refined reference drivers',()=>{
+  it('faces both recessed wheel dishes outward in the garage',()=>{
+    const built=makeKart(0,CARS.find(x=>x.id==='sky-mixer'));
+    try{
+      built.updateMatrixWorld(true);
+      const wheels=built.userData.wheels;
+      for(const side of [-1,1]){
+        const w=wheels.find(x=>Math.sign(x.position.x)===side);
+        const r=w.userData.rideHeight,origin=w.localToWorld(new T.Vector3(side*3,.51*r,.085*r));
+        const dir=new T.Vector3(-side,0,0);
+        const face=w.children.filter(p=>p.isMesh&&p.material.metalness>.45);
+        const result=new T.Raycaster(origin,dir,0,3.5).intersectObjects(face,false)[0];
+        expect(result,'wheel dish must be visible from outside').toBeDefined();
+        expect(result.face.normal.x*side).toBeGreaterThan(.4);
+      }
+    }finally{disposeKart(built);}
+  });
   it('uses a shared sculpt for each identity without changing the cockpit anchors',()=>{
     const previous=new Map();
     for(const design of conceptArt)for(const person of DRIVERS){

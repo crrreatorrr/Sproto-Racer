@@ -20,7 +20,7 @@ export const timeText = (n) => {
   );
 };
 
-export function createSession(track, play, fx, records = pageRecords) {
+export function createSession(track, play, fx, records = pageRecords, onVisualCue) {
   const state = {
     mode: 'race', actors: [], player: null, elapsed: 0, countdown: 0,
     lap: 1, sector: 0, done: false, split: '', splitUntil: 0,
@@ -167,6 +167,7 @@ export function createSession(track, play, fx, records = pageRecords) {
           if (!a.unlimited) startPickup(a, state.actors, state.elapsed);
           p.hidden = true;
           p.readyAt = state.elapsed + 1.8;
+          onVisualCue?.({phase:'pickup',type:'pickup',seat:a.id,isPlayer:!!a.isPlayer,s:p.s,x:p.x,height:1.05});
           break;
         }
       }

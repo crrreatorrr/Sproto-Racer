@@ -17,6 +17,7 @@ import {mountTrackSelector,savedCourse} from './track-selector.js';
 import {createTrack} from './track.js';
 import {createGameplay,ITEMS} from './gameplay.js';
 import {pickupPreview} from './items.js';
+import {createItemFx,cueIconType} from './item-fx.js';
 import {createRaceFX} from './race-fx.js';
 import {createSession,DEFAULT_TEST,timeText} from './session.js';
 import {createPerfMonitor} from './perf.js';
@@ -64,9 +65,12 @@ function ensureTrackVisuals(){
 }
 scheduleTrackMount(track);
 
-const play=createGameplay(world,track),fx=createRaceFX(world,track);
+const motion=window.matchMedia('(prefers-reduced-motion: reduce)');
+let impactUntil=0,shownItemToken='';
+const itemFx=createItemFx(world,track,{reduced:motion.matches,onSignal:paintItemSignal});
+const play=createGameplay(world,track,{onVisualCue:itemFx.cue}),fx=createRaceFX(world,track);
 const hub=bootHub();
-let session=createSession(track,play,fx),state=session.state;
+let session=createSession(track,play,fx,undefined,itemFx.cue),state=session.state;
 function showAccount(){
   const chip=chipFrom(hub.link,hub.records);
   document.querySelectorAll('[data-hub-account]').forEach(el=>paintAccount(el,chip));
@@ -179,6 +183,7 @@ function begin(mode=selected,options=config){
   closePanel();fx.unlock();fx.mute(muted);lastCrumb=null;
   pendingEdges={};pendingSlot=null;screen='game';$('lobby').hidden=true;$('game').hidden=false;document.querySelector('.topbar').hidden=true;
   $('race-canvas').append(renderer.domElement);w=0;h=0;accumulator=0;previous=performance.now();
+  itemFx.reset();impactUntil=0;shownItemToken='';$('item-impact').hidden=true;
   session.start(mode,{...options,...garage.selection()});
   for(const actor of state.actors)models[actor.id]=syncModel(models[actor.id],actor.id,actor);
   if(mode==='trial'&&session.best)ghostModel=syncModel(ghostModel,0,session.ghostSetup,true);
@@ -194,8 +199,8 @@ function loadSelectedCourse(){
   cancelTrackMount();
   const next=createTrack(world,chosenCourse);
   track.dispose();track=next;
-  play.setTrack(track);fx.setTrack(track);
-  session=createSession(track,play,fx);state=session.state;
+  play.setTrack(track);fx.setTrack(track);itemFx.setTrack(track);
+  session=createSession(track,play,fx,undefined,itemFx.cue);state=session.state;
   followKart=createChaseCamera(camera,track);
   rebuildMap();config={...DEFAULT_TEST};
 }
@@ -271,6 +276,24 @@ boostButton.onkeydown=event=>{
   }
 };
 $('prev-item').onclick=()=>session.select(state.player.held-1);$('next-item').onclick=()=>session.select(state.player.held+1);
+const itemSignalLabels={block:'SHIELD BLOCK',hit:'ITEM HIT',pickup:'ITEM PICKUP',clear:'SHOT CLEARED'};
+function paintItemSignal(signal,color){
+  const el=$('item-impact');
+  const label=itemSignalLabels[signal.phase];
+  const item=ITEMS.findIndex(row=>row.model===cueIconType(signal.phase,signal.type));
+  if(!label){
+    if(signal.phase==='use'||signal.phase==='miss')$('item-hud').dataset.using=signal.phase;
+    return;
+  }
+  const picture=$('item-impact-picture');
+  picture.hidden=item<0;
+  if(item>=0)picture.style.backgroundPosition=itemImagePosition(item);
+  el.dataset.kind=signal.phase;
+  el.style.setProperty('--item-signal','#'+color.toString(16).padStart(6,'0'));
+  setText('item-impact-label',label);
+  impactUntil=state.elapsed+.78;
+  el.hidden=false;
+}
 function itemImagePosition(index){return (index%5)*25+'% '+(Math.floor(index/5)*100/3)+'%';}
 const inventory=$('test-inventory');
 for(const [index,item] of ITEMS.entries()){
@@ -438,7 +461,17 @@ function hud(){
  itemButton.title=a.roulette?'Drawing an item':a.held==null?'Empty item slot':'Use '+ITEMS[a.held].name;
  setText('item-name',a.roulette?'Drawing…':a.held!=null?ITEMS[a.held].name:'EMPTY');
  const art=$('held-picture');art.hidden=shownItem==null;
- if(shownItem!=null)art.style.backgroundPosition=itemImagePosition(shownItem);
+ const slotState=a.roulette?'drawing':shownItem==null?'empty':'ready';
+ const token=slotState+':'+(shownItem??'');
+ if(token!==shownItemToken){
+   shownItemToken=token;itemButton.dataset.slot=slotState;
+   if(shownItem!=null){
+     art.style.backgroundPosition=itemImagePosition(shownItem);
+     itemButton.style.setProperty('--slot-accent',ITEMS[shownItem].color);
+   }
+ }
+ if(!a.noticeTime&&itemButton.dataset.using)delete itemButton.dataset.using;
+ $('item-impact').hidden=state.elapsed>=impactUntil;
  setText('item-key',a.roulette?'ITEM ROULETTE':state.mode==='test'?'UNLIMITED  ∞':'ITEM');
  if(state.mode==='test'){
    for(let i=0;i<inventory.children.length;i++)inventory.children[i].setAttribute('aria-pressed',String(i===a.held));
@@ -508,7 +541,8 @@ function frame(now){
      for(let i=0;i<edgeFlags.length;i++)pendingEdges[edgeFlags[i]]=false;
      pendingSlot=null;accumulator-=1/60;
    }
-   fx.update(dt,state.actors,true,state.countdown>0);syncWorld(dt,Math.min(1,accumulator*60));timingHUD();
+   fx.update(dt,state.actors,true,state.countdown>0);syncWorld(dt,Math.min(1,accumulator*60));
+   itemFx.update(dt,camera);timingHUD();
    if(now-lastHUD>45){hud();lastHUD=now;}
    renderer.render(world,camera);
    perf.recordFrame(rawDt*1000,renderer,now);

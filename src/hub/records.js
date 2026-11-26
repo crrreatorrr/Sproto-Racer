@@ -24,12 +24,13 @@ function cleanFrames(frames) {
   if (!Array.isArray(frames) || frames.length < 2 || frames.length > MAX_FRAMES) return undefined;
   let previous = -Infinity;
   for (const frame of frames) {
-    if (!Array.isArray(frame) || (frame.length !== 5 && frame.length !== 6)) return undefined;
+    if (!Array.isArray(frame) || (frame.length < 5 || frame.length > 7)) return undefined;
     if (!frame.every((n) => typeof n === 'number' && Number.isFinite(n))) return undefined;
+    if (frame.length === 7 && frame[6] !== 0 && frame[6] !== 1) return undefined;
     if (frame[0] <= previous) return undefined;
     previous = frame[0];
   }
-  return frames.map((frame) => frame.slice(0, 6));
+  return frames.map((frame) => frame.slice(0, 7));
 }
 
 /** One stored record, or null. Bad frames are dropped; the time remains. A record set on an

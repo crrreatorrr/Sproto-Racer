@@ -21,6 +21,7 @@ import {barrageDriver,barrageAxles,barrageHalfTrack,barrageTail} from './barrage
 import {attachGeep,geepDriver} from './geep.js';
 import {geepAxles,geepScale,geepHalfTrack} from './geep-layout.js';
 import {releaseKartFade} from './kart-visibility.js';
+import {createKartWings,updateKartWings,setKartWingsDeployed,disposeKartWings} from './kart-wings.js';
 import {HIT_STUN_SECONDS,TRICK_SECONDS} from './driving.js';
 import {CARS,DRIVERS} from './roster.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
@@ -189,7 +190,7 @@ function buildDriver(driver,person){
     cube(driver,accent,0,1.38,-.42,.60,.072,.11);
   }
 }
-export function makeKart(id=0,car=CARS[0],person=DRIVERS[0],ghost=false) {
+export function makeKart(id=0,car=CARS[0],person=DRIVERS[0],ghost=false,{flightWings=false}={}) {
   const g=new THREE.Group(),body=new THREE.Group();g.add(body);
   const shadow=new THREE.Mesh(new THREE.CircleGeometry(1,24),new THREE.MeshBasicMaterial({color:0x16252c,transparent:true,opacity:.28,depthWrite:false,polygonOffset:true,polygonOffsetFactor:-2}));
   shadow.rotation.x=-Math.PI/2;shadow.scale.set(1.32,2,1);shadow.position.y=.025;g.add(shadow);
@@ -266,9 +267,15 @@ export function makeKart(id=0,car=CARS[0],person=DRIVERS[0],ghost=false) {
   const flames=mountExhausts(body,car.id);
   const solidMeshes=[...body.children.filter(m=>m.isMesh),...driver.children,...wheels.flatMap(w=>(w.userData.conceptParts??w.children).concat(w.userData.fork?.children??[]))];
   const moons=hexshift?makeLunarWake(body):null;
-  g.userData={body,wheels,gem,moons,driver,driverHeight:mount.y,flames,shadow,timingLamp,solidMeshes,car:car.id,concept,character:person.id};return g;
+  // Race-only attachment: paddock geometry, contact probes and bounds stay stock.
+  const wings=flightWings?createKartWings(car.id):null;
+  if(wings)body.add(wings);
+  g.userData={body,wheels,wings,gem,moons,driver,driverHeight:mount.y,flames,shadow,timingLamp,solidMeshes,car:car.id,concept,character:person.id};return g;
 }
-export function animateKart(g,k,b,time) {
+export function resetKartWingPose(g,flying=false) {
+  setKartWingsDeployed(g?.userData.wings,!!flying);
+}
+export function animateKart(g,k,b,time,renderDt=0,reduceMotion=false) {
   const a=g.userData;
   const lift=k.y||0, hop=THREE.MathUtils.clamp((k.hopLift||0)/.57,0,1);
   const suspension=k.suspension||0, slip=k.slipAngle||0;
@@ -320,11 +327,14 @@ export function animateKart(g,k,b,time) {
   }
   a.driver.rotation.x=driverMotion*(flash*.13-hop*.10);
   animateExhausts(a.flames,b,time,skyTier);
+  if(reduceMotion)setKartWingsDeployed(a.wings,!!k.flying);
+  else updateKartWings(a.wings,!!k.flying,renderDt);
 }
 
 // Only release resources owned by this instance. Color/number materials are pooled.
 export function disposeKart(kart) {
   releaseKartFade(kart);
+  disposeKartWings(kart.userData.wings);
   const sharedMaterials=new Set([solidParts,...palette.values(),...decals.values()]);
   const geometries=new Set(),materials=new Set();
   kart.traverse(mesh=>{

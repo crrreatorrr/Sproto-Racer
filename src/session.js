@@ -213,8 +213,10 @@ export function createSession(track, play, fx, records = pageRecords, onVisualCu
 
   function recordGhost() {
     if (state.mode !== 'trial' || (state.elapsed < nextSample && state.player.finish === null)) return;
-    const { s, x, y, yaw, rescues } = state.player.kart;
-    rec.push([state.elapsed, s, x, y, yaw, rescues].map((v) => Math.round(v * 1000) / 1000));
+    const { s, x, y, yaw, rescues, flying } = state.player.kart;
+    const frame = [state.elapsed, s, x, y, yaw, rescues].map((v) => Math.round(v * 1000) / 1000);
+    // Local ghost pose only. The cloud leaderboard save still contains no frames.
+    rec.push([...frame, flying ? 1 : 0]);
     nextSample = state.elapsed + 0.095;
   }
 
@@ -230,6 +232,8 @@ export function createSession(track, play, fx, records = pageRecords, onVisualCu
       x: a[2] + (b[2] - a[2]) * f,
       y: a[3] + (b[3] - a[3]) * f,
       yaw: a[4] + (b[4] - a[4]) * f,
+      // Old recordings do not distinguish ground ramps from Sky Lanes.
+      flying: (state.elapsed >= b[0] ? b[6] : a[6]) === 1,
       speed: 0,
     };
   }

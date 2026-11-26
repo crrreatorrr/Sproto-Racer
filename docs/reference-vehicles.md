@@ -24,3 +24,11 @@ The original 14 car IDs are unchanged. The garage appends 36 concepts in the sam
 The 36 new cars have targeted mesh refinements, legible paint and trim variation, and distinct clearcoat, satin alloy, matte rubber, and tinted glass finishes. The exhaust table includes all 50 playable cars. The Z+ aperture is the one source of truth for both the visible pipe or jet hardware and its boost effect; both attach to the chassis rather than the world. The outlet hardware stays visible with the boost off. Normal and Super Turbo keep distinct palettes. None of these changes add animated tools, tracks, or legs.
 
 `qa/exhaust-mounts.test.js` checks socket backing and clear exit space against rendered shells, wheels and drivers, world-space alignment through hop and roll, ignition/normal/Super/fade transitions, and cache disposal with a second model/ghost. Use the Test Drive inventory to exercise Soda Turbo and Comet Candy with real input and inspect the outlet lip from front and rear before shipping.
+
+## Reference fidelity pass
+
+The concept roster keeps the same dimensions, identifiers, exhaust mount data and deterministic simulation pin. Per-vehicle work focuses on larger visible features: sculpted aero and rooflines, thicker hover decks, distinctive wheels and nacelles, stronger novelty silhouettes, and more substantial construction bodies and equipment.
+
+The existing four drivers use cached smooth concept-roster sculpts and keep their original seat anchors and steering grips. Sproto gets the round green face and red scarf shown in the boards. Rounded tire shoulders, richer clearcoat, and a restrained body-local undercut tint make silhouettes readable under regular track lighting. Boost still starts at the same aperture, then expands into a fuller graded plume outside the hardware.
+
+Validate shared driver caching, envelope limits, geometry budget, boosts and driver combinations with `qa/reference-driver.test.js`, `qa/concept-vehicles.test.js`, and `qa/exhaust-mounts.test.js`. These changes are visual, not new handling or a deployment.

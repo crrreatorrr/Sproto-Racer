@@ -3,7 +3,7 @@ import {mergeGeometries} from 'three/addons/utils/BufferGeometryUtils.js';
 import {RoundedBoxGeometry} from 'three/addons/geometries/RoundedBoxGeometry.js';
 
 // Bake each rigid assembly once. Preview, grid and ghost instances share the geometry.
-export function assembly(hardware) {
+export function assembly(hardware,grade) {
   const buckets=new Map();
   function add(geometry,material,color,position=[0,0,0],rotation=[0,0,0]) {
     const g=geometry.index?geometry.toNonIndexed():geometry;
@@ -13,7 +13,13 @@ export function assembly(hardware) {
     if(material.vertexColors){
       g.deleteAttribute('uv');
       const rgb=new T.Color(color), data=new Float32Array(g.attributes.position.count*3);
-      for(let i=0;i<data.length;i+=3)rgb.toArray(data,i);
+      const normals=g.getAttribute('normal'),vertices=g.getAttribute('position');
+      if(grade&&normals){
+        const sample=new T.Color();
+        for(let j=0;j<vertices.count;j++){
+          grade(sample.copy(rgb),vertices.getY(j),normals.getY(j),material).toArray(data,j*3);
+        }
+      }else for(let i=0;i<data.length;i+=3)rgb.toArray(data,i);
       g.setAttribute('color',new T.BufferAttribute(data,3));
     }
     if(!buckets.has(material))buckets.set(material,[]);

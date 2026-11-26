@@ -45,16 +45,23 @@ function hardware(carId,specs){
 
 // An uncapped, tapered pulse extends from exactly z=0, with no phantom gap.
 function plumeGeometry(){
-  return new T.LatheGeometry([
-    [1,0],[1.08,.12],[.83,.45],[.58,.72],[.30,.93],[0,1]
-  ].map(([x,y])=>new T.Vector2(x,y)),14).rotateX(Math.PI/2);
+  const geometry=new T.LatheGeometry([
+    [1,0],[1.02,.04],[1.22,.14],[1.57,.28],[1.52,.40],[1.19,.57],[.86,.70],[.49,.86],[.20,.96],[0,1]
+  ].map(([x,y])=>new T.Vector2(x,y)),16).rotateX(Math.PI/2);
+  const coords=geometry.attributes.position,colors=new Float32Array(coords.count*3);
+  for(let i=0;i<coords.count;i++){
+    const z=coords.getZ(i), a=1-.43*T.MathUtils.smoothstep(z,.22,1);
+    colors.set([a,a,a],i*3);
+  }
+  geometry.setAttribute('color',new T.BufferAttribute(colors,3));
+  return geometry;
 }
 const plume = plumeGeometry();
 function buildFlame(spec,index) {
   const nozzle=new T.Group();
   nozzle.name='boost-effect';nozzle.visible=false;
-  const outerPaint=new T.MeshBasicMaterial({color:0x409eff,transparent:true,opacity:.83,depthWrite:false,toneMapped:false});
-  const corePaint=new T.MeshBasicMaterial({color:0xdef9ff,toneMapped:false});
+  const outerPaint=new T.MeshBasicMaterial({color:0x409eff,transparent:true,opacity:.83,depthWrite:false,toneMapped:false,vertexColors:true});
+  const corePaint=new T.MeshBasicMaterial({color:0xdef9ff,toneMapped:false,vertexColors:true});
   const ringPaint=new T.MeshBasicMaterial({color:0xbbdeff,transparent:true,depthWrite:false,toneMapped:false});
   const outer=new T.Mesh(plume,outerPaint),core=new T.Mesh(plume,corePaint),ring=new T.Mesh(flashRing,ringPaint);
   // Geometry is module-owned; its instance materials still get disposed normally.
@@ -95,7 +102,8 @@ export function animateExhausts(flames,b,time){
     outerPaint.opacity=.73+.18*Math.max(power,flash);
     corePaint.color.setHex(superFire||style!=='torch'?0xdffaff:0xffecc7);
     outer.scale.set(radius,radius,length);
-    core.scale.set(radius*.54,radius*.54,length*.72);
+    outer.rotation.z=time*.8+index*.5;
+    core.scale.set(radius*.51,radius*.51,length*.59);
     // Starts just beyond the hollow throat, directly on the aperture axis.
     outer.position.z=.006;
     core.position.z=.009;

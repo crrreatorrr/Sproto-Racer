@@ -10,7 +10,7 @@ import { PI, TAU, clamp, cos, mix, mod, sin, smoothstep } from './math.js';
 // side launches that open from `openLap`, flown above the road, which stays below.
 const SKY_COURSES = {
   track01: {
-    theme: 'rig',
+    theme: 'rig', crossing: 'plane',
     lanes: [
       // Lanes end on straight road, so a kart landing at flight speed can hold its line.
       { kind: 'main', from: [4, 0.06], to: [7, 0.5], width: 34, floor: 2, ceiling: 26 },
@@ -18,14 +18,14 @@ const SKY_COURSES = {
     ],
   },
   track02: {
-    theme: 'rock',
+    theme: 'rock', crossing: 'birds',
     lanes: [
       { kind: 'main', from: [2, 0.23], to: [4, 0.6], width: 34, floor: 2, ceiling: 26 },
       { kind: 'gate', from: [7, 0.08], to: [7, 0.88], width: 24, floor: 9, ceiling: 30, entry: [-14, -6], openLap: 2 },
     ],
   },
   track03: {
-    theme: 'crane',
+    theme: 'crane', crossing: 'satellite',
     lanes: [
       { kind: 'main', from: [8, 0.1], to: [9, 0.98], width: 34, floor: 2, ceiling: 26 },
       { kind: 'gate', from: [7, 0.06], to: [7, 0.74], width: 24, floor: 9, ceiling: 30, entry: [5, 13], openLap: 2 },
@@ -67,7 +67,7 @@ function boxPart(s, x, y, hs, hx, hy, motion = null) {
 }
 
 // Builds one lap's layout. `seed` keeps every lane and lap distinct.
-function buildLayout(lane, programme, seed, storm) {
+function buildLayout(lane, programme, seed, storm, crossing, lapIndex) {
   const half = lane.width / 2;
   const floor = lane.floor;
   const ceiling = lane.ceiling;
@@ -177,6 +177,20 @@ function buildLayout(lane, programme, seed, storm) {
       keys.push({ u: u + (length / span) + 0.01, x: 0, y: mid, mega: false });
     }
     obstacles.push(ob);
+  }
+  if(crossing){
+    // These are reserved open windows between the stock obstacle clusters. Add
+    // crossings without drawing from the seeded stream that places those clusters.
+    const u=[.445,.565,.454][lapIndex];
+    const s=lane.start+u*span;
+    const [hx,hy,hs]=crossing==='plane'?[5.4,1.35,2.7]:crossing==='birds'?[4.1,1.28,2.4]:[4.6,1.68,2.3];
+    const phase=hash(seed+790)*TAU;
+    const y=mid+([5.7,-4.8,.8][lapIndex]);
+    const motion={ax:half+hx+3,ay:.85,w:(crossing==='birds'?1.16:.99)*speedUp,ph:phase,w2:.43};
+    const part=boxPart(s,0,y,hs,hx,hy,motion);
+    part.crossing=crossing;
+    obstacles.push({type:'crossing',variant:crossing,s:s-hs,depth:hs*2,parts:[part],warn:s-72});
+    obstacles.sort((a,b)=>a.s-b.s);
   }
   keys.push({ u: 1 - TAPER, x: 0, y: mix(floor, ceiling, 0.3), mega: false });
   keys.sort((a, b) => a.u - b.u);
@@ -290,7 +304,7 @@ export function createSky(course, sections, length) {
       openLap: raw.openLap ?? 1,
     };
     const programme = lane.optional ? GATE_PROGRAMME : MAIN_PROGRAMME;
-    lane.layouts = programme.map((p, lap) => buildLayout(lane, p, (course.number | 0) * 31 + index * 7 + lap + 1, lap === 2));
+    lane.layouts = programme.map((p, lap) => buildLayout(lane, p, (course.number | 0) * 31 + index * 7 + lap + 1, lap === 2, lane.optional ? null : def.crossing, lap));
     return lane;
   });
 

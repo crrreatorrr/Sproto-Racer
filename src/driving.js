@@ -270,6 +270,8 @@ function driveFrame(kart, input, road, boost, steer, throttle, brake, dt) {
     return;
   }
 
+  // Ice affects contact only: air steering, ramps and Sky Lanes retain the old response.
+  const grip=kart.grounded?clamp(road.grip??1,.55,1):1;
   const groundedBrake = kart.grounded ? brake : 0;
   const speedRatio = kart.speed / topSpeed;
   // Extra boost thrust is available during both acceleration and a launch.
@@ -282,7 +284,7 @@ function driveFrame(kart, input, road, boost, steer, throttle, brake, dt) {
   const engineDrag = Math.max(0, kart.speed - topSpeed) * (kart.skyCarry>0 ? 0.9 : 2.8);
   const gravel = kart.offroad && kart.grounded ? 3.0 + kart.speed * 0.10 : 0;
   const gravity = kart.grounded ? 7 * sin(gradeAngle) : 0;
-  const accel = thrust - rollingDrag - engineDrag - gravel - 41 * groundedBrake - gravity;
+  const accel = thrust - rollingDrag - engineDrag - gravel - 41 * groundedBrake * grip - gravity;
   kart.speed = clamp(kart.speed + accel * dt, 0, 140);
 
   const pace=clamp(kart.speed/CRUISE_SPEED,0,1);
@@ -305,9 +307,9 @@ function driveFrame(kart, input, road, boost, steer, throttle, brake, dt) {
     kart.airPivot=pivot;
   }
   const tireRate=tireTurnRate(kart,turn,groundedBrake);
-  const targetRate=kart.grounded?tireRate:tireRate*(kart.hopping ? .42 : .12);
+  const targetRate=kart.grounded?tireRate*grip:tireRate*(kart.hopping ? .42 : .12);
   const response=kart.sliding?8:kart.grounded?16-6*pace:11;
-  kart.cornerRate=approach(kart.cornerRate,targetRate,response,dt);
+  kart.cornerRate=approach(kart.cornerRate,targetRate,response*grip,dt);
   const lateralAccel=kart.speed*kart.cornerRate;
   if(kart.grounded){
     const tireLoad=clamp(Math.abs(lateralAccel)/66,0,1);
@@ -323,7 +325,7 @@ function driveFrame(kart, input, road, boost, steer, throttle, brake, dt) {
   const priorSlip=kart.slipAngle;
   const slipTarget=kart.sliding ? kart.driftDirection*(.45+.20*inside)
     : kart.hopping && input.driftHeld ? kart.pendingDirection*.30 : 0;
-  kart.slipAngle=approach(priorSlip,slipTarget,kart.sliding?9:12,dt);
+  kart.slipAngle=approach(priorSlip,slipTarget,(kart.sliding?9:12)*grip,dt);
   const exitRotation=kart.grounded&&!kart.sliding?(priorSlip-kart.slipAngle)*.38:0;
   const previousYaw=kart.travelYaw;
   const previousS=kart.s,previousX=kart.x;

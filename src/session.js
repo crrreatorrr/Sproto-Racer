@@ -3,6 +3,7 @@ import { racerSetup } from './roster.js';
 import { createKart, stepKart, launchFromRamp, CRUISE_SPEED, settleInSky } from './driving.js';
 import { createBoost, stepBoost, grantBoost, updateRevs, gradeLaunch } from './boost.js';
 import { acceptTrial, noteTrial, pageRecords } from './hub/records.js';
+import { trialRecordId } from './hub/config.js';
 import { atan2, mod } from './sim/math.js';
 import { createTrackSample } from './sim/track-core.js';
 import { grabSkyBox } from './sim/sky.js';
@@ -35,7 +36,8 @@ export function createSession(track, play, fx, records = pageRecords, onVisualCu
 
   const sampleScratch = createTrackSample();
   const roadScratch = createTrackSample();
-  const readBest = () => acceptTrial(records.get(track.id), track.length);
+  const recordId=trialRecordId(track.id);
+  const readBest = () => acceptTrial(records.get(recordId), track.length);
   function reloadBest() {
     best = readBest();
     ghostCursor = 0;
@@ -299,7 +301,7 @@ export function createSession(track, play, fx, records = pageRecords, onVisualCu
     if (state.player.finish !== null) {
       state.done = true;
       if (state.mode === 'trial' && (!best || best.time >= state.elapsed)) {
-        best = noteTrial(records, track.id, best, {
+        best = noteTrial(records, recordId, best, {
           time: state.elapsed,
           length: track.length,
           car: state.player.car,

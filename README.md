@@ -47,7 +47,13 @@ Select a circuit in the paddock before choosing a mode, driver, and car. Each ma
 | --- | --- | --- |
 | Test Track 01 | 6.62 km | Link the deeper switchbacks, hold a long slide up the larger spiral, then change drift direction through the downhill slalom and switch bridge. |
 | Crestline Ridge | 7.93 km | Climb the Staircase switchbacks and carry speed through the sweeping descent. The paired ramps have different jump impulses. Landing lanes have brackets every 10 m for 50–120 m, and stronger ramps have a trackside 40 m board. |
-| Switchyard GP | 9.17 km | Brake into the enlarged freight and return hairpins, then switch lines through the container esses. The 75, 50, and 25 m boards mark braking distances. White arrows point past the dividers. |
+| Switchback Summit | 9.17 km | Brake into the granite and return hairpins, then switch lines through the cliffside esses. The 75, 50, and 25 m boards mark braking distances. White arrows point past the dividers. |
+
+### Circuit look and grip
+
+- **Test Track 01** keeps its training-campus layout with improved road, track fixtures and a deeper foothill skyline. Three shallow rain patches alternate sides, leaving a dry route.
+- **Crestline Ridge** is a snow circuit. Blue ice spans three marked stretches. Braking and turning have less grip on ice, with a smooth change at each edge. The minimap marks the stretches in cyan and the HUD warns before entry. Airborne controls and Sky Lanes are unchanged. Prior course times and ghosts are retained under their original records; post-update runs use new slots on all three courses.
+- **Switchback Summit** replaces the freight-yard setting with a granite mountain pass while preserving the racing line and gaps. Runoff pools cross parts of the bends; take the dry side for more grip.
 
 ## Sky Lanes
 
@@ -57,12 +63,12 @@ Each circuit has a **main Sky Lane**, a long flight section that replaces a stre
 | --- | --- | --- |
 | Test Track 01 | Banked Dish to the Drafting Straight, about 1.9 km | Brake Basin over the Switch Bridge, about 1.1 km, right-hand catapult |
 | Crestline Ridge | Summit Approach to the Twin Rollers, about 1.5 km | Long Descent, about 0.8 km, left-hand catapult |
-| Switchyard GP | Container Esses and Transfer Siding, about 1.3 km | Return Hairpin, about 0.6 km, right-hand catapult |
+| Switchback Summit | Cliffside Esses and Eagle Traverse, about 1.3 km | Return Hairpin, about 0.6 km, right-hand catapult |
 
 Every lane ends on straight road. The corridor funnels down onto the landing deck, so the kart touches down between the rails at flight speed and eases back to ground speed over about 1.5 s.
 
 - **Boost is something you grab.** Fly into a Boost Cell for +0.35 s of boost and +1 chain. A chain of 3, 6 and 10 raises your speed tier to 1.8×, 2.0× and 2.2×. Gold Mega Cells sit in the most dangerous spots and give +1.5 s and +2 chain. With no grab for 2.5 s you drop one tier, never all the way to zero. Nothing else in the air gives boost.
-- **Obstacles** cost speed and tiers but never give boost. Clipping one costs 15% of your speed and a tier. Flying into one costs 45% and two tiers, and tumbles you. The course includes pylon forests, sweeping beams, rotating fan gates, shutters that open and close, drifting debris, and squeeze gaps. An orange frame marks each cluster about 1.2 s ahead.
+- **Obstacles** cost speed and tiers but never give boost. Clipping one costs 15% of your speed and a tier. Flying into one costs 45% and two tiers, and tumbles you. The course includes pylon forests, sweeping beams, rotating fan gates, shutters that open and close, drifting debris, and squeeze gaps. Orange frames mark obstacle clusters. Each main lane also has a timed crossing on each lap: aircraft on Test Track 01, a flock on Crestline Ridge, and a weather relay satellite on Switchback Summit. Their amber warning gate and HUD callout show when to climb or dive clear.
 - **Laps change.** Lap 1 teaches the line. Lap 2 adds sweepers and shutters, and splits the lane into a high Cell trail and a low line with Mega Cells. Lap 3 is the storm: every obstacle type, with faster cycles.
 - **Floating item boxes** hang in rows of three in the open stretches between obstacle clusters, about one row per 300 m, with an extra row on laps 2 and 3. They draw from the same item roulette as the road. Each kart can take one from each row, and the boxes you have taken disappear only for you.
 - **The Sky Gate** is a side catapult that opens from lap 2. It flies above the road, cuts the corner, and has its own obstacles.
@@ -84,7 +90,7 @@ Hop just before a ramp lip to start a trick: a flip, or a spin toward your steer
 
 `node --import ./tests/register-sdk-hook.js qa/sky-lanes.mjs` prints per-lane tuning numbers from an all-rival race. `npm test` covers flight, Cells, obstacles, combat, laps, rivals, tricks and determinism in `tests/sky-lanes.test.js`.
 
-Item boxes start about 42 m from the line on every circuit. Each row has two or three boxes across five possible positions. The open lanes change with each row. Test Track 01 has 52 rows per lap, Crestline Ridge has 74, and Switchyard GP has 85. The road under each main Sky Lane has none. In Quick Race, crossing a box with an empty slot starts the item roulette. In Test Drive, you can practice taking the same pickup lines while keeping your selected unlimited item.
+Item boxes start about 42 m from the line on every circuit. Each row has two or three boxes across five possible positions. The open lanes change with each row. Test Track 01 has 52 rows per lap, Crestline Ridge has 74, and Switchback Summit has 85. The road under each main Sky Lane has none. In Quick Race, crossing a box with an empty slot starts the item roulette. In Test Drive, you can practice taking the same pickup lines while keeping your selected unlimited item.
 
 ## Modes
 
@@ -144,7 +150,7 @@ Hold the accelerator down the straight to build extra speed. Small steering corr
 
 Brake before a tight corner, then ease off the brake as you steer toward the apex. Heavy braking and loose shoulders both reduce cornering grip. The kart turns tightly at low speed and runs a wider arc under boost. A short steering tap adjusts your line, while holding the input builds toward full lock. Countersteer to open a drift exit, especially before reversing direction in a chicane.
 
-With the wheel centered in normal driving, your kart keeps its heading. Steer into bends or you will run wide into the outside rail. Six exposed edges have yellow-and-black curb stripes and a **DROP** sign on approach. Test Track 01 has openings on the Uphill Drift Spiral and Banked Dish, Crestline Ridge on Summit Approach and Gravity Chute, and Switchyard GP on Freight Hairpin and Transfer Siding. If you go over, you lose your boost and return to the center of the road just before the opening. The race clock keeps running.
+With the wheel centered in normal driving, your kart keeps its heading. Steer into bends or you will run wide into the outside rail. Six exposed edges have yellow-and-black curb stripes and a **DROP** sign on approach. Test Track 01 has openings on the Uphill Drift Spiral and Banked Dish, Crestline Ridge on Summit Approach and Gravity Chute, and Switchback Summit on Freight Hairpin and Transfer Siding. If you go over, you lose your boost and return to the center of the road just before the opening. The race clock keeps running.
 
 Karts can bump each other in Quick Race and Test Drive. A rear-end hit transfers speed to the kart ahead. Side contact pushes the karts apart along their racing lines, including during a drift. A high jump can clear another kart, and strong contact gives a short thump and suspension kick.
 

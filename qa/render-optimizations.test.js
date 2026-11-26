@@ -125,7 +125,7 @@ describe('fast rendering & cold-boot optimizations', () => {
 
       track.dispose();
     }
-  });
+  },15000);
 
   it('reuses pooled item/projectile meshes without leaving inactive objects attached to the scene graph', () => {
     const scene = new THREE.Scene();

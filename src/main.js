@@ -15,6 +15,7 @@ import {carById,driverById} from './roster.js';
 import {createChaseCamera} from './chase-camera.js';
 import {mountTrackSelector,savedCourse} from './track-selector.js';
 import {createTrack} from './track.js';
+import {CIRCUIT_ATMOSPHERE} from './circuit-skyline.js';
 import {createGameplay,ITEMS} from './gameplay.js';
 import {pickupPreview} from './items.js';
 import {createItemFx,cueIconType} from './item-fx.js';
@@ -36,16 +37,21 @@ const perf=createPerfMonitor();
 let renderer;
 try{renderer=new THREE.WebGLRenderer({antialias:true,alpha:false,powerPreference:'high-performance'});}
 catch(error){$('hero-canvas').innerHTML='<div class="unavailable">WebGL 2 is unavailable. Enable hardware acceleration in your browser and reload.</div>';$('launch').disabled=true;throw error;}
-renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,1.6));
+renderer.setPixelRatio(1);
 renderer.outputColorSpace=THREE.SRGBColorSpace;
 renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=1.12;
 $('hero-canvas').append(renderer.domElement);
 const paddock=createPaddock();
 const world=new THREE.Scene();
-world.background=new THREE.Color('#b9d9dc');world.fog=new THREE.FogExp2(0xc6d9d4,.0017);
+function setCircuitAtmosphere(course){
+  const look=CIRCUIT_ATMOSPHERE[course.id]??CIRCUIT_ATMOSPHERE.track01;
+  world.background=new THREE.Color(look.background);
+  world.fog=new THREE.FogExp2(look.fog,look.density);
+}
 lightScene(world,2.1);
-const camera=new THREE.PerspectiveCamera(62,1,.15,2300);
+const camera=new THREE.PerspectiveCamera(62,1,.15,6500);
 let chosenCourse=savedCourse();
+setCircuitAtmosphere(chosenCourse);
 // Defer heavy circuit mesh/atlas build until after the first lobby frame paints.
 let track=createTrack(world,chosenCourse,{deferVisuals:true});
 let trackMountJob=null;
@@ -205,6 +211,7 @@ function loadSelectedCourse(){
   cancelTrackMount();
   const next=createTrack(world,chosenCourse);
   track.dispose();track=next;
+  setCircuitAtmosphere(chosenCourse);
   play.setTrack(track);fx.setTrack(track);itemFx.setTrack(track);
   session=createSession(track,play,fx,undefined,itemFx.cue);state=session.state;
   followKart=createChaseCamera(camera,track);
@@ -444,6 +451,17 @@ function rebuildMap(){
     mapBgCtx.stroke();
   }
   mapBgCtx.setLineDash([]);
+ mapBgCtx.strokeStyle='#8be8fd';mapBgCtx.lineWidth=3;
+ for(const {s0,s1,type} of [...(track.icePatches??[]),...(track.wetPatches??[]).map(p=>({...p,type:'wet'}))]){
+  mapBgCtx.strokeStyle=type==='wet'?'#7db7ea':'#8be8fd';
+  mapBgCtx.beginPath();
+  for(let i=0;i<=18;i++){
+   track.mapXYAt(s0+(s1-s0)*i/18,mapPtScratch);
+   const x=mapOriginX+(mapPtScratch.x-mapMinX)*mapScale,y=mapOriginZ+(mapPtScratch.z-mapMinZ)*mapScale;
+   if(i===0)mapBgCtx.moveTo(x,y);else mapBgCtx.lineTo(x,y);
+  }
+  mapBgCtx.stroke();
+ }
 }
 rebuildMap();
 function timingHUD(){
@@ -533,7 +551,17 @@ function hud(){
  const grade=b.feedbackTime>0?b.feedback:'';
  // The first seconds of each flight teach the Sky Lane controls.
  const skyTip=k.flying&&state.elapsed-flightStartedAt<2.6&&!notice&&!grade?(input.deviceName==='Keyboard'?'W DIVE · S CLIMB · Q CARVE · Q+A/D ROLL':'STICK PITCH · DRIFT CARVE · DRIFT+STEER ROLL'):'';
- const feedback=k.fall?['OFF TRACK']:[notice,k.stunRemaining>0?'STUNNED':k.tumble>0?'TUMBLE':grade,skyTip].filter(Boolean);
+ const iceDistance=!k.flying&&!k.fall?(track.distanceToIce?.(k.s)??Infinity):Infinity;
+ const wetDistance=!k.flying&&!k.fall?(track.distanceToWet?.(k.s)??Infinity):Infinity;
+ const iceTip=iceDistance===0?'ICE · REDUCED GRIP':iceDistance<60?'ICE AHEAD · BRAKE EARLY'
+  :wetDistance===0&&track.wetAt?.(k.s,k.x)>.025?'PUDDLE · REDUCED GRIP'
+  :wetDistance>0&&wetDistance<48?'WET PATCH AHEAD':'';
+
+ const lane=k.flying?track.sky.lanes[k.skyLane]:null;
+ const laneS=k.s-Math.floor(k.s/track.length)*track.length;
+ const crossing=lane?.layouts[Math.min(2,Math.max(0,state.lap-1))]?.obstacles.find(ob=>ob.type==='crossing'&&laneS>=ob.warn&&laneS<ob.s+ob.depth);
+ const crossingTip=crossing?(crossing.variant==='plane'?'AIRCRAFT CROSSING':crossing.variant==='birds'?'FLOCK CROSSING':'SATELLITE CROSSING'):'';
+ const feedback=k.fall?['OFF TRACK']:[notice,k.stunRemaining>0?'STUNNED':k.tumble>0?'TUMBLE':grade,crossingTip||skyTip,iceTip].filter(Boolean);
  setText('feedback',feedback.join('\n')||(state.splitUntil>state.elapsed?state.split:''));
  const finalLap=state.mode!=='test'&&finalLapAt>=0&&state.elapsed-finalLapAt<2.4&&!state.done;
  $('announce').classList.toggle('final-lap',finalLap);
@@ -578,7 +606,15 @@ function frame(now){
  const rawDt=Math.max(0,(now-previous)/1000);
  const dt=Math.min(.1,rawDt);previous=now;animation+=dt;
  const host=screen==='lobby'?$('hero-canvas'):$('race-canvas');const W=host.clientWidth,H=host.clientHeight;
- if(W&&H&&(W!==w||H!==h)){w=W;h=H;renderer.setSize(w,h,false);camera.aspect=w/h;camera.updateProjectionMatrix();}
+ if(W&&H){
+   // Sharper high-DPI paint/deck edges, without sizing a 4K desktop at 2×.
+   const ratio=Math.max(1,Math.min(window.devicePixelRatio||1,2.25,Math.sqrt(5_000_000/(W*H))));
+   if(W!==w||H!==h||renderer.getPixelRatio()!==ratio){
+    w=W;h=H;
+    if(renderer.getPixelRatio()!==ratio)renderer.setPixelRatio(ratio);
+    renderer.setSize(w,h,false);camera.aspect=w/h;camera.updateProjectionMatrix();
+   }
+ }
  if(feedbackHold.held()){accumulator=0;requestAnimationFrame(frame);return;}
  const c=input.poll();
  if(controllerOpen){menuPad();requestAnimationFrame(frame);return;}

@@ -4,7 +4,7 @@
 import { barrageMuzzle } from '../barrage-layout.js';
 import { hasShapedBody } from '../kart-footprint.js';
 import { resolveKartContacts } from '../kart-contact.js';
-import { GRAVITY, steerForTurn, stunKart, springJump, tumbleKart } from '../driving.js';
+import { CRUISE_SPEED, GRAVITY, SKY_MAX_SPEED, steerForTurn, stunKart, springJump, tumbleKart } from '../driving.js';
 import { interruptBoost, grantBoost, grantCell, dropSkyTier, stepSkyChain, clearSky } from '../boost.js';
 import { lapOf, laneCeiling, sweepCells, sweepObstacles, SKY_KART_RADIUS } from './sky.js';
 
@@ -649,7 +649,7 @@ export function createGameplayCore(track, hooks = {}) {
       s.aiDirection = 0;
       s.aiRest = 0.24;
     }
-    input.steer = steerForTurn(k, feed + steerCorrection);
+    input.steer = steerForTurn(k, (feed + steerCorrection) / (k.grounded ? Math.max(.6, here.grip ?? 1) : 1));
     if (
       !s.aiDirection &&
       s.aiRest === 0 &&
@@ -764,6 +764,13 @@ export function createGameplayCore(track, hooks = {}) {
         ty = best.y;
       }
     }
+    // Thin crossing volumes can slip between the coarse generic probe
+    // stations. Pick the taller free side early, and hold altitude through it.
+    const crossing=layout.obstacles.find(o=>o.type==='crossing'&&o.s-local<82&&o.s+o.depth+7>=local);
+    if(crossing){
+      const p=crossing.parts[0];
+      ty=p.y>(lane.floor+lane.ceiling)*.5+2?p.y-5.0:p.y+5.0;
+    }
     s.aiLane = damp(s.aiLane, tx, 6, 1 / 60);
     input.throttle = 1;
     input.steer = clamp((tx - k.x) / 5 - k.skyVX / 45, -1, 1);
@@ -771,7 +778,7 @@ export function createGameplayCore(track, hooks = {}) {
     input.driftHeld = Math.abs(tx - k.x) > 9;
     if (lane.end - local < 70) input.pitch = 0.7;
     // Barrel-roll away from incoming fire, or into a kart alongside to ram it.
-    if (!k.rollCool) {
+    if (!k.rollCool && !crossing) {
       let side = 0;
       if (a.incoming) side = k.x > 0 ? -1 : 1;
       else if (profile.aggression > 0.6) {
@@ -1094,6 +1101,8 @@ export function createGameplayCore(track, hooks = {}) {
           }
           grantBoost(o.owner.boost, dt * 1.3);
           k.speed += Math.min(4, Math.max(0, o.target.kart.speed + 3 - k.speed)) * dt;
+          // The tether's after-drive pull must obey the same in-lane cap as flight.
+          if(k.flying)k.speed=Math.min(k.speed,CRUISE_SPEED*SKY_MAX_SPEED);
           break;
         case 'beam':
           break;

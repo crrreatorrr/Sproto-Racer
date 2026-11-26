@@ -89,7 +89,8 @@ const yard = [
 export const CIRCUITS = [
   {
     id: 'track01', number: '01', name: 'Test Track 01', hero: ['Test Track', '01'],
-    focus: 'Deep switchbacks and a sweeping uphill drift spiral.',
+    focus: 'Deep switchbacks, rain puddles and an uphill drift spiral.',
+    wet: [[0,.37,.45,-5.8,10], [2,.27,.36,6.4,11], [10,.54,.63,-6.7,10]],
     names: NAMES, widths: [31, 26, 33, 28, 35, 34, 30, 32, 33, 32, 37, 31], layout: original,
     drops: [[3, 0.28, 0.37, -1], [4, 0.48, 0.61, 1]],
     pickupRows: [
@@ -109,11 +110,12 @@ export const CIRCUITS = [
   },
   {
     id: 'track02', number: '02', name: 'Crestline Ridge', hero: ['Crestline', 'Ridge'],
-    focus: 'Crests, jump landings and chase-camera visibility.',
+    focus: 'Snowbanks, black-ice stretches and a high alpine Sky Lane.',
+    ice: [[1, 0.31, 0.52], [6, 0.59, 0.76], [10, 0.42, 0.56]],
     drops: [[2, 0.36, 0.48, -1], [5, 0.19, 0.32, 1]],
     names: ['Survey Grid', 'Staircase Climb', 'Summit Approach', 'Blind Crest', 'Twin Rollers', 'Gravity Chute', 'High Traverse', 'Long Descent', 'Uphill Landing', 'Dropaway Bend', 'Jump Calibration', 'Return Shelf'],
     widths: [32, 29, 30, 33, 36, 35, 30, 34, 38, 32, 39, 33], points: ridge, scale: 1.48,
-    colors: { floor: 0xb8a68b, mint: 0xa8c9d1, orange: 0xe58656, foam: 0xe4e5d4, steel: 0x7598ac },
+    colors: { floor: 0xcbdde3, mint: 0x82b9d5, orange: 0xf7954d, foam: 0xe1f5ff, steel: 0x577991, tarmac: 0x384553 },
     pads: [[0, 0.68, 0, 6, 1], [1, 0.39, -5, 5, 1], [2, 0.61, 4, 6, 2], [3, 0.62, -5, 5, 1], [4, 0.19, 5, 6, 1], [5, 0.44, 0, 6, 2], [6, 0.82, 4, 7, 1], [7, 0.27, -4, 5, 2], [8, 0.25, 0, 6, 1], [10, 0.13, -7, 5, 1], [11, 0.66, 5, 5, 1]],
     ramps: [[2, 0.83, 4, 8, 7], [3, 0.32, -5, 8, 10], [4, 0.28, 5, 8, 6], [4, 0.50, 5, 8, 8], [4, 0.73, 5, 8, 10], [5, 0.61, 0, 8, 11], [7, 0.48, -4, 7, 10], [8, 0.38, 0, 9, 9], [9, 0.41, 4, 7, 8], [10, 0.25, -7, 7, 6], [10, 0.25, 6, 8, 11], [10, 0.63, 0, 8, 9]],
     pickupRows: [
@@ -132,12 +134,13 @@ export const CIRCUITS = [
     ],
   },
   {
-    id: 'track03', number: '03', name: 'Switchyard GP', hero: ['Switchyard', 'GP'],
-    focus: 'Drift reversals, pack traffic and braking under boost.',
+    id: 'track03', number: '03', name: 'Switchback Summit', hero: ['Switchback', 'Summit'],
+    focus: 'Granite cliffs, running water and a Sky Lane above the peaks.',
+    wet: [[1,.34,.42,5.9,9.8], [6,.42,.52,-6.0,10.6], [11,.30,.385,6.1,10]],
     drops: [[2, 0.49, 0.60, -1], [9, 0.18, 0.28, 1]],
-    names: ['Freight Grid', 'Offset Chicane', 'Freight Hairpin', 'Double Reversal', 'Brake Box', 'Weave Gates', 'Passing Straight', 'Return Hairpin', 'Container Esses', 'Transfer Siding', 'Turbo Runout', 'Depot Finish'],
+    names: ['Trailhead Grid', 'Pine Chicane', 'Granite Hairpin', 'Twin Switchbacks', 'Brake Shelf', 'Avalanche Gates', 'Timberline Straight', 'Return Hairpin', 'Cliffside Esses', 'Eagle Traverse', 'Summit Runout', 'Ranger Station Finish'],
     widths: [35, 24, 32, 26, 24, 30, 36, 31, 24, 27, 38, 33], points: yard, scale: 1.30,
-    colors: { floor: 0x929b9c, mint: 0x83b6ae, orange: 0xf5b147, foam: 0xdbdfca, steel: 0x71838a, tarmac: 0x4e5161 },
+    colors: { floor: 0x788477, mint: 0x759687, orange: 0xf5b147, foam: 0xe9dfc4, steel: 0x6a7682, tarmac: 0x394052 },
     pads: [[0, 0.54, -6, 6, 1], [1, 0.84, 3, 5, 1], [2, 0.81, -4, 5, 1], [3, 0.76, 4, 5, 1], [4, 0.12, 0, 7, 2], [5, 0.89, 5, 5, 1], [6, 0.22, -6, 6, 2], [6, 0.64, 7, 6, 2], [7, 0.86, 4, 5, 1], [9, 0.80, 0, 6, 1], [10, 0.30, 0, 7, 2], [10, 0.65, -6, 6, 2], [11, 0.64, 6, 5, 1]],
     ramps: [[0, 0.84, -7, 6, 6], [6, 0.43, 8, 7, 7], [9, 0.33, -5, 7, 8], [11, 0.41, 7, 7, 7]],
     pickupRows: [
@@ -283,6 +286,7 @@ export function createTrackSample() {
     bank: 0,
     width: 16,
     section: 0,
+    grip: 1,
   };
 }
 
@@ -304,6 +308,45 @@ export function createTrackCore(course = CIRCUITS[0]) {
   // Main Sky Lanes replace their stretch of road, so nothing on that road survives.
   const sky = createSky(course, sections, length);
   const offRoad = (s, margin = 0) => sky.inMainLane(s, margin);
+  const icePatches = (course.ice ?? []).map(([sector, a, b]) => ({s0: at(sector, a), s1: at(sector, b)}));
+  const wetPatches=(course.wet??[]).map(([sector,a,b,x,width])=>({s0:at(sector,a),s1:at(sector,b),x,width}));
+  function wetAt(s,x) {
+    const d=mod(s,length);
+    for(const p of wetPatches){
+      if(d<p.s0||d>p.s1)continue;
+      const u=(d-p.s0)/(p.s1-p.s0)*2-1,v=(x-p.x)/(p.width*.5);
+      const r2=u*u+v*v;
+      if(r2<1)return 1-smoothstep(.57,1,r2);
+    }
+    return 0;
+  }
+  function distanceToWet(s) {
+    if(!wetPatches.length)return Infinity;
+    const d=mod(s,length);
+    let near=Infinity;
+    for(const {s0,s1} of wetPatches){
+      if(d>=s0&&d<=s1)return 0;
+      near=Math.min(near,mod(s0-d,length));
+    }
+    return near;
+  }
+  function iceAt(s) {
+    const d=mod(s,length);
+    for(const {s0,s1} of icePatches){
+      if(d>=s0&&d<=s1)return smoothstep(0,7,Math.min(d-s0,s1-d));
+    }
+    return 0;
+  }
+  function distanceToIce(s) {
+    if(!icePatches.length)return Infinity;
+    const d=mod(s,length);
+    let nearest=Infinity;
+    for(const {s0,s1} of icePatches){
+      if(d>=s0&&d<=s1)return 0;
+      nearest=Math.min(nearest,mod(s0-d,length));
+    }
+    return nearest;
+  }
   const drops = (course.drops ?? []).map(([i, from, to, side]) => ({
     start: railBoundary(at(i, from)),
     end: railBoundary(at(i, to)),
@@ -483,6 +526,7 @@ export function createTrackCore(course = CIRCUITS[0]) {
     out.bank = scratchFrame.bank;
     out.width = scratchFrame.width;
     out.section = scratchFrame.index;
+    out.grip = 1 - (icePatches.length ? .30*iceAt(scratchFrame.distance) : 0) - (wetPatches.length ? .18*wetAt(scratchFrame.distance,x) : 0);
     return out;
   }
 
@@ -596,6 +640,12 @@ export function createTrackCore(course = CIRCUITS[0]) {
     switchTrigger,
     triggerSwitch,
     sky,
+    icePatches,
+    wetPatches,
+    wetAt,
+    distanceToWet,
+    iceAt,
+    distanceToIce,
     sample,
     sampleInto,
     heightAt,

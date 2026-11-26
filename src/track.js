@@ -893,9 +893,9 @@ export function createTrack(scene, course = CIRCUITS[0], options = {}) {
     skyVisuals?.update(time, lap);
   }
 
-  /** Hides the Boost Cells the player has grabbed in a lane this lap. */
-  function setSkyCollected(laneIndex, mask) {
-    skyVisuals?.setCollected(laneIndex, mask);
+  /** Hides the Boost Cells and item boxes the player has grabbed in a lane this lap. */
+  function setSkyCollected(laneIndex, mask, boxMask = 0) {
+    skyVisuals?.setCollected(laneIndex, mask, boxMask);
   }
 
   function reset() {

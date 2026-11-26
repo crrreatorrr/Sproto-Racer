@@ -4,6 +4,7 @@
 
 import * as THREE from 'three';
 import { bladeAngle, partPose } from './sim/sky.js';
+import { itemModel } from './item-art.js';
 
 const THEMES = {
   rig: { solid: 0xff8f4a, trim: 0xf3efd9, moving: 0xff5d6c, accent: 0x7defff, below: 0xc7b9a0 },
@@ -123,6 +124,12 @@ export function createSkyVisuals(group, core) {
     cell: keep(new THREE.SpriteMaterial({ map: glowTexture, color: CELL_COLOR, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true })),
     mega: keep(new THREE.SpriteMaterial({ map: glowTexture, color: MEGA_COLOR, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true })),
   };
+
+  // Floating item boxes reuse the road's item crate, without its ground animation.
+  const crate = itemModel('pickup');
+  const crateGeometry = keep(crate.geometry.clone());
+  const crateMaterial = keep(crate.material.clone());
+  const boxGlow = keep(new THREE.SpriteMaterial({ map: glowTexture, color: 0xffd0f4, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }));
 
   const lanes = [];
   const dummy = new THREE.Object3D();
@@ -290,9 +297,20 @@ export function createSkyVisuals(group, core) {
         lapGroup.add(holder);
         return { cell, holder, gem, halo, baseY: holder.position.y };
       });
-      return { group: lapGroup, moving, cells };
+      const boxes = (layout.boxes || []).map((box) => {
+        const holder = new THREE.Group();
+        place(holder, box.s, box.x, box.y);
+        const mesh = new THREE.Mesh(crateGeometry, crateMaterial);
+        mesh.scale.setScalar(1.7);
+        const aura = new THREE.Sprite(boxGlow);
+        aura.scale.setScalar(6);
+        holder.add(mesh, aura);
+        lapGroup.add(holder);
+        return { box, holder, mesh, baseY: holder.position.y };
+      });
+      return { group: lapGroup, moving, cells, boxes };
     });
-    lanes.push({ lane, laps, gateBarrier, collected: 0, lapShown: -1 });
+    lanes.push({ lane, laps, gateBarrier, collected: 0, boxesTaken: 0, lapShown: -1 });
   }
 
   function update(time, lap) {
@@ -323,12 +341,24 @@ export function createSkyVisuals(group, core) {
         c.halo.rotation.y = time * 1.3;
         c.holder.position.y = c.baseY + Math.sin(time * 3 + i) * 0.25;
       }
+      for (let i = 0; i < view.boxes.length; i++) {
+        const b = view.boxes[i];
+        const visible = !(entry.boxesTaken & (1 << b.box.index));
+        b.holder.visible = visible;
+        if (!visible) continue;
+        b.mesh.rotation.set(time * 0.9 + i, time * 1.7 + i, 0);
+        b.holder.position.y = b.baseY + Math.sin(time * 2.2 + i) * 0.35;
+      }
     }
   }
 
-  /** Hides the cells the player has already grabbed in `laneIndex` this lap. */
-  function setCollected(laneIndex, mask) {
-    for (const entry of lanes) entry.collected = entry.lane.index === laneIndex ? mask : 0;
+  /** Hides the cells and item boxes the player has already grabbed in `laneIndex` this lap. */
+  function setCollected(laneIndex, mask, boxMask = 0) {
+    for (const entry of lanes) {
+      const mine = entry.lane.index === laneIndex;
+      entry.collected = mine ? mask : 0;
+      entry.boxesTaken = mine ? boxMask : 0;
+    }
   }
 
   function dispose() {

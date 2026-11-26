@@ -248,6 +248,49 @@ describe('Boost Cells', () => {
   });
 });
 
+describe('Floating item boxes', () => {
+  function boxRun(mode, held) {
+    const world = createSimWorld({ course: CIRCUITS[1], mode, settings: { sector: 1, speed: 'cruise', lap: 1, rivals: 'solo' }, seats: [{ kind: 'local' }] });
+    const index = mainLane(world.track);
+    const layout = world.track.sky.lanes[index].layouts[0];
+    layout.obstacles.length = 0;
+    const box = layout.boxes[1];
+    const a = world.state.player;
+    a.held = held;
+    a.unlimited = false;
+    fly(world, a, index, box.s - 1.2, box.x, box.y);
+    world.state.countdown = 0;
+    world.step({ 0: {} });
+    return { a, k: a.kart };
+  }
+
+  it('every lane lap has rows of three boxes in its open stretches', () => {
+    const track = createTrackCore(CIRCUITS[0]);
+    for (const lane of track.sky.lanes) {
+      for (const layout of lane.layouts) {
+        assert.ok(layout.boxes.length >= 6 && layout.boxes.length % 3 === 0, `${lane.kind}: ${layout.boxes.length} boxes`);
+        for (const b of layout.boxes) {
+          assert.equal(sweepObstacles(layout, 0, b.s - 2, b.x, b.y, b.s + 2, b.x, b.y, lane, 1.5), null, 'no obstacle sits on a box');
+        }
+      }
+    }
+  });
+
+  it('a flying kart with an empty slot grabs a box and starts the roulette', () => {
+    const { a, k } = boxRun('race', null);
+    assert.ok(a.roulette, 'roulette started');
+    assert.notEqual(k.skyBoxGot, 0);
+  });
+
+  it('a full slot or a Time Trial leaves the box alone', () => {
+    const full = boxRun('race', 0);
+    assert.equal(full.a.roulette, null);
+    assert.equal(full.k.skyBoxGot, 0);
+    const trial = boxRun('trial', null);
+    assert.equal(trial.a.roulette, null);
+  });
+});
+
 describe('Sky Lane obstacles', () => {
   it('swept collision catches a thin obstacle crossed between two ticks', () => {
     const layout = {

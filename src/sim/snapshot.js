@@ -221,7 +221,8 @@ export function encodeWireSnapshot(world, ackBySeat = {}) {
         // Sky Lane flight: lane, height, lateral and vertical speed, roll, tumble, chain.
         sk: k.flying
           ? [k.skyLane, Math.round(k.skyY * MM), Math.round(k.skyVX * MM), Math.round(k.skyVY * MM),
-            Math.round(k.rollTime * 1000), Math.round(k.tumble * 1000), b.skyChain, b.skyTier, Math.round(b.skyTimer * 1000)]
+            Math.round(k.rollTime * 1000), Math.round(k.tumble * 1000), b.skyChain, b.skyTier, Math.round(b.skyTimer * 1000),
+            k.skyBoxKey, k.skyBoxGot]
           : null,
         tk: k.trickCount ? [k.trickCount, k.trickKind, Math.round(k.trickTime * 1000)] : null,
       };
@@ -286,6 +287,8 @@ export function decodeWireKart(w) {
     skyChain: w.sk ? w.sk[6] : 0,
     skyTier: w.sk ? w.sk[7] : 0,
     skyTimer: w.sk ? w.sk[8] / 1000 : 0,
+    skyBoxKey: w.sk ? w.sk[9] ?? -1 : -1,
+    skyBoxGot: w.sk ? w.sk[10] ?? 0 : 0,
     trickCount: w.tk ? w.tk[0] : 0,
     trickKind: w.tk ? w.tk[1] : 0,
     trickTime: w.tk ? w.tk[2] / 1000 : 0,

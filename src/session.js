@@ -5,6 +5,7 @@ import { createBoost, stepBoost, grantBoost, updateRevs, gradeLaunch } from './b
 import { acceptTrial, noteTrial, pageRecords } from './hub/records.js';
 import { atan2, mod } from './sim/math.js';
 import { createTrackSample } from './sim/track-core.js';
+import { grabSkyBox } from './sim/sky.js';
 import { chassisContactMetrics, crossedTrackRamp, overlapsTrackHazard } from './sim/world.js';
 
 export const DEFAULT_TEST = { sector: 0, speed: 'standstill', rivals: 'solo', item: 0, lap: 1, hazards: true };
@@ -163,6 +164,10 @@ export function createSession(track, play, fx, records = pageRecords) {
       if (!k.stunRemaining && cross(p) && k.y < 1.4) {
         grantBoost(a.boost, p.tier === 2 ? 2.2 : 1.35, p.tier);
       }
+    }
+    // Floating item boxes in a Sky Lane draw from the same roulette.
+    if (k.flying && state.mode !== 'trial' && a.finish == null && !a.roulette && (a.held == null || a.unlimited)) {
+      if (grabSkyBox(track.sky, track.length, k) && !a.unlimited) startPickup(a, state.actors, state.elapsed);
     }
     if (state.mode !== 'trial' && a.finish == null && !a.roulette && (a.held == null || a.unlimited)) {
       for (const p of track.pickups) {

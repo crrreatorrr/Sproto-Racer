@@ -696,7 +696,24 @@ export function createGameplayCore(track, hooks = {}) {
     const reach = k.speed * (0.45 + 0.45 * profile.skill);
     let tx = 0;
     let ty = mid;
-    for (let i = 0; i < layout.cells.length; i++) {
+    let aimed = false;
+    // With an empty item slot, the nearest floating box ahead comes first.
+    if (a.held == null && !a.roulette) {
+      const taken = k.skyBoxKey === lane.index * 4 + lap ? k.skyBoxGot : 0;
+      let best = null;
+      for (let i = 0; i < layout.boxes.length; i++) {
+        const b = layout.boxes[i];
+        if (b.s < local + 4 || b.s > local + reach + 40 || taken & (1 << b.index)) continue;
+        const cost = (b.s - local) + Math.abs(b.x - k.x) * 3;
+        if (!best || cost < best.cost) best = { b, cost };
+      }
+      if (best) {
+        tx = best.b.x;
+        ty = best.b.y;
+        aimed = true;
+      }
+    }
+    for (let i = 0; i < layout.cells.length && !aimed; i++) {
       const c = layout.cells[i];
       if (c.s < local + 4 || c.s > local + reach + 40 || s.skyGot & (1 << c.index)) continue;
       if (c.mega && profile.bold < 0.5) continue;

@@ -201,7 +201,64 @@ function buildLayout(lane, programme, seed, storm) {
   const kept = cells.filter((cell) => cell.mega || !insideStatic(obstacles, cell));
   kept.length = Math.min(kept.length, MAX_CELLS);
   kept.forEach((cell, i) => { cell.index = i; });
-  return { obstacles, cells: kept, sMin: lane.start, sMax: lane.end };
+  // About one row per 300 m, matching the item rows the lane's road used to have.
+  const rows = Math.max(2, Math.round(span / 300) + (programme.length > 4 || storm ? 1 : 0));
+  return { obstacles, cells: kept, boxes: boxRows(lane, obstacles, rows), sMin: lane.start, sMax: lane.end };
+}
+
+// Floating item boxes: rows of three across the corridor in the open stretches
+// between obstacle clusters, so the air race keeps its item fights.
+function boxRows(lane, obstacles, rows) {
+  const span = lane.end - lane.start;
+  const lo = lane.start + span * RUNWAY + 30;
+  const hi = lane.end - span * TAPER - 40;
+  const blocked = (s) => obstacles.some((ob) => s > ob.s - 26 && s < ob.s + ob.depth + 18);
+  const half = lane.width / 2;
+  const mid = (lane.floor + lane.ceiling) / 2;
+  const boxes = [];
+  for (let r = 0; r < rows; r++) {
+    const target = mix(lo, hi, (r + 0.5) / rows);
+    let s = null;
+    for (let d = 0; d < span && s === null; d += 6) {
+      if (target + d < hi && !blocked(target + d)) s = target + d;
+      else if (target - d > lo && !blocked(target - d)) s = target - d;
+    }
+    if (s === null || boxes.some((b) => Math.abs(b.s - s) < 60)) continue;
+    const lift = (r % 3 - 1) * (lane.ceiling - lane.floor) * 0.18;
+    for (let i = -1; i <= 1; i++) {
+      boxes.push({ index: boxes.length, s, x: i * half * 0.46, y: mid + lift + Math.abs(i) * 1.5 });
+    }
+  }
+  return boxes;
+}
+
+export const BOX_GRAB_RADIUS = 2.4;
+
+/**
+ * Grabs any floating item box a flying kart flew through this tick. Boxes are
+ * per kart, keyed by lane and lap like Boost Cells. Returns true on a grab.
+ */
+export function grabSkyBox(sky, length, kart) {
+  if (!kart.flying || !sky) return false;
+  const lane = sky.lanes[kart.skyLane];
+  if (!lane) return false;
+  const lap = lapOf(kart.s, length);
+  const key = lane.index * 4 + lap;
+  if (kart.skyBoxKey !== key) {
+    kart.skyBoxKey = key;
+    kart.skyBoxGot = 0;
+  }
+  const local = kart.s - Math.floor(kart.s / length) * length;
+  const got = sweepBoxes(lane.layouts[lap - 1], kart.skyBoxGot, kart.skyPrevS, kart.skyPrevX, kart.skyPrevY, local, kart.x, kart.skyY);
+  if (!got) return false;
+  // One grab per tick, like a ground box row.
+  kart.skyBoxGot |= got & -got;
+  return true;
+}
+
+/** Bitmask of floating item boxes (not already in `got`) the segment passes through. */
+export function sweepBoxes(layout, got, s0, x0, y0, s1, x1, y1) {
+  return sweepCells({ cells: layout.boxes }, got, s0, x0, y0, s1, x1, y1, BOX_GRAB_RADIUS);
 }
 
 function insideStatic(obstacles, cell) {

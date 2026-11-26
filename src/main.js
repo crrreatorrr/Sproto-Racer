@@ -374,7 +374,9 @@ function syncWorld(dt,alpha){
   if(ghost)placeModel(ghostModel,ghost,{tier:0},dt);
 
   followKart(k,k.rescues===cameraRescues?dt:0,wideView,lookingBack,state.player.boost.skyTier||0);
-  track.setSkyCollected?.(state.player.kart.skyLane,play.skyGot(state.player));
+  const pk=state.player.kart;
+  const boxKey=pk.flying?pk.skyLane*4+Math.min(3,Math.max(1,Math.floor(pk.s/track.length)+1)):-2;
+  track.setSkyCollected?.(pk.skyLane,play.skyGot(state.player),pk.skyBoxKey===boxKey?pk.skyBoxGot:0);
   cameraRescues=k.rescues;
   updateRivalVisibility(camera,models,dt);
 }

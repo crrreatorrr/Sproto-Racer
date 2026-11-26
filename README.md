@@ -64,8 +64,9 @@ Every lane ends on straight road. The corridor funnels down onto the landing dec
 - **Boost is something you grab.** Fly into a Boost Cell for +0.35 s of boost and +1 chain. A chain of 3, 6 and 10 raises your speed tier to 1.8×, 2.0× and 2.2×. Gold Mega Cells sit in the most dangerous spots and give +1.5 s and +2 chain. With no grab for 2.5 s you drop one tier, never all the way to zero. Nothing else in the air gives boost.
 - **Obstacles** cost speed and tiers but never give boost. Clipping one costs 15% of your speed and a tier. Flying into one costs 45% and two tiers, and tumbles you. The course includes pylon forests, sweeping beams, rotating fan gates, shutters that open and close, drifting debris, and squeeze gaps. An orange frame marks each cluster about 1.2 s ahead.
 - **Laps change.** Lap 1 teaches the line. Lap 2 adds sweepers and shutters, and splits the lane into a high Cell trail and a low line with Mega Cells. Lap 3 is the storm: every obstacle type, with faster cycles.
+- **Floating item boxes** hang in rows of three in the open stretches between obstacle clusters, about one row per 300 m, with an extra row on laps 2 and 3. They draw from the same item roulette as the road. Each kart can take one from each row, and the boxes you have taken disappear only for you.
 - **The Sky Gate** is a side catapult that opens from lap 2. It flies above the road, cuts the corner, and has its own obstacles.
-- **Moves:** carve for tight turns, barrel-roll to dodge any item hit or ram a kart alongside, and draft in a rival's wake for a +6% tow. Pitch down onto the landing deck to keep your speed; a flat landing scrubs it to 85%. Traps dropped in the air fall away harmlessly. A tumble only drops you out of the lane if you were already skimming its floor.
+- **Moves:** carve for tight turns, barrel-roll to dodge any item hit or ram a kart alongside, and draft in a rival's wake for a +15% tow, still capped at 2.2×. Pitch down onto the landing deck to keep your speed; a flat landing scrubs it to 85%. Traps dropped in the air fall away harmlessly. A tumble only drops you out of the lane if you were already skimming its floor.
 
 | | Keyboard | Gamepad |
 | --- | --- | --- |
@@ -73,7 +74,7 @@ Every lane ends on straight road. The corridor funnels down onto the landing dec
 | Carve | Hold Q | Hold Drift |
 | Barrel roll | Tap Q with A or D held | Tap Drift while steering |
 
-Rivals chase Cells, read the obstacles ahead, ram and dodge. Some take the Sky Gate.
+Rivals chase Cells, steer for a box when their item slot is empty, read the obstacles ahead, ram and dodge. Some take the Sky Gate.
 
 ## Ramp tricks
 

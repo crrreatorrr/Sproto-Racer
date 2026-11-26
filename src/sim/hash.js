@@ -97,6 +97,7 @@ export function stateHash(world) {
     hash.int(b.skyChain || 0);
     hash.int(b.skyTier || 0);
     hash.int(k.trickCount || 0);
+    hash.int(k.skyBoxGot || 0);
   }
 
   const objects = play.objects || [];

@@ -25,7 +25,7 @@ const OUTSIDE_STEER = .98;
 export const SKY_TIER_SPEED = [1.6, 1.8, 2.0, 2.2];
 export const SKY_MAX_SPEED = 2.2;
 const SKY_BOOST_SPEED = 0.1;
-const SKY_TOW = 0.06;
+const SKY_TOW = 0.15;
 const SKY_LATERAL = 26;
 const SKY_CARVE_LATERAL = 40;
 const SKY_VERTICAL = 22;
@@ -69,6 +69,7 @@ export function createKart(tuning = {speed:1, accel:1, turn:1}) {
     skyPrevS:0, skyPrevX:0, skyPrevY:0, skyCarve:false, rollTime:0, rollDir:0, rollCool:0,
     trickTime:0, trickCount:0, trickKind:0, trickLanded:0, trickSloppy:false,
     tumble:0, tumbleFall:false, wobble:0, towing:0, skyCarry:0, skyDive:false, skyLaunch:0,
+    skyBoxKey:-1, skyBoxGot:0,
   };
 }
 

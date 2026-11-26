@@ -25,6 +25,7 @@ import { createBoost, stepBoost, grantBoost, updateRevs, gradeLaunch } from '../
 import { atan2, mod } from './math.js';
 import { createRng } from './rng.js';
 import { CIRCUITS, courseById, createTrackCore, createTrackSample, gridSlot } from './track-core.js';
+import { grabSkyBox } from './sky.js';
 import { createGameplayCore } from './gameplay-core.js';
 import { intentFrameToControls } from './intent.js';
 
@@ -318,6 +319,13 @@ export function createSimWorld(options = {}) {
       const p = pads[i];
       if (!k.stunRemaining && cross(p) && k.y < 1.4) {
         grantBoost(a.boost, p.tier === 2 ? 2.2 : 1.35, p.tier);
+      }
+    }
+    // Floating item boxes in a Sky Lane draw from the same seeded roulette.
+    if (k.flying && state.mode !== 'trial' && a.finish == null && !a.roulette && (a.held == null || a.unlimited)) {
+      if (grabSkyBox(track.sky, track.length, k)) {
+        if (!a.unlimited) startPickup(a, state.actors, state.elapsed, rng.nextFloat);
+        state.events.push({ type: 'skyBox', seat: a.id });
       }
     }
     if (state.mode !== 'trial' && a.finish == null && !a.roulette && (a.held == null || a.unlimited)) {

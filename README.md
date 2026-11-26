@@ -76,6 +76,8 @@ Every lane ends on straight road. The corridor funnels down onto the landing dec
 
 Rivals chase Cells, steer for a box when their item slot is empty, read the obstacles ahead, ram and dodge. Some take the Sky Gate.
 
+Equipped karts unfold side wings on launch: a short mount slide clears the chassis, then the panels swing out and settle. On exit the assemblies reverse the move and disappear into the stock silhouette. Wings are visual only: handling, hitboxes, and boost are unchanged. The 48 non-saucer karts use vehicle-specific wing assemblies, including the revised Ironhide tilt-fans, Crestline Eight crown wings, and Golden Switchback split foils. Silver Saucer and Violet Orbit use their native flying silhouettes. A Test Drive checkpoint already inside a lane starts with wings deployed. With reduced motion enabled, wings switch directly between poses. New local Time Trial ghosts record flight mode; older ghosts still play normally without opening wings.
+
 ## Ramp tricks
 
 Hop just before a ramp lip to start a trick: a flip, or a spin toward your steering. On a long jump each fresh Drift press after a trick adds another, up to three. A clean landing pays +0.5 s per trick on top of the air boost. Landing mid-trick is sloppy: no boost, 80% speed and a wobble.

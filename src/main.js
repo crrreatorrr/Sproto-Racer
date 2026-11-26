@@ -9,7 +9,7 @@ import {controllerIsOpen,openController} from './controller.js';
 import {attachFeedbackSdk,createFeedbackHold,installRaceFeedback,raceBreadcrumbs} from './feedback.js';
 import {createPaddock,lightScene} from './paddock.js';
 import {updateRivalVisibility} from './kart-visibility.js';
-import {makeKart,animateKart,disposeKart} from './kart-art.js';
+import {makeKart,animateKart,disposeKart,resetKartWingPose} from './kart-art.js';
 import {createGarage} from './garage.js';
 import {carById,driverById} from './roster.js';
 import {createChaseCamera} from './chase-camera.js';
@@ -99,7 +99,7 @@ function syncModel(old,id,setup,ghost=false){
     if(ghost)old.traverse(mesh=>{if(mesh.isMesh)mesh.material=mesh.userData.originalPaint;});
     disposeKart(old);
   }
-  const m=makeKart(id,car,driver,ghost);
+  const m=makeKart(id,car,driver,ghost,{flightWings:true});
   if(ghost)m.traverse(mesh=>{if(mesh.isMesh){mesh.userData.originalPaint=mesh.material;mesh.material=ghostPaint;}});
   world.add(m);return m;
 }
@@ -186,8 +186,13 @@ function begin(mode=selected,options=config){
   $('race-canvas').append(renderer.domElement);w=0;h=0;accumulator=0;previous=performance.now();
   itemFx.reset();impactUntil=0;shownItemToken='';$('item-impact').hidden=true;
   session.start(mode,{...options,...garage.selection()});
-  for(const actor of state.actors)models[actor.id]=syncModel(models[actor.id],actor.id,actor);
+  for(const actor of state.actors){
+    const model=models[actor.id]=syncModel(models[actor.id],actor.id,actor);
+    // A checkpoint may already be in midair; don't carry the previous race's hinge pose.
+    resetKartWingPose(model,actor.kart.flying);
+  }
   if(mode==='trial'&&session.best)ghostModel=syncModel(ghostModel,0,session.ghostSetup,true);
+  resetKartWingPose(ghostModel);
   $('drive-toolbar').hidden=mode!=='test';
   inventory.hidden=mode!=='test';
   setText('mode-tag',track.name.toUpperCase()+' · '+MODES.find(m=>m.id===mode).title.toUpperCase());
@@ -371,7 +376,7 @@ function placeModel(model,k,b,dt){
   model.rotation.y=Math.atan2(-f.forward.x,-f.forward.z)-(k.yaw||0);
   model.rotation.x=k.pitch??Math.atan(f.grade);
   model.rotation.z=k.roll??f.bank;
-  animateKart(model,k,b,animation);
+  animateKart(model,k,b,animation,dt,motion.matches);
 }
 function syncWorld(dt,alpha){
   let k;

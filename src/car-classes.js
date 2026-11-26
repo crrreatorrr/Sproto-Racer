@@ -60,3 +60,16 @@ export function withClass(car) {
   const key = CLASS_OF[car.id] ?? 'allrounder';
   return { ...car, class: key, bars: CAR_CLASSES[key].bars, ...classTuning(key) };
 }
+
+export const STAT_TITLES = Object.freeze([
+  ['speed', 'Speed'], ['accel', 'Acceleration'], ['turn', 'Turning'], ['boost', 'Boost'], ['luck', 'Luck'],
+]);
+
+/** The garage rows for a car: each stat's title and bar count (1–10). */
+export function statBars(car) {
+  return STAT_TITLES.map(([id, title]) => ({ id, title, bars: car.bars[id] }));
+}
+
+export function className(car) {
+  return CAR_CLASSES[car.class]?.name ?? '';
+}

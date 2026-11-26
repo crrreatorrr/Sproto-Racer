@@ -295,7 +295,7 @@ export function animateKart(g,k,b,time) {
   const driverMotion=a.driver.scale.x**2*(a.concept?.hover?.9:a.concept?.mount?.scale<.85?.55:1);
   a.driver.rotation.z=driverMotion*(Math.sin(time*10)*Math.min(k.speed/450,.045)-slip*.26);
   const meter=k.sliding&&!b.chainClosed?b.meter:0;
-  a.timingLamp.color.setHex(meter>=.9?0xe8ff75:meter>=.7?0xffa247:a.car==='saucer'?0xffad4f:0x411e18);
+  a.timingLamp.color.setHex(meter>=(k.tuning?.perfectAt??.9)?0xe8ff75:meter>=(k.tuning?.goodAt??.7)?0xffa247:a.car==='saucer'?0xffad4f:0x411e18);
   a.driver.position.y=a.driverHeight+driverMotion*(Math.sin(time*17)*Math.min(k.speed/850,.035)+suspension*.42);
   const rack=(k.steer||0)*fullLockCurvature(k);
   for(const w of a.wheels){

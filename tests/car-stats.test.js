@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { CAR_CLASSES, CLASS_OF, classTuning } from '../src/car-classes.js';
+import { CAR_CLASSES, CLASS_OF, className, classTuning, statBars } from '../src/car-classes.js';
 import { CARS, carById } from '../src/roster.js';
-import { createBoost, grantBoost, interruptBoost, stepBoost } from '../src/boost.js';
+import { createBoost, driftGrade, grantBoost, interruptBoost, stepBoost } from '../src/boost.js';
 import { createKart } from '../src/driving.js';
 import { CIRCUITS } from '../src/sim/track-core.js';
 import { createSimWorld } from '../src/sim/world.js';
@@ -144,5 +144,26 @@ describe('Luck stat', () => {
     const b = createSimWorld({ course: CIRCUITS[0], seed: 21, seats });
     for (let i = 0; i < 3000; i++) { a.step({}); b.step({}); }
     assert.equal(stateHash(a), stateHash(b));
+  });
+});
+
+describe('Showing the stats', () => {
+  it('garage rows show five stats', () => {
+    assert.deepEqual(statBars(carById('manta')), [
+      { id: 'speed', title: 'Speed', bars: 9 },
+      { id: 'accel', title: 'Acceleration', bars: 3 },
+      { id: 'turn', title: 'Turning', bars: 4 },
+      { id: 'boost', title: 'Boost', bars: 6 },
+      { id: 'luck', title: 'Luck', bars: 4 },
+    ]);
+    assert.equal(className(carById('manta')), 'Speedster');
+  });
+
+  it('HUD grade follows the car', () => {
+    const at = (carId, meter) => driftGrade(Object.assign(createBoost(), { meter }), createKart(carById(carId)));
+    assert.equal(at('relay', 0.64), 'GOOD');
+    assert.equal(at('apex', 0.64), null);
+    assert.equal(at('relay', 0.87), 'PERFECT');
+    assert.equal(at('apex', 0.87), 'GOOD');
   });
 });

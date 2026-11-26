@@ -931,6 +931,7 @@ export function createTrack(scene, course = CIRCUITS[0], options = {}) {
     ramps,
     hazards,
     switchTrigger,
+    sky: core.sky,
     triggerSwitch: core.triggerSwitch,
     getFixtureState: core.getFixtureState,
     setFixtureState: core.setFixtureState,

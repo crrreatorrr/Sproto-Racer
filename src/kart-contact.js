@@ -10,7 +10,7 @@ const diameter = 5.4;
 function applyImpulse(kart, along, across) {
   const oldSpeed = kart.speed - kart.reverseSpeed;
   const c=cos(kart.travelYaw),s=sin(kart.travelYaw);
-  const speed=clamp(oldSpeed+along*c+across*s,kart.grounded?-8:0,100);
+  const speed=clamp(oldSpeed+along*c+across*s,kart.grounded?-8:0,140);
   kart.speed=Math.max(0,speed);
   kart.reverseSpeed=Math.max(0,-speed);
   // The part of the impulse across the driver's heading is tire slip. Both road
@@ -18,6 +18,13 @@ function applyImpulse(kart, along, across) {
   kart.bumpVelocityS=(kart.bumpVelocityS||0)+along-(speed-oldSpeed)*c;
   kart.bumpVelocityX+=across-(speed-oldSpeed)*s;
   kart.lateralSpeed=speed*s+kart.bumpVelocityX;
+}
+
+// Flying karts are bounded by their Sky Lane corridor, not the road beneath it.
+function skyBounds(track, kart) {
+  const lane = track.sky?.lanes[kart.skyLane];
+  const half = (lane ? lane.width / 2 : 16) - HALF_KART_WIDTH;
+  return { min: -half, max: half };
 }
 
 let sampleScratchA = null;
@@ -62,8 +69,8 @@ function resolvePair(track, first, second) {
   const forwardPush = depth * normalS / (2 * scale);
   a.s -= forwardPush;
   b.s += forwardPush;
-  const boundsA=laneBounds(a,track,HALF_KART_WIDTH,roadA.curvature);
-  const boundsB=laneBounds(b,track,HALF_KART_WIDTH,roadB.curvature);
+  const boundsA=a.flying?skyBounds(track,a):laneBounds(a,track,HALF_KART_WIDTH,roadA.curvature);
+  const boundsB=b.flying?skyBounds(track,b):laneBounds(b,track,HALF_KART_WIDTH,roadB.curvature);
   const sideways = depth * normalX;
   const shareA = clamp(a.x - sideways/2, boundsA.min, boundsA.max) - a.x;
   const shareB = clamp(b.x + sideways + shareA, boundsB.min, boundsB.max) - b.x;

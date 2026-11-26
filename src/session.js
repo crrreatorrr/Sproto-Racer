@@ -191,6 +191,7 @@ export function createSession(track, play, fx, records = pageRecords) {
       road.grade = rise / ((front + rear) * Math.max(0.55, 1 - k.x * road.curvature));
     }
     road.crossedRamp = crossedRamp;
+    road.sky = track.sky;
     stepKart(k, controls, road, a.boost, dt);
     if (k.fall && !wasFalling) {
       Object.assign(a.boost, createBoost());

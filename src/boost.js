@@ -10,8 +10,61 @@ export function createBoost() {
   return {
     tier: 0, reserve: 0, reservePeak: 0, meter: 0, pips: 0, rev: 0,
     feedback: '', feedbackTime: 0, chainClosed: false,
-    activeSlide: null, comboLength: 0, interrupted: false, ignition: 0, plume: 0, flameTier: 1, revThrottle: 0
+    activeSlide: null, comboLength: 0, interrupted: false, ignition: 0, plume: 0, flameTier: 1, revThrottle: 0,
+    skyChain: 0, skyTier: 0, skyTimer: 0, skyCells: 0
   };
+}
+
+// Sky Lane chain. Boost Cells are the only boost source in the air: each one adds
+// boost time and chain, and chain thresholds set the flight speed tier. A tier
+// drop falls back one step, never to zero.
+export const SKY_TIER_CHAIN = [0, 3, 6, 10];
+export const SKY_CHAIN_SECONDS = 2.5;
+export const CELL_SECONDS = 0.35;
+export const MEGA_CELL_SECONDS = 1.5;
+
+function tierForChain(chain) {
+  let tier = 0;
+  for (let i = 1; i < SKY_TIER_CHAIN.length; i++) if (chain >= SKY_TIER_CHAIN[i]) tier = i;
+  return tier;
+}
+
+export function grantCell(boost, mega = false) {
+  const before = boost.skyTier;
+  grantBoost(boost, mega ? MEGA_CELL_SECONDS : CELL_SECONDS, mega ? 2 : 1);
+  boost.skyChain += mega ? 2 : 1;
+  boost.skyCells++;
+  boost.skyTier = tierForChain(boost.skyChain);
+  boost.skyTimer = SKY_CHAIN_SECONDS;
+  report(boost, `${mega ? 'MEGA CELL' : 'CELL'} +${(mega ? MEGA_CELL_SECONDS : CELL_SECONDS).toFixed(mega ? 1 : 2)}s`);
+  return boost.skyTier > before;
+}
+
+export function dropSkyTier(boost, steps = 1) {
+  if (!boost.skyChain && !boost.skyTier) return;
+  boost.skyTier = Math.max(0, boost.skyTier - steps);
+  boost.skyChain = Math.min(boost.skyChain, SKY_TIER_CHAIN[boost.skyTier]);
+  boost.skyTimer = SKY_CHAIN_SECONDS;
+}
+
+export function stepSkyChain(boost, kart, dt) {
+  if (!kart.flying) return;
+  if (kart.skyScraped) boost.skyTimer -= 0.8;
+  boost.skyTimer -= dt;
+  if (boost.skyTimer <= 0) {
+    if (boost.skyTier > 0) dropSkyTier(boost, 1);
+    else {
+      boost.skyChain = 0;
+      boost.skyTimer = 0;
+    }
+  }
+}
+
+export function clearSky(boost) {
+  boost.skyChain = 0;
+  boost.skyTier = 0;
+  boost.skyTimer = 0;
+  boost.skyCells = 0;
 }
 
 function report(boost, label) {
@@ -82,7 +135,8 @@ export function stepBoost(boost, kart, input, dt) {
     interruptBoost(boost,kart,'RAIL HIT');
     return;
   }
-  if (kart.landed && kart.lastAirTime > 0.43) {
+  // Sky Lanes give boost only through Boost Cells, so their landing earns none.
+  if (kart.landed && kart.lastAirTime > 0.43 && !(kart.skyCarry > 0)) {
     grantBoost(boost, Math.min(1.35, (kart.lastAirTime - 0.24) * 0.85));
     report(boost, 'AIR BOOST');
   }

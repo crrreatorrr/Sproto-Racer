@@ -1,6 +1,7 @@
 import {fullLockCurvature,tireTurnRate,demandForRate} from './steering.js';
 import {hasShapedBody,laneBounds} from './kart-footprint.js';
 import {atan,atan2,cos,exp,pow4,sin,tan} from './sim/math.js';
+import {catapultCrossed,laneCeiling} from './sim/sky.js';
 // SI units throughout. s measures progress along the centre line; x is right
 // of it. Both yaw and travelYaw are relative to the local road tangent.
 export const CRUISE_SPEED = 55;
@@ -18,6 +19,21 @@ const HOP_GRAVITY = 34;
 const NEUTRAL_SLIDE_TURN = .69;
 const INSIDE_STEER = 1.48;
 const OUTSIDE_STEER = .98;
+
+// Sky Lane flight. Speeds are multiples of ground cruise: flight starts at 1.6×
+// and Boost Cell tiers lift it to 2.2×, well above the 1.4× top ground boost.
+export const SKY_TIER_SPEED = [1.6, 1.8, 2.0, 2.2];
+export const SKY_MAX_SPEED = 2.2;
+const SKY_BOOST_SPEED = 0.1;
+const SKY_TOW = 0.06;
+const SKY_LATERAL = 26;
+const SKY_CARVE_LATERAL = 40;
+const SKY_VERTICAL = 22;
+const SKY_ROLL_TIME = 0.4;
+const SKY_ROLL_DASH = 15;
+const SKY_ROLL_COOLDOWN = 1.5;
+const SKY_DIVE_WINDOW = 80;
+const SKY_CARRY_SECONDS = 1.5;
 
 export function driftBoostReady(boost) {
   return !boost.chainClosed && boost.meter + 1e-9 >= 0.70;
@@ -46,6 +62,9 @@ export function createKart(tuning = {speed:1, accel:1, turn:1}) {
     hopping:false, hopLift:0, suspension:0, suspensionVelocity:0,
     stunRemaining:0, hitRollSide:1,
     wallCooldown: 0, rampContact: false, driftWasHeld: false, regripTime: 0, boostRelease: false,
+    flying:false, skyLane:-1, skyY:0, skyVX:0, skyVY:0, skyScrape:0, skyScraped:false,
+    skyPrevS:0, skyPrevX:0, skyPrevY:0, skyCarve:false, rollTime:0, rollDir:0, rollCool:0,
+    tumble:0, tumbleFall:false, towing:0, skyCarry:0, skyDive:false, skyExit:false, skyLaunch:0,
   };
 }
 
@@ -235,11 +254,12 @@ function driveFrame(kart, input, road, boost, steer, throttle, brake, dt) {
   const driveThrottle=throttle*(1-.65*groundedBrake);
   const thrust = (28 + tier * 14 + ignitionThrust) * kart.tuning.accel * driveThrottle * Math.max(0, 1 - pow4(speedRatio));
   const rollingDrag = 0.6 + (1 - throttle) * (1.1 + 0.035 * kart.speed);
-  const engineDrag = Math.max(0, kart.speed - topSpeed) * 2.8;
+  // After a Sky Lane the kart eases down from flight speed instead of braking hard.
+  const engineDrag = Math.max(0, kart.speed - topSpeed) * (kart.skyCarry>0 ? 0.9 : 2.8);
   const gravel = kart.offroad && kart.grounded ? 3.0 + kart.speed * 0.10 : 0;
   const gravity = kart.grounded ? 7 * sin(gradeAngle) : 0;
   const accel = thrust - rollingDrag - engineDrag - gravel - 41 * groundedBrake - gravity;
-  kart.speed = clamp(kart.speed + accel * dt, 0, 100);
+  kart.speed = clamp(kart.speed + accel * dt, 0, 140);
 
   const pace=clamp(kart.speed/CRUISE_SPEED,0,1);
   const unwinding=kart.steer*steer<0 || Math.abs(steer)<Math.abs(kart.steer);
@@ -324,15 +344,177 @@ function driveFrame(kart, input, road, boost, steer, throttle, brake, dt) {
   kart.pitch = approach(kart.pitch, pitchTarget, 7, dt);
 }
 
+function lapBase(kart,road){
+  return Math.floor(kart.s/road.length)*road.length;
+}
+
+function centreLift(kart,road){
+  // skyY is height above the lane's centre line; kart.y is height above the road
+  // surface under the kart. The road under a main lane is gone, but its centre
+  // line is the corridor's reference.
+  if(!road.heightAt)return 0;
+  return road.heightAt(kart.s,0)-road.heightAt(kart.s,kart.x);
+}
+
+export function startFlight(kart,road,index){
+  const lane=road.sky.lanes[index];
+  kart.flying=true;
+  kart.skyLane=index;
+  kart.skyY=clamp(lane.floor+Math.max(2,kart.y),lane.floor,lane.ceiling-2);
+  kart.skyVX=0;
+  kart.skyVY=6;
+  kart.skyLaunch=1;
+  kart.skyPrevS=kart.s-lapBase(kart,road);
+  kart.skyPrevX=kart.x;
+  kart.skyPrevY=kart.skyY;
+  kart.skyDive=false;
+  kart.skyExit=false;
+  kart.grounded=false;
+  kart.hopping=false;
+  kart.pendingDrift=false;
+  kart.pendingDirection=0;
+  kart.airPivot=0;
+  kart.straightRun=0;
+  leaveSlide(kart);
+  kart.slipAngle=0;
+  kart.cornerRate=0;
+}
+
+function leaveFlight(kart,road){
+  const lane=road.sky.lanes[kart.skyLane];
+  kart.flying=false;
+  kart.skyLane=-1;
+  kart.grounded=false;
+  // The corridor ceiling has tapered to just above the landing deck by now.
+  kart.y=Math.max(0.05,kart.skyY+centreLift(kart,road));
+  kart.vy=Math.min(kart.skyVY,0)-2;
+  if(!lane.optional)kart.y=Math.min(kart.y,lane.floor+2.5);
+  kart.airtime=0;
+  kart.airFloorY=null;
+  kart.takeoffPitch=kart.pitch;
+  kart.takeoffRoll=0;
+  kart.skyCarry=SKY_CARRY_SECONDS;
+  kart.skyExit=true;
+  kart.rollTime=0;
+  kart.tumble=0;
+  kart.towing=0;
+}
+
+/**
+ * Knocks a flying kart into a tumble; it sinks for `seconds` with no control. A
+ * kart already skimming the corridor floor is knocked out of the lane instead.
+ */
+export function tumbleKart(kart,seconds,floor=0){
+  kart.tumble=Math.max(kart.tumble,seconds);
+  kart.tumbleFall=kart.skyY<=floor+1.2;
+  kart.rollTime=0;
+}
+
+export function stepFlight(kart,input,road,boost,dt){
+  const lane=road.sky.lanes[kart.skyLane];
+  const local=kart.s-lapBase(kart,road);
+  kart.skyPrevS=local;
+  kart.skyPrevX=kart.x;
+  kart.skyPrevY=kart.skyY;
+  kart.skyScraped=false;
+  kart.skyScrape=Math.max(0,kart.skyScrape-dt);
+  kart.rollCool=Math.max(0,kart.rollCool-dt);
+  kart.rollTime=Math.max(0,kart.rollTime-dt);
+  kart.tumble=Math.max(0,kart.tumble-dt);
+  kart.skyLaunch=Math.max(0,kart.skyLaunch-dt*2);
+  const control=kart.stunRemaining>0||kart.tumble>0?{}:input;
+  const steer=clamp(control.steer||0,-1,1);
+  const pitch=clamp(control.pitch||0,-1,1);
+  const tier=clamp(Math.trunc(boost.skyTier||0),0,3);
+  const tuning=kart.tuning.speed;
+  let target=CRUISE_SPEED*tuning*(SKY_TIER_SPEED[tier]+(boost.reserve>0?SKY_BOOST_SPEED:0))*(1+SKY_TOW*(kart.towing||0));
+  target=Math.min(target,CRUISE_SPEED*tuning*SKY_MAX_SPEED);
+  if(kart.tumble>0)target*=0.7;
+  if(kart.speed<target)kart.speed=Math.min(target,kart.speed+95*dt);
+  else kart.speed=approach(kart.speed,target,1.4,dt);
+
+  // A tap of Drift with a direction held barrel-rolls; holding Drift carves.
+  const pressed=control.driftPressed;
+  if(pressed && Math.abs(steer)>0.35 && !kart.rollCool && !kart.tumble){
+    kart.rollTime=SKY_ROLL_TIME;
+    kart.rollDir=Math.sign(steer);
+    kart.rollCool=SKY_ROLL_COOLDOWN;
+  }
+  kart.skyCarve=!!control.driftHeld && !kart.rollTime;
+  const lateral=kart.skyCarve?SKY_CARVE_LATERAL:SKY_LATERAL;
+  const curvature=road.curvature||0;
+  // Corners push the kart toward the outside wall; steering holds the line.
+  const outward=clamp(-curvature*kart.speed*kart.speed*0.12,-14,14);
+  kart.skyVX=approach(kart.skyVX,steer*lateral,kart.skyCarve?10:6,dt);
+  const roll=kart.rollTime>0?kart.rollDir*SKY_ROLL_DASH:0;
+  // The catapult throws the kart up into the corridor before the pilot takes over.
+  const vyTarget=kart.tumble>0?-9:kart.skyLaunch>0.4?18:-pitch*SKY_VERTICAL;
+  kart.skyVY=approach(kart.skyVY,vyTarget,7,dt);
+  const vx=kart.skyVX+outward+roll;
+  const radius=clamp(1-kart.x*curvature,.55,1.65);
+  const ds=kart.speed*dt/radius;
+  kart.s+=ds;
+  kart.x+=vx*dt;
+  kart.skyY+=kart.skyVY*dt;
+
+  const half=lane.width/2-HALF_KART_WIDTH;
+  if(Math.abs(kart.x)>half){
+    const side=Math.sign(kart.x);
+    kart.x=side*half;
+    if(vx*side>2 && !kart.skyScrape){
+      kart.speed*=0.92;
+      kart.skyScrape=0.3;
+      kart.skyScraped=true;
+    }
+    if(kart.skyVX*side>0)kart.skyVX=0;
+  }
+  const ceiling=laneCeiling(lane,kart.s,road.length);
+  if(kart.skyY>ceiling){kart.skyY=ceiling;if(kart.skyVY>0)kart.skyVY=0;}
+  if(kart.skyY<lane.floor){
+    kart.skyY=lane.floor;
+    if(kart.skyVY<0)kart.skyVY=0;
+    // Knocked out of the bottom of a main lane: drop into the void and respawn.
+    if(kart.tumble>0 && kart.tumbleFall && !lane.optional){
+      const exitS=kart.s;
+      kart.flying=false;
+      kart.skyLane=-1;
+      kart.fall={time:0,exitS,respawnS:lapBase(kart,road)+lane.start-40,along:kart.speed*0.25,across:0};
+      kart.speed=0;
+      return;
+    }
+  }
+  const remaining=lane.end-(kart.s-lapBase(kart,road));
+  if(remaining<SKY_DIVE_WINDOW && pitch>0.3)kart.skyDive=true;
+
+  kart.travelYaw=atan2(vx,Math.max(1,kart.speed));
+  kart.yaw=approach(kart.yaw,kart.travelYaw,14,dt);
+  kart.lateralSpeed=vx;
+  kart.steer=approach(kart.steer,steer,8,dt);
+  kart.roll=approach(kart.roll,clamp(-vx*0.022,-0.6,0.6),8,dt);
+  kart.pitch=approach(kart.pitch,clamp(kart.skyVY*0.02,-0.45,0.45),8,dt);
+  kart.grounded=false;
+  kart.y=kart.skyY+centreLift(kart,road);
+  kart.vy=kart.skyVY;
+  if(remaining<=0)leaveFlight(kart,road);
+}
+
 export function stepKart(kart, input = {}, road = {}, boost = {}, dt = 1 / 60) {
   kart.landed = false;
   kart.wallImpact = 0;
   const duration = clamp(dt, 0, 0.12);
   if (!duration) return kart;
   if(kart.fall){stepFall(kart,road,duration);return kart;}
+  kart.skyCarry=Math.max(0,kart.skyCarry-duration);
   // Keep integrating the road and airborne trajectory while the controls are locked.
   const wasHeld=kart.driftWasHeld;
   kart.driftWasHeld=!!input.driftHeld;
+  if(kart.flying && road.sky){
+    const flightInput=input.driftPressed || !input.driftHeld || wasHeld ? input
+      : {...input,driftPressed:true};
+    stepFlight(kart,flightInput,road,boost,duration);
+    return kart;
+  }
+  const launchS=kart.s,launchX=kart.x;
   if(kart.stunRemaining>0)input={};
   const steer = clamp(input.steer || 0, -1, 1);
   const throttle = clamp(input.throttle || 0, 0, 1);
@@ -379,6 +561,15 @@ export function stepKart(kart, input = {}, road = {}, boost = {}, dt = 1 / 60) {
   for (let i = 0; i < slices; i++) {
     driveFrame(kart, input, road, boost, steer, throttle, brake, duration / slices);
     if(kart.fall)break;
+  }
+  if(kart.landed && kart.skyExit){
+    // A dive onto the deck keeps flight speed; a flat or late landing scrubs it.
+    if(!kart.skyDive)kart.speed*=0.85;
+    kart.skyExit=false;
+  }
+  if(road.sky && !kart.fall && kart.s>launchS){
+    const lane=catapultCrossed(road.sky,road.length,launchS,launchX,kart.s,kart.x);
+    if(lane>=0)startFlight(kart,road,lane);
   }
   if (kart.wallImpact > HARD_WALL_IMPACT) {
     leaveSlide(kart);

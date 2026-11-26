@@ -7,16 +7,18 @@ import {ironhideAxles,ironhideHalfTrack,ironhideTireWidth,ironhideDriver,ironhid
 import {fullLockCurvature,frontWheelAngle} from './steering.js';
 import {barragePerimeter,barrageAxles,barrageHalfTrack,barrageTireWidth,barrageMuzzle,barrageWing,barrageDriver} from './barrage-layout.js';
 import {geepScale,geepAxles,geepHalfTrack,geepTireWidthScale} from './geep-layout.js';
+import {PI,cos,hypot,sin} from './sim/math.js';
 
 export const isGeep = kart => kart.tuning?.id === 'geep';
 export const hasShapedBody = kart => kart.tuning?.id==='shopping-cart' || kart.tuning?.id==='skipper' || kart.tuning?.id==='saucer' || kart.tuning?.id==='manta' || kart.tuning?.id==='crestline' || isGeep(kart) || kart.tuning?.id==='barrage' || kart.tuning?.id==='ironhide';
 const rotate = (s,x,c,sn) => ({s:s*c-x*sn,x:s*sn+x*c});
 
 function convexHull(points) {
-  const sorted=points.sort((a,b)=>a.s-b.s || a.x-b.x);
+  const sorted=points.slice().sort((a,b)=>a.s-b.s || a.x-b.x);
   function chain(order){
     const result=[];
-    for(const p of order){
+    for(let i=0;i<order.length;i++){
+      const p=order[i];
       while(result.length>=2){
         const a=result[result.length-2],b=result[result.length-1];
         if((b.s-a.s)*(p.x-a.x)-(b.x-a.x)*(p.s-a.s)>1e-9)break;
@@ -26,20 +28,20 @@ function convexHull(points) {
     }
     result.pop();return result;
   }
-  return [...chain(sorted),...chain(sorted.reverse())];
+  const lower=chain(sorted);
+  sorted.reverse();
+  return [...lower,...chain(sorted)];
 }
 
 function geepOutline(curvature){
   const points=[];
   for(const side of [-1,1]){
-    // Outer lamp buckets, curved bumper ends and rear exhaust tips.
     for(const [s,x] of [[2.297,.36],[2.271,.84],[2.16,.94],[-2.10,.65]]){
       points.push({s,x:side*x});
     }
     for(const [z,radius] of geepAxles){
       const front=z<0,angle=front?frontWheelAngle('geep',curvature,side):0;
-      const c=Math.cos(angle),sn=Math.sin(angle),width=geepTireWidthScale(front);
-      // Tire crown and rounded sidewalls, projected onto the road.
+      const c=cos(angle),sn=sin(angle),width=geepTireWidthScale(front);
       for(const [w,r] of [[.10,1],[.151,.94],[.17,.886],[.184,.761],[.196,.09]])for(const end of [-1,1])for(const edge of [-1,1]){
         const p=rotate(end*r*radius,edge*w*width,c,sn);
         points.push({s:p.s-z,x:p.x+side*geepHalfTrack});
@@ -51,35 +53,59 @@ function geepOutline(curvature){
 
 function span(points,s,x){
   let lo=Infinity,hi=-Infinity;
-  for(const p of points){
+  for(let i=0;i<points.length;i++){
+    const p=points[i];
     const d=p.s*s+p.x*x;
-    lo=Math.min(lo,d);hi=Math.max(hi,d);
+    if(d<lo)lo=d;
+    if(d>hi)hi=d;
   }
   return {lo,hi};
 }
+
 function polygon(points){
   const axes=[];
   for(let i=0;i<points.length;i++){
-    const a=points[i],b=points[(i+1)%points.length],ds=b.s-a.s,dx=b.x-a.x,len=Math.hypot(ds,dx);
+    const a=points[i],b=points[(i+1)%points.length],ds=b.s-a.s,dx=b.x-a.x,len=hypot(ds,dx);
     const s=-dx/len,x=ds/len;
     if(axes.some(n=>Math.abs(n.s*s+n.x*x)>.999999))continue;
     axes.push({s,x,...span(points,s,x)});
   }
   return {points,axes};
 }
+
 export function footprintBox(halfLength,halfWidth){
   return polygon([{s:-halfLength,x:-halfWidth},{s:halfLength,x:-halfWidth},
     {s:halfLength,x:halfWidth},{s:-halfLength,x:halfWidth}]);
 }
-const stock=footprintBox(1.75,1.25);
-const cabin=polygon([{s:-1.081,x:-.933},{s:.61,x:-.955},{s:.61,x:.955},{s:-1.081,x:.933}]
-  .map(p=>({s:p.s*geepScale,x:p.x*geepScale})));
+
 function bodySection(rows){
-  return polygon(convexHull(rows.flatMap(([z,x])=>[{s:-z,x},{s:-z,x:-x}])));
+  const pts=[];
+  for(let i=0;i<rows.length;i++){
+    const [z,x]=rows[i];
+    pts.push({s:-z,x},{s:-z,x:-x});
+  }
+  return polygon(convexHull(pts));
 }
+
 function blockFootprint(x,z,halfWidth,halfLength){
   return polygon(footprintBox(halfLength,halfWidth).points.map(p=>({s:p.s-z,x:p.x+x})));
 }
+
+function orient(shape,yaw){
+  const c=cos(yaw),sn=sin(yaw);
+  const points=shape.points.map(p=>rotate(p.s,p.x,c,sn));
+  return {points,along:span(points,1,0),across:span(points,0,1),
+    axes:shape.axes.map(n=>({...rotate(n.s,n.x,c,sn),lo:n.lo,hi:n.hi}))};
+}
+
+function horizontalDisc(radius){
+  const points=Array.from({length:48},(_,i)=>{
+    const t=i*PI/24;
+    return {s:radius*cos(t),x:radius*sin(t)};
+  });
+  return orient(polygon(points),0);
+}
+
 function cartShape(){
   const bands=[];
   function band(shape,low,high){bands.push({shape,low,high});}
@@ -92,12 +118,13 @@ function cartShape(){
     return [z,x,y];
   };
   band(bodySection([rim(0,.03),rim(1,.03)]),cartFloor-.04,cartFloor+.04);
-  // Narrow bands follow the taper and the rising rim along the side panels.
   for(const side of [-1,1])for(let i=0;i<4;i++){
     const a=i/4,b=(i+1)/4;
     const rows=[rim(a,0),rim(b,0),rim(b,1),rim(a,1)];
-    const points=rows.flatMap(([z,x])=>[-.04,.04].flatMap(dx=>
-      [-.04,.04].map(dz=>({s:-z+dz,x:side*x+dx}))));
+    const points=[];
+    for(const [z,x] of rows)for(const dx of [-.04,.04])for(const dz of [-.04,.04]){
+      points.push({s:-z+dz,x:side*x+dx});
+    }
     band(polygon(convexHull(points)),cartFloor-.04,rows[2][2]+.04);
   }
   for(const end of [0,1]){
@@ -108,101 +135,11 @@ function cartShape(){
   band(blockFootprint(0,h.z,h.halfWidth,h.radius),h.y-h.radius,h.y+h.radius);
   for(const side of [-1,1])band(blockFootprint(side*.95,1.52,.16,.26),.53,h.y);
   band(blockFootprint(0,d.z,.87*d.scale,.62*d.scale),cartFloor,d.y+1.78*d.scale);
-  return {outline:polygon(convexHull(bands.flatMap(b=>b.shape.points))),bands};
+  const allPoints=[];
+  for(let i=0;i<bands.length;i++)allPoints.push(...bands[i].shape.points);
+  return {outline:polygon(convexHull(allPoints)),bands};
 }
-const shoppingCart=cartShape();
-const tourerBase=bodySection(crestlineOutline);
-const tourerShapes=new Map();
-function tourerOutline(steering){
-  if(!tourerShapes.has(steering)){
-    const points=tourerBase.points.slice();
-    const [z,r]=crestlineAxles[0];
-    for(const side of [-1,1]){
-      const angle=frontWheelAngle('crestline',steering/512,side);
-      for(const end of [-1,1])for(const edge of [-1,1]){
-        const offset=rotate(end*r,edge*.135,Math.cos(angle),Math.sin(angle));
-        points.push({s:offset.s-z,x:offset.x+side*crestlineHalfTrack});
-      }
-    }
-    tourerShapes.set(steering,polygon(convexHull(points)));
-  }
-  return tourerShapes.get(steering);
-}
-const tourerBonnet=bodySection([[-2.065,.43],[-.61,.71],[-.44,.80],[1.84,.80],[1.95,.69]]);
-const tourerCabin=bodySection([[-.54,.72],[-.41,.80],[1.77,.80],[1.90,.69]]);
-const tourerSpare=blockFootprint(-.80,-.64,.14,.39);
-const barrageUpper=[
-  {shape:bodySection([[-1.79,.75],[-1.16,1.19],[1.50,1.29],[1.97,.76]]),low:.49,high:.86},
-  {shape:blockFootprint(0,barrageDriver.z,.58,.43),low:.86,high:barrageDriver.y+1.78*barrageDriver.scale}
-];
-for(const side of [-1,1]){
-  barrageUpper.push({shape:blockFootprint(side*barrageMuzzle.x,-.77,.28,.58),low:.86,high:1.30});
-  const w=barrageWing;
-  barrageUpper.push({shape:blockFootprint(side*(w.inner+w.outer)/2,(w.front+w.rear)/2,
-    (w.outer-w.inner)/2,(w.rear-w.front)/2),low:.86,high:w.top});
-  barrageUpper.push({shape:blockFootprint(side*barrageHalfTrack,1.20,.22,.43),low:.86,high:1.09});
-}
-const geepShapes=new Map(),barrageShapes=new Map(),cache=new WeakMap();
-function barrageShape(curvature){
-  const points=bodySection(barragePerimeter).points.slice(),wheelBands=[];
-  points.push({s:-2.09,x:.42},{s:-2.09,x:-.42});
-  for(const side of [-1,1])for(const [z,r] of barrageAxles){
-    const angle=z<0?frontWheelAngle('barrage',curvature,side):0;
-    const tirePoints=[];
-    function tirePoint(s,x){
-      const offset=rotate(s,x,Math.cos(angle),Math.sin(angle));
-      return {s:offset.s-z,x:offset.x+side*barrageHalfTrack};
-    }
-    for(const end of [-1,1])for(const edge of [-1,1]){
-      for(const [width,radius] of [[barrageTireWidth*.35,r],[barrageTireWidth*.5,r*.89],[barrageTireWidth*.5+.062,r*.23]]){
-        const point=tirePoint(end*radius,edge*width);
-        points.push(point);tirePoints.push(point);
-      }
-    }
-    wheelBands.push({shape:polygon(convexHull(tirePoints)),low:.49,high:r*2});
-  }
-  const lower=polygon(convexHull(points));
-  const outline=polygon(convexHull([...lower.points,...barrageUpper.flatMap(b=>b.shape.points)]));
-  return {outline,bands:[{shape:lower,low:0,high:.49},...barrageUpper,...wheelBands]};
-}
-const ironhideShapes=new Map();
-function ironhideShape(curvature){
-  const b=ironhideBumper,w=ironhideScreen,seat=ironhideDriver,roof=ironhideRoof;
-  const bands=[
-    {shape:bodySection([[b.front-.025,b.halfWidth],[-2.03,1.31],[2.10,1.22],[b.rear+.02,b.halfWidth]]),low:.41,high:.81},
-    {shape:blockFootprint(0,2.14,.44,.09),low:.65,high:.91},
-    {shape:blockFootprint(0,-1.26,1.31,.80),low:.81,high:1.337},
-    {shape:blockFootprint(0,-.89,1.31,.43),low:1.337,high:w.bottom},
-    {shape:blockFootprint(0,1.40,1.15,.67),low:.81,high:1.06},
-    {shape:blockFootprint(0,2.04,1.22,.08),low:1.06,high:1.40},
-    {shape:blockFootprint(0,(w.baseZ+w.topZ)/2,w.halfWidth+.04,(w.topZ-w.baseZ)/2+.04),low:w.bottom,high:w.top+.04},
-    {shape:blockFootprint(0,(roof.front+roof.rear)/2,roof.halfWidth,(roof.rear-roof.front)/2),low:roof.bottom,high:roof.top+.017},
-    {shape:blockFootprint(seat.x,seat.z,.86*seat.scale,.59*seat.scale),low:.81,high:seat.y+1.78*seat.scale}
-  ];
-  for(const side of [-1,1]){
-    bands.push({shape:blockFootprint(side*roof.postX,roof.postZ,roof.postHalf,roof.postHalf),low:roof.postBase,high:roof.bottom},
-      {shape:blockFootprint(side*1.18,.78,.07,1.28),low:.81,high:1.40},
-      {shape:blockFootprint(side*Math.abs(seat.x),.68,.38,.14),low:.81,high:2.04});
-    for(const [z,r] of ironhideAxles){
-      const angle=z<0?frontWheelAngle('ironhide',curvature,side):0;
-      const points=[];
-      for(const end of [-1,1])for(const edge of [-1,1]){
-        for(const [radius,width] of [[r,ironhideTireWidth/2],[r*.83,ironhideTireWidth/2+.012],[r*.25,ironhideTireWidth/2+.046]]){
-          const p=rotate(end*radius,edge*width,Math.cos(angle),Math.sin(angle));
-          points.push({s:p.s-z,x:p.x+side*ironhideHalfTrack});
-        }
-      }
-      bands.push({shape:polygon(convexHull(points)),low:0,high:r*2});
-      const lip=side<0&&z<0?1.46:1.37;
-      bands.push({shape:blockFootprint(side*(lip+1.02)/2,z,(lip-1.02)/2,.68),low:.78,high:1.39});
-    }
-  }
-  // The glass and both buckets sit above the half doors. Nothing spans the open bed.
-  const outline=polygon(convexHull(bands.flatMap(band=>band.shape.points)));
-  return {outline,bands};
-}
-// Slice the same cross sections used to build the speedster. A car or item
-// crossing above the nose can still catch a fender, the headrest or the driver.
+
 function mantaPanel(start,end,low,high,side=0){
   const points=[];
   for(let i=0;i<=24;i++){
@@ -210,13 +147,14 @@ function mantaPanel(start,end,low,high,side=0){
     const sides=side?[side]:[-1,1];
     for(const sign of sides)for(let j=0;j<section.length-1;j++){
       const [x,y]=section[j],[x2,y2]=section[j+1];
-      const add=x=>points.push({s:-mantaSweptZ(x,z),x:sign*x});
+      const add=px=>points.push({s:-mantaSweptZ(px,z),x:sign*px});
       if(y>=low && y<=high)add(x);
       for(const h of [low,high])if((y<h)!==(y2<h))add(x+(x2-x)*(h-y)/(y2-y));
     }
   }
   return points.length?{shape:polygon(convexHull(points)),low,high}:null;
 }
+
 function mantaPanels(){
   const [front,rear]=mantaEnds;
   const bands=[mantaPanel(front,rear,.18,.49),mantaPanel(front,rear,.49,.76)];
@@ -245,29 +183,7 @@ function mantaPanels(){
     {shape:blockFootprint(0,.67,.21,.11),low:1.14,high:1.34});
   return bands.filter(Boolean);
 }
-const mantaShapes=new Map();
-let fixedMantaBands;
-function mantaShape(curvature){
-  fixedMantaBands??=mantaPanels();
-  const bands=fixedMantaBands.slice();
-  for(const side of [-1,1])for(const [z,r] of mantaAxles){
-    const angle=z<0?frontWheelAngle('manta',curvature,side):0;
-    for(const [low,high,reach] of [[0,.18,Math.sqrt(r*r-(r-.18)**2)],[.18,2*r-.18,r],[2*r-.18,2*r,Math.sqrt(r*r-(r-.18)**2)]]){
-      const points=[];
-      for(const end of [-1,1])for(const face of [-1,1]){
-        for(const [width,length] of [[mantaWheelWidth*.5,reach*.92],[mantaWheelWidth*.33,reach]]){
-          const p=rotate(end*length,face*width,Math.cos(angle),Math.sin(angle));
-          points.push({s:p.s-z,x:p.x+side*mantaHalfTrack});
-        }
-      }
-      bands.push({shape:polygon(convexHull(points)),low,high});
-    }
-  }
-  const outline=polygon(convexHull(bands.flatMap(b=>b.shape.points)));
-  return {outline,bands};
-}
-// Project only the portion of the actual hull skin that lies within each
-// height band. In particular, the keel starts behind and below the stem cap.
+
 function slicedSkipperHull(rows,low,high){
   const points=[];
   function edge(a,b){
@@ -285,6 +201,7 @@ function slicedSkipperHull(rows,low,high){
   }
   return {shape:polygon(convexHull(points)),low,high};
 }
+
 function fixedSkipperBands(){
   const rows=skipperStations.map(row=>[...skipperSection(row,-1).reverse(),...skipperSection(row,1).slice(1)]);
   const bands=[];
@@ -296,7 +213,8 @@ function fixedSkipperBands(){
       for(const side of [-1,1]){
         const rails=skipperStations.slice(5).map(row=>{
           const outer=skipperSection(row,side);
-          return [...outer,[outer.at(-1)[0]*.88,row[2],row[0]],[side*row[1]*.80,1.015,row[0]]];
+          const tail=outer[outer.length-1];
+          return [...outer,[tail[0]*.88,row[2],row[0]],[side*row[1]*.80,1.015,row[0]]];
         });
         bands.push(slicedSkipperHull(rails,low,high));
       }
@@ -304,116 +222,242 @@ function fixedSkipperBands(){
   }
   const c=skipperCabin,m=skipperMotor,d=skipperDriver;
   function box(x,z,w,l,low,high){bands.push({shape:blockFootprint(x,z,w,l),low,high});}
-  box(0,.45,.82,1.20,.96,1.055);                 // cockpit sole
-  box(0,1.66,.87,.055,1.03,1.42);                // transom
+  box(0,.45,.82,1.20,.96,1.055);
+  box(0,1.66,.87,.055,1.03,1.42);
   box(0,(c.front-.52)/2,c.halfWidth,.16,c.sill,c.roofBottom);
   box(0,(c.roofFront+c.roofRear)/2,c.roofWidth,.817,c.roofBottom,c.roofTop);
   box(d.x,d.z,.90*d.scale,.62*d.scale,1.25,d.y+1.82*d.scale);
   box(d.x,d.z+.43,.36,.082,1.15,1.76);
   box(0,m.z,m.halfWidth,m.halfDepth,m.bottom,m.top);
-  box(0,2.12,.23,.215,.715,1.35);                 // tilted motor leg and propeller
+  box(0,2.12,.23,.215,.715,1.35);
   for(const side of [-1,1]){
     box(side*.765,.819,.085,.209,c.sill,c.roofBottom);
-    box(side*.52,1.71,.14,.16,1.02,1.30);         // stern boost outlets
+    box(side*.52,1.71,.14,.16,1.02,1.30);
     for(const [z] of skipperAxles)box(side*.86,z,.19,.21,.49,1.105);
   }
   return bands;
 }
-const skipperShapes=new Map();
-let skipperFixed;
-function skipperShape(curvature){
-  skipperFixed??=fixedSkipperBands();
-  const bands=skipperFixed.slice();
+
+// Lazy singleton tables so Nakama 3.41 post-InitModule Object.freeze never freezes mutable caches.
+let tables = null;
+function getTables(){
+  if(tables)return tables;
+  const stock=footprintBox(1.75,1.25);
+  const cabin=polygon([{s:-1.081,x:-.933},{s:.61,x:-.955},{s:.61,x:.955},{s:-1.081,x:.933}]
+    .map(p=>({s:p.s*geepScale,x:p.x*geepScale})));
+  const shoppingCart=cartShape();
+  const tourerBase=bodySection(crestlineOutline);
+  const tourerBonnet=bodySection([[-2.065,.43],[-.61,.71],[-.44,.80],[1.84,.80],[1.95,.69]]);
+  const tourerCabin=bodySection([[-.54,.72],[-.41,.80],[1.77,.80],[1.90,.69]]);
+  const tourerSpare=blockFootprint(-.80,-.64,.14,.39);
+  const barrageUpper=[
+    {shape:bodySection([[-1.79,.75],[-1.16,1.19],[1.50,1.29],[1.97,.76]]),low:.49,high:.86},
+    {shape:blockFootprint(0,barrageDriver.z,.58,.43),low:.86,high:barrageDriver.y+1.78*barrageDriver.scale}
+  ];
+  for(const side of [-1,1]){
+    barrageUpper.push({shape:blockFootprint(side*barrageMuzzle.x,-.77,.28,.58),low:.86,high:1.30});
+    const w=barrageWing;
+    barrageUpper.push({shape:blockFootprint(side*(w.inner+w.outer)/2,(w.front+w.rear)/2,
+      (w.outer-w.inner)/2,(w.rear-w.front)/2),low:.86,high:w.top});
+    barrageUpper.push({shape:blockFootprint(side*barrageHalfTrack,1.20,.22,.43),low:.86,high:1.09});
+  }
+  const saucerOutline=horizontalDisc(saucerRadius);
+  const saucerBands=[];
+  for(const [first,last] of [[0,4],[4,7],[7,10],[10,13],[13,17],[17,19],[19,20],[20,21],[21,23]]){
+    const profile=saucerProfile.slice(first,last+1);
+    let maxR=0;
+    for(let i=0;i<profile.length;i++)if(profile[i][0]>maxR)maxR=profile[i][0];
+    saucerBands.push({hull:horizontalDisc(maxR),low:profile[0][1],high:profile[profile.length-1][1]});
+  }
+  const saucerUpper=[
+    {shape:blockFootprint(0,saucerSeatBack.z,saucerSeatBack.halfWidth,.14),low:saucerLipHeight,high:saucerSeatBack.top},
+    {shape:blockFootprint(0,saucerDriver.z,.87*saucerDriver.scale,.62*saucerDriver.scale),
+      low:saucerLipHeight,high:saucerDriver.y+1.8*saucerDriver.scale}
+  ];
+  for(const [start,end] of [[-1,-.4],[-.4,.4],[.4,1]]){
+    const points=[];
+    let high=0;
+    for(let i=0;i<=6;i++)for(const top of [false,true]){
+      const [x,y,z]=screenPoint(start+(end-start)*i/6,top);
+      for(const dx of [-.014,.014])for(const dz of [-.014,.014])points.push({s:-z+dz,x:x+dx});
+      high=Math.max(high,y+.006);
+    }
+    saucerUpper.push({shape:polygon(convexHull(points)),low:saucerLipHeight,high});
+  }
+  tables={
+    stock,cabin,shoppingCart,tourerBase,tourerBonnet,tourerCabin,tourerSpare,barrageUpper,
+    saucerOutline,saucerBands,saucerUpper,
+    fixedMantaBands:null,skipperFixed:null,
+    tourerShapes:Object.create(null),
+    geepShapes:Object.create(null),
+    barrageShapes:Object.create(null),
+    ironhideShapes:Object.create(null),
+    mantaShapes:Object.create(null),
+    skipperShapes:Object.create(null),
+  };
+  return tables;
+}
+
+function tourerOutline(t,steering){
+  if(!t.tourerShapes[steering]){
+    const points=t.tourerBase.points.slice();
+    const [z,r]=crestlineAxles[0];
+    for(const side of [-1,1]){
+      const angle=frontWheelAngle('crestline',steering/512,side);
+      const c=cos(angle),sn=sin(angle);
+      for(const end of [-1,1])for(const edge of [-1,1]){
+        const offset=rotate(end*r,edge*.135,c,sn);
+        points.push({s:offset.s-z,x:offset.x+side*crestlineHalfTrack});
+      }
+    }
+    t.tourerShapes[steering]=polygon(convexHull(points));
+  }
+  return t.tourerShapes[steering];
+}
+
+function barrageShape(t,curvature){
+  const points=bodySection(barragePerimeter).points.slice(),wheelBands=[];
+  points.push({s:-2.09,x:.42},{s:-2.09,x:-.42});
+  for(const side of [-1,1])for(const [z,r] of barrageAxles){
+    const angle=z<0?frontWheelAngle('barrage',curvature,side):0;
+    const c=cos(angle),sn=sin(angle);
+    const tirePoints=[];
+    for(const end of [-1,1])for(const edge of [-1,1]){
+      for(const [width,radius] of [[barrageTireWidth*.35,r],[barrageTireWidth*.5,r*.89],[barrageTireWidth*.5+.062,r*.23]]){
+        const offset=rotate(end*radius,edge*width,c,sn);
+        const point={s:offset.s-z,x:offset.x+side*barrageHalfTrack};
+        points.push(point);tirePoints.push(point);
+      }
+    }
+    wheelBands.push({shape:polygon(convexHull(tirePoints)),low:.49,high:r*2});
+  }
+  const lower=polygon(convexHull(points));
+  const upperPoints=[];
+  for(let i=0;i<t.barrageUpper.length;i++)upperPoints.push(...t.barrageUpper[i].shape.points);
+  const outline=polygon(convexHull([...lower.points,...upperPoints]));
+  return {outline,bands:[{shape:lower,low:0,high:.49},...t.barrageUpper,...wheelBands]};
+}
+
+function ironhideShape(curvature){
+  const b=ironhideBumper,w=ironhideScreen,seat=ironhideDriver,roof=ironhideRoof;
+  const bands=[
+    {shape:bodySection([[b.front-.025,b.halfWidth],[-2.03,1.31],[2.10,1.22],[b.rear+.02,b.halfWidth]]),low:.41,high:.81},
+    {shape:blockFootprint(0,2.14,.44,.09),low:.65,high:.91},
+    {shape:blockFootprint(0,-1.26,1.31,.80),low:.81,high:1.337},
+    {shape:blockFootprint(0,-.89,1.31,.43),low:1.337,high:w.bottom},
+    {shape:blockFootprint(0,1.40,1.15,.67),low:.81,high:1.06},
+    {shape:blockFootprint(0,2.04,1.22,.08),low:1.06,high:1.40},
+    {shape:blockFootprint(0,(w.baseZ+w.topZ)/2,w.halfWidth+.04,(w.topZ-w.baseZ)/2+.04),low:w.bottom,high:w.top+.04},
+    {shape:blockFootprint(0,(roof.front+roof.rear)/2,roof.halfWidth,(roof.rear-roof.front)/2),low:roof.bottom,high:roof.top+.017},
+    {shape:blockFootprint(seat.x,seat.z,.86*seat.scale,.59*seat.scale),low:.81,high:seat.y+1.78*seat.scale}
+  ];
+  for(const side of [-1,1]){
+    bands.push({shape:blockFootprint(side*roof.postX,roof.postZ,roof.postHalf,roof.postHalf),low:roof.postBase,high:roof.bottom},
+      {shape:blockFootprint(side*1.18,.78,.07,1.28),low:.81,high:1.40},
+      {shape:blockFootprint(side*Math.abs(seat.x),.68,.38,.14),low:.81,high:2.04});
+    for(const [z,r] of ironhideAxles){
+      const angle=z<0?frontWheelAngle('ironhide',curvature,side):0;
+      const c=cos(angle),sn=sin(angle);
+      const points=[];
+      for(const end of [-1,1])for(const edge of [-1,1]){
+        for(const [radius,width] of [[r,ironhideTireWidth/2],[r*.83,ironhideTireWidth/2+.012],[r*.25,ironhideTireWidth/2+.046]]){
+          const p=rotate(end*radius,edge*width,c,sn);
+          points.push({s:p.s-z,x:p.x+side*ironhideHalfTrack});
+        }
+      }
+      bands.push({shape:polygon(convexHull(points)),low:0,high:r*2});
+      const lip=side<0&&z<0?1.46:1.37;
+      bands.push({shape:blockFootprint(side*(lip+1.02)/2,z,(lip-1.02)/2,.68),low:.78,high:1.39});
+    }
+  }
+  const allPoints=[];
+  for(let i=0;i<bands.length;i++)allPoints.push(...bands[i].shape.points);
+  return {outline:polygon(convexHull(allPoints)),bands};
+}
+
+function mantaShape(t,curvature){
+  if(!t.fixedMantaBands)t.fixedMantaBands=mantaPanels();
+  const bands=t.fixedMantaBands.slice();
+  for(const side of [-1,1])for(const [z,r] of mantaAxles){
+    const angle=z<0?frontWheelAngle('manta',curvature,side):0;
+    const c=cos(angle),sn=sin(angle);
+    const edgeReach=Math.sqrt(r*r-(r-.18)*(r-.18));
+    for(const [low,high,reach] of [[0,.18,edgeReach],[.18,2*r-.18,r],[2*r-.18,2*r,edgeReach]]){
+      const points=[];
+      for(const end of [-1,1])for(const face of [-1,1]){
+        for(const [width,length] of [[mantaWheelWidth*.5,reach*.92],[mantaWheelWidth*.33,reach]]){
+          const p=rotate(end*length,face*width,c,sn);
+          points.push({s:p.s-z,x:p.x+side*mantaHalfTrack});
+        }
+      }
+      bands.push({shape:polygon(convexHull(points)),low,high});
+    }
+  }
+  const allPoints=[];
+  for(let i=0;i<bands.length;i++)allPoints.push(...bands[i].shape.points);
+  return {outline:polygon(convexHull(allPoints)),bands};
+}
+
+function skipperShape(t,curvature){
+  if(!t.skipperFixed)t.skipperFixed=fixedSkipperBands();
+  const bands=t.skipperFixed.slice();
   for(const side of [-1,1])for(const [z,r] of skipperAxles){
     const angle=z<0?frontWheelAngle('skipper',curvature,side):0;
+    const c=cos(angle),sn=sin(angle);
     for(const [low,high] of [[0,.13],[.13,2*r-.13],[2*r-.13,2*r]]){
       const dy=Math.max(0,low-r,r-high),reach=Math.sqrt(r*r-dy*dy);
       const points=[];
       for(const end of [-1,1])for(const face of [-1,1])for(const [s,x] of [[reach,.132],[reach*.87,skipperWheelWidth/2],[reach*.34,.197]]){
-        const p=rotate(end*s,face*x,Math.cos(angle),Math.sin(angle));
+        const p=rotate(end*s,face*x,c,sn);
         points.push({s:p.s-z,x:p.x+side*skipperHalfTrack});
       }
       bands.push({shape:polygon(convexHull(points)),low,high});
     }
   }
-  return {outline:polygon(convexHull(bands.flatMap(b=>b.shape.points))),bands};
-}
-function orient(shape,yaw){
-  const c=Math.cos(yaw),sn=Math.sin(yaw);
-  const points=shape.points.map(p=>rotate(p.s,p.x,c,sn));
-  return {points,along:span(points,1,0),across:span(points,0,1),
-    axes:shape.axes.map(n=>({...rotate(n.s,n.x,c,sn),lo:n.lo,hi:n.hi}))};
-}
-
-// The circular sections are invariant under steering and yaw. Only the seat,
-// pilot and three curved windshield sections need to turn with the vehicle.
-function horizontalDisc(radius){
-  const points=Array.from({length:48},(_,i)=>{
-    const t=i*Math.PI/24;
-    return {s:radius*Math.cos(t),x:radius*Math.sin(t)};
-  });
-  return orient(polygon(points),0);
-}
-const saucerOutline=horizontalDisc(saucerRadius);
-const saucerBands=[];
-for(const [first,last] of [[0,4],[4,7],[7,10],[10,13],[13,17],[17,19],[19,20],[20,21],[21,23]]){
-  const profile=saucerProfile.slice(first,last+1);
-  saucerBands.push({hull:horizontalDisc(Math.max(...profile.map(([r])=>r))),low:profile[0][1],high:profile.at(-1)[1]});
-}
-const saucerUpper=[
-  {shape:blockFootprint(0,saucerSeatBack.z,saucerSeatBack.halfWidth,.14),low:saucerLipHeight,high:saucerSeatBack.top},
-  {shape:blockFootprint(0,saucerDriver.z,.87*saucerDriver.scale,.62*saucerDriver.scale),
-    low:saucerLipHeight,high:saucerDriver.y+1.8*saucerDriver.scale}
-];
-for(const [start,end] of [[-1,-.4],[-.4,.4],[.4,1]]){
-  const points=[];
-  let high=0;
-  for(let i=0;i<=6;i++)for(const top of [false,true]){
-    const [x,y,z]=screenPoint(start+(end-start)*i/6,top);
-    for(const dx of [-.014,.014])for(const dz of [-.014,.014])points.push({s:-z+dz,x:x+dx});
-    high=Math.max(high,y+.006);
-  }
-  saucerUpper.push({shape:polygon(convexHull(points)),low:saucerLipHeight,high});
+  const allPoints=[];
+  for(let i=0;i<bands.length;i++)allPoints.push(...bands[i].shape.points);
+  return {outline:polygon(convexHull(allPoints)),bands};
 }
 
 export function kartFootprint(kart){
+  const t=getTables();
   const id=kart.tuning?.id,yaw=kart.yaw||0;
   const steering=id!=='saucer'&&id!=='shopping-cart'&&hasShapedBody(kart)?Math.round((kart.steer||0)*fullLockCurvature(kart)*512):0;
-  const old=cache.get(kart);
+  const old=kart._fp;
   if(old && old.yaw===yaw && old.steering===steering && old.id===id)return old;
   let body,bands;
   if(id==='shopping-cart'){
-    body=orient(shoppingCart.outline,yaw);
-    bands=shoppingCart.bands.map(({shape,low,high})=>({hull:orient(shape,yaw),low,high}));
+    body=orient(t.shoppingCart.outline,yaw);
+    bands=t.shoppingCart.bands.map(({shape,low,high})=>({hull:orient(shape,yaw),low,high}));
   }else if(id==='saucer'){
-    body=saucerOutline;
-    bands=saucerBands.concat(saucerUpper.map(({shape,low,high})=>({hull:orient(shape,yaw),low,high})));
+    body=t.saucerOutline;
+    bands=t.saucerBands.concat(t.saucerUpper.map(({shape,low,high})=>({hull:orient(shape,yaw),low,high})));
   }else if(id==='manta'||id==='skipper'){
-    const shapes=id==='skipper'?skipperShapes:mantaShapes;
-    if(!shapes.has(steering))shapes.set(steering,id==='skipper'?skipperShape(steering/512):mantaShape(steering/512));
-    const shape=shapes.get(steering);
+    const shapes=id==='skipper'?t.skipperShapes:t.mantaShapes;
+    if(!shapes[steering])shapes[steering]=id==='skipper'?skipperShape(t,steering/512):mantaShape(t,steering/512);
+    const shape=shapes[steering];
     body=orient(shape.outline,yaw);
-    bands=shape.bands.map(({shape,low,high})=>({hull:orient(shape,yaw),low,high}));
+    bands=shape.bands.map(({shape:sh,low,high})=>({hull:orient(sh,yaw),low,high}));
   }else if(id==='crestline'){
-    body=orient(tourerOutline(steering),yaw);
-    bands=[{hull:body,low:0,high:1.08},{hull:orient(tourerBonnet,yaw),low:1.08,high:1.33},
-      {hull:orient(tourerSpare,yaw),low:1.08,high:1.32},{hull:orient(tourerCabin,yaw),low:1.33,high:crestlineRoof.top}];
+    body=orient(tourerOutline(t,steering),yaw);
+    bands=[{hull:body,low:0,high:1.08},{hull:orient(t.tourerBonnet,yaw),low:1.08,high:1.33},
+      {hull:orient(t.tourerSpare,yaw),low:1.08,high:1.32},{hull:orient(t.tourerCabin,yaw),low:1.33,high:crestlineRoof.top}];
   }else if(id==='barrage'||id==='ironhide'){
-    const shapes=id==='ironhide'?ironhideShapes:barrageShapes;
-    if(!shapes.has(steering))shapes.set(steering,(id==='ironhide'?ironhideShape:barrageShape)(steering/512));
-    const shape=shapes.get(steering);
+    const shapes=id==='ironhide'?t.ironhideShapes:t.barrageShapes;
+    if(!shapes[steering])shapes[steering]=id==='ironhide'?ironhideShape(steering/512):barrageShape(t,steering/512);
+    const shape=shapes[steering];
     body=orient(shape.outline,yaw);
-    bands=shape.bands.map(({shape,low,high})=>({hull:orient(shape,yaw),low,high}));
+    bands=shape.bands.map(({shape:sh,low,high})=>({hull:orient(sh,yaw),low,high}));
   }else if(id==='geep'){
-    if(!geepShapes.has(steering))geepShapes.set(steering,polygon(geepOutline(steering/512)));
-    body=orient(geepShapes.get(steering),yaw);
-    bands=[{hull:body,low:0,high:geepLowerHeight},{hull:orient(cabin,yaw),low:geepLowerHeight,high:geepOverallHeight}];
+    if(!t.geepShapes[steering])t.geepShapes[steering]=polygon(geepOutline(steering/512));
+    body=orient(t.geepShapes[steering],yaw);
+    bands=[{hull:body,low:0,high:geepLowerHeight},{hull:orient(t.cabin,yaw),low:geepLowerHeight,high:geepOverallHeight}];
   }else{
-    body=orient(stock,yaw);
+    body=orient(t.stock,yaw);
     bands=[{hull:body,low:0,high:1.4}];
   }
   const result={yaw,steering,id,body,bands};
-  cache.set(kart,result);
+  Object.defineProperty(kart,'_fp',{value:result,writable:true,configurable:true,enumerable:false});
   return result;
 }
 
@@ -447,7 +491,9 @@ export function laneBounds(kart,road,stockMargin,curvature=road.curvature||0){
   }
   const scale=Math.max(.55,Math.min(1.65,1-kart.x*curvature));
   let min=-Infinity,max=Infinity;
-  for(const p of kartFootprint(kart).body.points){
+  const pts=kartFootprint(kart).body.points;
+  for(let i=0;i<pts.length;i++){
+    const p=pts[i];
     const s=kart.s+p.s/scale;
     const left=road.edgeAt?.(s,-1)??(road.dropAt?.(s,-1)?Infinity:halfAt(s));
     const right=road.edgeAt?.(s,1)??(road.dropAt?.(s,1)?Infinity:halfAt(s));

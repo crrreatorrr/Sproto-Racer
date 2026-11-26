@@ -10,11 +10,15 @@ export const geepDriver = {x: -.456, y: 1.255, z: .183, scale: .59};
 const tau = Math.PI * 2;
 const frame = '#192723', lip = '#30402c', leather = '#583826';
 
-const hardware = new T.MeshStandardMaterial({vertexColors:true, roughness:.59, metalness:.13});
-const rubber = new T.MeshStandardMaterial({vertexColors:true, roughness:.94});
-const steel = new T.MeshStandardMaterial({vertexColors:true, roughness:.38, metalness:.32});
-const glass = new T.MeshBasicMaterial({color:'#80bc49', transparent:true, opacity:.34,
-  side:T.DoubleSide, depthWrite:false, toneMapped:false, forceSinglePass:true});
+let hardware,rubber,steel,glass;
+function initMaterials(){
+  if(hardware)return;
+  hardware = new T.MeshStandardMaterial({vertexColors:true, roughness:.59, metalness:.13});
+  rubber = new T.MeshStandardMaterial({vertexColors:true, roughness:.94});
+  steel = new T.MeshStandardMaterial({vertexColors:true, roughness:.38, metalness:.32});
+  glass = new T.MeshBasicMaterial({color:'#80bc49', transparent:true, opacity:.34,
+    side:T.DoubleSide, depthWrite:false, toneMapped:false, forceSinglePass:true});
+}
 let templates;
 
 function canvasMap(width,height,draw) {
@@ -339,6 +343,7 @@ function tireLettering(rear){
 
 export function attachGeep(body,wheels){
   if(!templates){
+    initMaterials();
     const wheel=makeWheel();
     templates={body:makeBody(),front:[...wheel,...tireLettering(false)],rear:[...wheel,...tireLettering(true)]};
   }

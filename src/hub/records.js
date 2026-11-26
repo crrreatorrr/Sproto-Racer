@@ -136,7 +136,7 @@ export const RECORD_MODEL = Object.freeze({
 export function acceptTrial(raw, length) {
   const trial = normalizeTrial(raw);
   if (!trial) return null;
-  if (length != null && trial.length !== length) return null;
+  if (length != null && Math.abs(trial.length - length) > 1e-6) return null;
   return trial;
 }
 

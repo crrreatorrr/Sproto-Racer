@@ -220,6 +220,151 @@ function surfaceFragments(batch,x,y,z,span,yaw,palette,random,snow){
  }
  return detailCount;
 }
+// Tiny geometry font. Legibility lives in the same batch as every other prop.
+const GLYPHS={
+ A:[14,17,17,31,17,17,17],B:[30,17,17,30,17,17,30],C:[14,17,16,16,16,17,14],
+ D:[30,17,17,17,17,17,30],E:[31,16,16,30,16,16,31],F:[31,16,16,30,16,16,16],
+ G:[14,17,16,23,17,17,15],H:[17,17,17,31,17,17,17],I:[31,4,4,4,4,4,31],
+ K:[17,18,20,24,20,18,17],L:[16,16,16,16,16,16,31],M:[17,27,21,21,17,17,17],
+ N:[17,25,25,21,19,19,17],O:[14,17,17,17,17,17,14],P:[30,17,17,30,16,16,16],
+ R:[30,17,17,30,20,18,17],S:[15,16,16,14,1,1,30],T:[31,4,4,4,4,4,4],
+ U:[17,17,17,17,17,17,14],V:[17,17,17,17,17,10,4],W:[17,17,17,21,21,27,17],
+ X:[17,17,10,4,10,17,17],Y:[17,17,10,4,4,4,4],Z:[31,1,2,4,8,16,31],
+};
+function sign(batch,o,yaw,label,w,h,bg=0x30494d,fg=0xf5e6ba,post=false){
+ const p=batch.painter(o),a=(x,y,z)=>basis(o,x,y,z,yaw);
+ box(p,o,w,h,.20,bg,yaw);
+ const B=.106,z=.113;
+ const border=0xab9374;
+ p.quad(a(-w*.5,.055,B),a(w*.5,.055,B),a(w*.5,.125,B),a(-w*.5,.125,B),border);
+ p.quad(a(-w*.5,h-.112,B),a(w*.5,h-.112,B),a(w*.5,h-.052,B),a(-w*.5,h-.052,B),border);
+ const pixel=Math.min(w/(label.length*6+.4),h*.109);
+ const top=(h+pixel*7)*.5, left=-label.length*pixel*3;
+ for(let i=0;i<label.length;i++){
+  const glyph=GLYPHS[label[i]];
+  if(!glyph)continue;
+  for(let row=0;row<7;row++)for(let j=0;j<5;j++)if(glyph[row]&(16>>j)){
+   const x=left+(i*6+j)*pixel, y=top-(row+1)*pixel;
+   p.quad(a(x,y,z),a(x+pixel,y,z),a(x+pixel,y+pixel,z),a(x,y+pixel,z),fg);
+  }
+ }
+ if(post)for(const x of [-w*.36,w*.36])box(p,basis(o,x,-2,-.10,yaw),.22,2.08,.30,0x655044,yaw);
+}
+function beam(p,A,B,r,color,end=r,num=7){
+ const ax=B[0]-A[0],ay=B[1]-A[1],az=B[2]-A[2],d=Math.hypot(ax,ay,az);
+ if(d<.005)return;
+ const u=Math.abs(ay/d)<.91?[az,0,-ax]:[0,az,-ay];
+ const len=Math.hypot(...u),x=u.map(v=>v/len),v=[(ay*x[2]-az*x[1])/d,(az*x[0]-ax*x[2])/d,(ax*x[1]-ay*x[0])/d];
+ const point=(P,q,angle)=>P.map((a,i)=>a+q*(Math.cos(angle)*x[i]+Math.sin(angle)*v[i]));
+ for(let i=0;i<num;i++){
+  const s=i/num*TAU,t=(i+1)/num*TAU,C=point(A,r,s),D=point(A,r,t),E=point(B,end,t),F=point(B,end,s);
+  p.quad(C,D,E,F,color);
+  p.tri(B,E,F,color);
+ }
+}
+function terrace(batch,o,rx,rz,depth,pal,random,yaw,weather){
+ if(depth<.76)return;
+ const p=batch.painter(o),n=12;
+ const layers=[[1,0],[.96,-.58],[1.14,-depth*.25],[1.26,-depth*.46],[1.49,-depth]];
+ const span=Array.from({length:n},()=>.90+random()*.14);
+ const R=layers.map(([scale,dy],j)=>span.map((s,i)=>{
+  const a=i/n*TAU;
+  return basis(o,Math.cos(a)*rx*scale*s,dy+(j>1?Math.sin(a*2+j)*depth*.065:0),Math.sin(a)*rz*scale*s,yaw);
+ }));
+ for(let i=0;i<n;i++){
+  const k=(i+1)%n;
+  p.tri(o,R[0][i],R[0][k],pal.at(-2),weather);
+  for(let j=0;j<R.length-1;j++){
+   const colors=[pal.at(-2),pal[1],pal[2],pal[0]];
+   p.quad(R[j][i],R[j][k],R[j+1][k],R[j+1][i],colors[j],weather);
+  }
+ }
+}
+function fence(batch,o,yaw,span,snow=false){
+ const p=batch.painter(o),n=snow?8:6, a=(x,y,z)=>basis(o,x,y,z,yaw);
+ const light=snow?0x7f6860:0x9c8166,dark=snow?0x665a52:0x79604c;
+ for(let i=0;i<=n;i++){
+  const x=(i/n-.5)*span;
+  box(p,a(x,0,0),.25,snow?2.55:1.46,.27,dark,yaw);
+  box(p,a(x,snow?2.53:1.45,0),.34,.12,.35,snow?0xb5cbd6:0x9f8c70,yaw);
+  if(i===n)break;
+  const nx=x+span/n;
+  for(const y of snow?[.41,1.03,1.66,2.18]:[.53,1.11]){
+   box(p,a((x+nx)*.5,y,.14),span/n+.07,.19,.16,light,yaw);
+  }
+  if(i%2===0)beam(p,a(x,.17,-.89),a(x+.03,snow?1.64:1.06,.03),.08,dark,.07,5);
+ }
+}
+function utility(batch,o,yaw,snow,serial){
+ const p=batch.painter(o),a=(x,y,z)=>basis(o,x,y,z,yaw);
+ const steel=snow?0x6c8596:0x63665b,dark=0x333a3b,white=snow?0xd6ecf3:0xbdc4b6,signal=snow?0xe77e42:0xd49344;
+ if(snow){
+  // Rescue tool box, sled with curled runners, removable avalanche probes.
+  box(p,a(3.3,0,.2),1.63,1.13,1.03,signal,yaw);
+  box(p,a(3.3,1.12,.2),1.69,.17,1.12,0xf2b164,yaw);
+  box(p,a(3.3,.81,.74),.20,.14,.08,dark,yaw);
+  const z=-1.25;
+  box(p,a(-2,.53,z),3.3,.27,1.45,signal,yaw);
+  box(p,a(-2,.86,z),2.18,.31,.93,white,yaw);
+  for(const offset of [-.46,.46]){
+   const b=z+offset;
+   beam(p,a(-3.6,.17,b),a(-.39,.17,b),.099,steel,.099,6);
+   beam(p,a(-.39,.17,b),a(.08,.48,b),.099,steel,.07,6);
+   for(const x of [-3.12,-1.04])beam(p,a(x,.17,b),a(x,.53,b),.087,steel,.075,5);
+  }
+  for(const x of [.9,1.33,1.75])beam(p,a(x,0,1.0),a(x-.16,2.15,1.05),.053,signal,.048,6);
+ }else{
+  // Stacked split timber behind a forestry bench and brass vista scope.
+  for(let row=0;row<3;row++)for(let i=0;i<4-row;i++){
+   const x=.35*(i-(3-row)*.5)+2.4;
+   beam(p,a(x,.19+row*.29,-1.37),a(x,.20+row*.29,.37),.178,0x795b40,.163,7);
+   beam(p,a(x,.20+row*.29,.37),a(x,.20+row*.29,.40),.111,0xc29b72,.073,7);
+  }
+  const z=.43,x=-2.2;
+  box(p,a(x,0,z),.93,.29,.94,0x686c61,yaw);
+  beam(p,a(x,.22,z),a(x,1.73,z),.125,steel,.14,8);
+  beam(p,a(x,1.63,z-.67),a(x,1.97,z+.75),.229,0xb99254,.175,10);
+  beam(p,a(x,1.97,z+.75),a(x,2.04,z+1.03),.199,dark,.201,8);
+  beam(p,a(x,1.63,z-.64),a(x,1.59,z-.83),.137,dark,.181,8);
+ }
+ if(serial%2){
+  for(const x of [-3.8,3.8])box(p,a(x,0,-1.31),.21,1.25,.23,steel,yaw);
+  box(p,a(0,1.1,-1.31),7.78,.16,.38,dark,yaw);
+ }
+}
+function weatherStation(batch,o,yaw,snow,serial){
+ const p=batch.painter(o),a=(x,y,z)=>basis(o,x,y,z,yaw);
+ const iron=snow?0x668193:0x68665b, pale=snow?0xd4e3e9:0xd6cdb9, stripe=snow?0xe07d51:0xe7aa55;
+ box(p,a(0,0,0),4.6,.27,3.65,0x777c78,yaw);
+ const h=snow?8.6:7.4;
+ for(const x of [-1.17,1.17])for(const z of [-.91,.91]){
+  beam(p,a(x,.24,z),a(x*.29,h,z*.27),.085,iron,.061,6);
+  beam(p,a(x,.24,z),a(-x*.68,2.7,z*.76),.048,iron,.050,5);
+  beam(p,a(-x*.68,2.7,z*.76),a(x*.49,5.02,z*.48),.051,iron,.049,5);
+  beam(p,a(x*.49,5.02,z*.48),a(-x*.29,h,z*.27),.041,iron,.048,5);
+ }
+ for(const y of [2.7,5.0,7.0])box(p,a(0,y,0),1.89-y*.113,.12,1.53-y*.105,pale,yaw);
+ beam(p,a(0,h-.45,0),a(0,h+.81,0),.16,iron,.064,8);
+ if(snow&&serial%2===0){
+  const C=a(.00,h+.29,.19),D=a(.00,h+.85,1.14);
+  beam(p,a(0,h+.13,0),C,.16,iron,.24,8);
+  beam(p,C,D,.31,pale,1.03,12);
+  beam(p,D,a(.00,h+.90,1.23),1.04,0x496171,.98,12);
+  beam(p,D,a(.00,h+1.04,1.78),.077,stripe,.11,7);
+ }else{
+  for(const az of [0,TAU/3,2*TAU/3]){
+   const x=Math.cos(az)*.94,z=Math.sin(az)*.94;
+   beam(p,a(0,h+.71,0),a(x,h+.72,z),.045,iron,.04,6);
+   beam(p,a(x,h+.71,z),a(x,h+.72,z+.22),.142,stripe,.245,8);
+  }
+  const A=a(-.13,h+.24,0),B=a(-1.09,h+.46,0),C=a(-.10,h+.49,0),D=a(-.48,h+.98,0);
+  p.tri(A,B,D,stripe);p.tri(A,D,C,pale);
+ }
+ box(p,a(-2.83,0,-.37),1.7,1.76,1.28,iron,yaw);
+ box(p,a(-2.83,1.72,-.37),1.89,.17,1.52,pale,yaw);
+ box(p,a(-2.83,1.06,.32),.54,.49,.10,0x324941,yaw);
+ sign(batch,a(2.7,1.55,1.27),yaw,snow?(serial%2?'WIND MONITOR':'ICE RADAR'):'RIDGE WIND',4.55,.86,0x425552,0xe8edcc);
+}
 function cabin(batch,o,yaw,snow){
  const p=batch.painter(o), w=11.5,d=7.8,h=4.55;
  box(p,[o[0],o[1]-.58,o[2]],12.2,.66,8.6,snow?0x8096a6:0x777066,yaw);
@@ -246,6 +391,21 @@ function cabin(batch,o,yaw,snow){
  }
  box(p,basis(o,3.2,5.75,-1.48,yaw),1.03,2.8,1.06,snow?0xa3524c:0x53443a,yaw);
  box(p,basis(o,3.2,8.18,-1.48,yaw),1.27,.66,1.28,snow?0xccdde5:0x313c45,yaw);
+ const wood=snow?0x587788:0x8c6046,eave=snow?0xaac3d3:0x613c32;
+ for(const x of [-5.34,5.34])box(p,a(x,0,5.55),.24,3.42,.25,wood,yaw);
+ p.quad(a(-5.70,3.37,5.76),a(5.70,3.37,5.76),a(5.72,3.89,3.72),a(-5.72,3.89,3.72),roof);
+ p.quad(a(-5.76,3.30,5.79),a(5.76,3.30,5.79),a(5.76,3.44,5.79),a(-5.76,3.44,5.79),eave);
+ box(p,a(0,0,4.77),11.65,.27,2.06,wood,yaw);
+ for(const [z,depth] of [[5.91,.75],[6.32,.63]])box(p,a(0,0,z),3.1,.15,depth,eave,yaw);
+ box(p,a(0,.25,3.96),1.44,2.12,.21,eave,yaw);
+ box(p,a(0,.34,4.067),1.17,1.91,.11,snow?0x3c586d:0x604337,yaw);
+ box(p,a(.30,1.10,4.14),.105,.105,.09,0xd0b782,yaw);
+ for(const x of [-4.32,4.32]){
+  box(p,a(x,2.75,4.01),.22,.23,.17,0xffca86,yaw);
+  box(p,a(x,2.69,4.01),.27,.075,.20,eave,yaw);
+ }
+ sign(batch,a(0,3.94,4.12),yaw,snow?'SNOW RESCUE':'RANGER LODGE',7.5,.47,
+   snow?0x40536a:0x3f5141,snow?0xffdec2:0xf8e6bd);
 }
 function waterfall(batch,o,yaw,width,h,color=0x79bcdb,frost=0xcde9ef){
  const p=batch.painter(o),a=(u,y,z)=>basis(o,u,y,z,yaw);
@@ -262,23 +422,25 @@ function waterfall(batch,o,yaw,width,h,color=0x79bcdb,frost=0xcde9ef){
   p.tri(a(x,0,-1),a(x+.8,.3,2),a(x-1.2,.1,2.6),frost);
  }
 }
-function landmark(batch,core,clear,random,snow){
+function landmark(batch,core,clear,random,snow,reserve=()=>{}){
  const specs=snow?[[0,.43,1,'hut'],[1,.61,-1,'ice'],[4,.43,1,'ice'],[7,.58,-1,'ice'],[9,.55,-1,'hut']]
   :[[0,.61,1,'hut'],[2,.64,-1,'peak'],[4,.61,1,'falls'],[7,.51,-1,'hut'],[9,.54,1,'peak']];
  const palette=snow?SNOW:ALPINE;
  let made=0;
  for(const [sector,t,side,kind] of specs){
   const section=core.sections[sector],s=lerp(section.start,section.end,t);
-  const f=at(core,s,0),r=kind==='hut'?17:31;
+  const f=at(core,s,0),r=kind==='hut'?22:31;
   for(const offset of [f.w*.5+r+19,f.w*.5+r+31,f.w*.5+r+48,f.w*.5+r+64]){
    const a=at(core,s,side*offset);
    if(!clear(a.x,a.z,r,14))continue;
    const yaw=Math.atan2(-side*a.rz,-side*a.rx)-Math.PI*.5;
    const y=Math.max(GROUND,a.y-(snow?7:5)),o=pt(a.x,y,a.z);
    if(kind==='hut'){
-    loaf(batch,[a.x,GROUND-.4,a.z],r*.94,r*.76,Math.max(1,y-GROUND+.34),palette.ground,random,'mound',yaw,snow?1:2);
+    terrace(batch,o,13.3,10.1,Math.max(.75,y-GROUND+.42),palette.ground,random,yaw,snow?1:2);
     cabin(batch,o,yaw,snow);
-    for(const x of [-11,10])fir(batch,basis(o,x,-.3,-5,yaw),snow?7.9:10,2.7,palette,random,snow,true);
+    fence(batch,basis(o,-.5,0,7.5,yaw),yaw,12.8,snow);
+    utility(batch,basis(o,7.8,0,-1.7,yaw),yaw,snow,sector);
+    for(const x of [-9.3,9.7])fir(batch,basis(o,x,-.03,-4.3,yaw),snow?7.9:10,2.7,palette,random,snow,true);
    }else{
     const H=kind==='peak'?39:kind==='falls'?26:22;
     const colors=kind==='ice'?palette.cliff:palette.rock.concat(kind==='peak'?0xd2c6ae:0xb7ab9d);
@@ -288,21 +450,154 @@ function landmark(batch,core,clear,random,snow){
     }
     if(kind==='falls'||kind==='ice')waterfall(batch,basis(o,.9,-2,6.3,yaw),yaw,kind==='ice'?4.1:5.8,H*.52,kind==='ice'?0x6dc8ed:0x83bbca);
    }
+   reserve(a.x,a.z,r);
    made++;break;
   }
  }
  return made;
 }
+function siteDressing(batch,core,clear,pal,random,snow,reserve=()=>{}){
+ const sites=snow?[[0,.30,1,'weather'],[1,.43,1,'fence'],[2,.68,-1,'weather'],[3,.56,-1,'cache'],
+   [5,.22,1,'weather'],[6,.59,1,'fence'],[8,.41,-1,'cache'],[10,.43,1,'fence']]
+  :[[0,.31,1,'weather'],[1,.55,-1,'overlook'],[2,.52,1,'cache'],[3,.47,1,'overlook'],
+   [5,.67,-1,'weather'],[6,.48,1,'cache'],[8,.44,-1,'overlook'],[10,.40,1,'weather']];
+ let made=0;
+ for(const [index,t,side,kind] of sites){
+  const row=core.sections[index],original=lerp(row.start,row.end,t);
+  for(const shift of [0,24,-29,49]){
+   const s=original+shift,f=at(core,s,0),span=kind==='fence'?16:13;
+   const a=at(core,s,side*(f.w*.5+span+15+Math.abs(shift)*.13));
+   if(!clear(a.x,a.z,span+1,10))continue;
+   const yaw=Math.atan2(-side*a.rz,-side*a.rx)-Math.PI*.5;
+   const y=Math.max(GROUND+.10,a.y-(kind==='weather'?4.6:5.4)),o=pt(a.x,y,a.z);
+   terrace(batch,o,kind==='fence'?9.5:7.8,kind==='weather'?5.2:5.7,
+    Math.max(0,y-GROUND+.29),pal.ground,random,yaw,snow?1:2);
+   if(kind==='weather'){
+    weatherStation(batch,o,yaw,snow,made);
+    fence(batch,basis(o,0,0,-3.75,yaw),yaw,8.4,false);
+   }else{
+    utility(batch,basis(o,.1,0,-1.43,yaw),yaw,snow,index);
+    const fenceYaw=yaw+(kind==='overlook'?.13:0);
+    fence(batch,basis(o,0,0,3.54,yaw),fenceYaw,kind==='fence'?15.2:10.9,snow);
+    const label=snow?(kind==='fence'?'AVALANCHE FENCE':'RESCUE CACHE'):(kind==='overlook'?'RIDGE VISTA':'RANGER CACHE');
+    sign(batch,basis(o,0,2.4,3.72,yaw),yaw,label,kind==='fence'?6.5:5.7,.82,
+     snow?0x80543b:0x435144,0xffe0ad,true);
+   }
+   reserve(a.x,a.z,span+1);
+   made++;
+   break;
+  }
+ }
+ return made;
+}
+
+function igloo(batch,o,yaw,scale,variant){
+ const p=batch.painter(o),R=5.35*scale;
+ const shades=[0x6da5c7,0x83bad6,0x9accdf,0xbcdeed,0xd6edf4,0xe9f8fc];
+ const a=(u,y,z)=>basis(o,u*scale,y*scale,z*scale,yaw);
+ const seam=0x517c9c;
+ const steps=[0,.22,.42,.62,.81,1.02,1.22,1.40,Math.PI/2];
+ // Lower ice blocks have staggered narrow bevels and darker mortar pockets;
+ // a quiet polar gradient and cool bevel edges keep the courses readable.
+ const point=(e,w,r=R)=>basis(o,Math.cos(w)*Math.cos(e)*r,
+   .09+Math.sin(e)*r*.81,Math.sin(w)*Math.cos(e)*r,yaw);
+ for(let r=0;r<steps.length-1;r++){
+  const n=r<4?16:r<6?13:r<7?10:7;
+  const phase=Math.PI/2+(r<2||r%2===0?-.5:0)*TAU/n;
+  for(let k=0;k<n;k++){
+   const C=k/n*TAU+phase,D=(k+1)/n*TAU+phase,M=(C+D)*.5;
+   // The arch tangent cuts the dome's first two courses open on the street side.
+   if(r<2&&Math.sin(M)>.972)continue;
+   const low=steps[r],high=steps[r+1];
+   const u=point(low,C,R-.072),v=point(low,D,R-.072),w=point(high,D,R-.072),q=point(high,C,R-.072);
+   p.quad(u,v,w,q,seam,1);
+   const W=(D-C)*.018, H=(high-low)*.046;
+   const U=point(low+H,C+W),V=point(low+H,D-W),X=point(high-H,D-W),Y=point(high-H,C+W);
+   const e=point(low+H*2,C+W*2,R+.014),f=point(low+H*2,D-W*2,R+.014),
+      g=point(high-H*2,D-W*2,R+.014),h=point(high-H*2,C+W*2,R+.014);
+   const bottom=clamp(Math.round(1+r*.45+Math.cos(M+variant*.50)*.76),0,shades.length-1);
+   const lip=Math.min(shades.length-1,bottom+1);
+   p.quad(U,V,f,e,shades[Math.max(0,bottom-1)],1);
+   p.quad(V,X,g,f,shades[Math.max(0,bottom-1)],1);
+   p.quad(X,Y,h,g,shades[lip],1);
+   p.quad(Y,U,e,h,shades[lip],1);
+   p.tri(e,f,g,[shades[bottom],shades[bottom],shades[lip]],1);
+   p.tri(e,g,h,[shades[bottom],shades[lip],shades[lip]],1);
+  }
+ }
+ // Real open arch, carried by thick individual voussoirs, with a recessed dark
+ // face well behind the entrance rather than a door decal on the outside.
+ const arc=(t,r,z)=>a(Math.cos(t)*r,.69+Math.sin(t)*r,z);
+ for(const side of [-1,1])for(let i=0;i<2;i++){
+  const z=4.1+i*1.35;
+  box(p,a(side*1.06,0,z),.43*scale,.67*scale,1.335*scale,shades[i+1],yaw);
+ }
+ for(let i=0;i<10;i++){
+  const t=i*Math.PI/10,u=(i+1)*Math.PI/10,inside=.85,outside=1.26;
+  for(let j=0;j<3;j++){
+   const z=3.19+j*1.18,w=z+1.16;
+   const T=t+.015,U=u-.015;
+   p.quad(arc(T,outside,z),arc(U,outside,z),arc(U,outside,w),arc(T,outside,w),shades[2+(i+variant)%3],1);
+   p.quad(arc(T,inside,z),arc(T,inside,w),arc(U,inside,w),arc(U,inside,z),0x37546c,1);
+   p.quad(arc(T,inside,w),arc(U,inside,w),arc(U,outside,w),arc(T,outside,w),shades[1+(i%4)],1);
+   p.quad(arc(T,inside,z),arc(T,outside,z),arc(T,outside,w),arc(T,inside,w),seam,1);
+  }
+  p.tri(a(0,.69,2.99),arc(t,.86,2.99),arc(u,.86,2.99),0x1c344d);
+ }
+ p.quad(a(-.86,0,2.99),a(.86,0,2.99),a(.86,.69,2.99),a(-.86,.69,2.99),0x1c344d);
+ p.quad(a(-.82,.014,3.0),a(.82,.014,3.0),a(1.10,.015,7.6),a(-1.10,.015,7.6),0x9ebfd1,1);
+ // Split bamboo trail poles and angled fabric flags define the wind path.
+ for(const [i,x] of [-2.42,2.53].entries()){
+  const z=6.35+i*.22,H=2.65+i*.30;
+  beam(p,a(x,0,z),a(x+.08,H,z),.051*scale,0x465669,.041*scale,7);
+  const color=i===0?0xf98740:0xe44e40;
+  p.tri(a(x+.07,H,z-.015),a(x+.88,H-.22,z+.14),a(x+.07,H-.61,z-.015),color);
+  box(p,a(x,0,z),.23*scale,.12*scale,.23*scale,0x9dc1d4,yaw);
+ }
+}
+function iglooSites(batch,core,clear,palette,random,reserve){
+ const sites=[[0,.49,-1],[1,.24,1],[8,.23,1],[9,.78,-1],[11,.43,1]];
+ let count=0;
+ for(const [sector,t,side] of sites){
+  const row=core.sections[sector],start=lerp(row.start,row.end,t);
+  for(const shift of [0,-34,44,71,-75]){
+   const s=start+shift,f=at(core,s,0),r=15.5;
+   if(core.sky.inMainLane(s,36))continue;
+   const a=at(core,s,side*(f.w*.5+27+Math.abs(shift)*.13));
+   if(!clear(a.x,a.z,r,9))continue;
+   const yaw=Math.atan2(-side*a.rz,-side*a.rx)-Math.PI*.5;
+   const y=Math.max(GROUND+.12,a.y-5.55),o=pt(a.x,y,a.z);
+   terrace(batch,o,7.6,9.0,Math.max(.12,y-GROUND+.28),palette.ground,random,yaw,1);
+   igloo(batch,o,yaw,.88+random()*.32,count);
+   if(count%2===0)sign(batch,basis(o,-4.8,1.66,5.19,yaw),yaw,'IGLOO SHELTER',3.8,.61,0x506475,0xf7dcb3,true);
+   reserve(a.x,a.z,r);
+   count++;break;
+  }
+ }
+ return count;
+}
 
 /** Local set dressing only. No track state, surfaces, collision or simulation changes. */
-export function buildCircuitBiome(core){
+export function buildCircuitBiome(core,{reservedSites=[]}={}){
  if(core.id!=='track02'&&core.id!=='track03')return null;
  const snow=core.id==='track02',palette=snow?SNOW:ALPINE,r= rng(snow?0x27d58b39:0xb63cea28);
  const g=new T.Group();
  g.name=snow?'Snow biome · blue ice and frost pines':'Mountain biome · alpine rock shelves';
- const b=batches(g),clear=routeGuard(core);
- const count={drifts:0,rocks:0,trees:0,landmarks:0,terrainFragments:0};
+ const b=batches(g),roadClear=routeGuard(core);
+ const reserves=reservedSites.filter(p=>Number.isFinite(p.x)&&Number.isFinite(p.z)&&p.radius>0)
+  .map(p=>[p.x,p.z,p.radius]);
+ const reserve=(x,z,r)=>reserves.push([x,z,r]);
+ const clear=(x,z,r=0,margin)=>roadClear(x,z,r,margin)&&reserves.every(([a,b,s])=>(x-a)**2+(z-b)**2>(r+s+1.7)**2);
+ const count={drifts:0,rocks:0,trees:0,landmarks:0,terrainFragments:0,forestShelves:0,utilitySites:0};
  const weather=snow?1:2;
+ if(snow){
+  const art=rng(0xfbc3671);
+  // Authored sites get first choice so random greenery can never cut through the
+  // entrance or hide the silhouette from the racing line.
+  count.igloos=iglooSites(b,core,clear,palette,art,reserve);
+  count.landmarks=landmark(b,core,clear,art,snow,reserve);
+  count.utilitySites=siteDressing(b,core,clear,palette,art,snow,reserve);
+ }
  // Rolling shoulders descending toward the snowfield or the warm alpine talus.
  // Irregular overlap breaks up the course-offset pattern. Retain open valley
  // views by varying both the chosen side and ridge/forest density by sector.
@@ -334,13 +629,22 @@ export function buildCircuitBiome(core){
  for(let s=47;s<core.length;s+=snow?94:82){
   const f=at(core,s,0),side=Math.sin(s*.0032)>0?-1:1;
   for(let v=0;v<2;v++){
-   const radius=13+r()*(snow?17:25), offset=f.w*.5+radius+25+r()*54;
+   const radius=15+r()*(snow?21:31),offset=f.w*.5+radius+25+r()*54;
    const a=at(core,s+(r()-.5)*32,side*offset*(1+v*.49));
    if(!clear(a.x,a.z,radius+4,10))continue;
-   const nearHeight=Math.max(0,a.y-GROUND-8), h=(snow?14:24)+r()*(snow?24:47)+nearHeight*(snow?.94:.46);
-   const colors=snow?(r()>.36?palette.cliff:palette.rock.concat(0xe0f4fb)):palette.cliff;
-   loaf(b,[a.x,GROUND-.3,a.z],radius,radius*(.66+(r()*.25)),h,colors,r,snow&&v===0?'ice':'ridge',r()*TAU,weather);
+   const nearHeight=Math.max(0,a.y-GROUND-8), h=(snow?12:17)+r()*(snow?22:31)+nearHeight*(snow?.89:.44);
+   const colors=snow?(r()>.33?palette.cliff:palette.rock.concat(0xe0f4fb)):palette.cliff;
+   const ridgeYaw=Math.atan2(a.rz,a.rx)+Math.PI*.5+(r()-.5)*.94;
+   loaf(b,[a.x,GROUND-.3,a.z],radius,radius*(.57+(r()*.26)),h,colors,r,snow&&v===0?'ice':'ridge',ridgeYaw,weather);
    count.rocks++;
+   if(v===0&&r()>.44){
+    // Footwall merges into the larger exposure; far masses don't stand as scattered identical monoliths.
+    for(const side of [-1,1]){
+     const p=basis([a.x,GROUND-.31,a.z],side*radius*(.44+r()*.08),0,radius*(.13+r()*.08),ridgeYaw);
+     loaf(b,p,radius*.38,radius*.37,Math.max(4,h*(.25+r()*.28)),snow?palette.rock:palette.cliff,r,'ridge',ridgeYaw+side*.4,weather);
+     count.rocks++;
+    }
+   }
    for(let j=0;j<(snow?4:3);j++){
     const turn=r()*TAU,d=radius*(.78+r()*.45),x=a.x+d*Math.cos(turn),z=a.z+d*Math.sin(turn);
     const h=7+r()*(snow?8:10), width=h*(.21+r()*.08);
@@ -353,19 +657,29 @@ export function buildCircuitBiome(core){
  // Smaller foreground tree groves make the biome unmistakable at chase height;
  // distances vary within each copse and every tree independently clears the road.
  for(let s=24;s<core.length;s+=snow?59:83){
-  const side=r()>.5?-1:1,f=at(core,s,0),center=f.w*.5+(snow?26:31)+r()*22;
+  const side=r()>.5?-1:1,f=at(core,s,0),center=f.w*.5+(snow?32:36)+r()*23;
   const n=2+Math.floor(r()*4);
+  const a=at(core,s,side*center),yaw=Math.atan2(a.rz,a.rx)+(r()-.5)*.40;
+  const hill=Math.min(Math.max(0,(a.y-GROUND)*(snow?.85:1)-6),snow?61:17);
+  const r1=7.2+r()*2.7,r2=9.5+r()*3.4;
+  const raised=hill>2.8&&clear(a.x,a.z,r2*1.51+2,8);
+  if(raised){
+   terrace(b,[a.x,GROUND+hill,a.z],r1,r2,hill+.43,palette.ground,r,yaw,weather);
+   count.forestShelves++;
+  }
   for(let j=0;j<n;j++){
-   const a=at(core,s+(j-(n-1)/2)*5.9+(r()-.5)*6,side*(center+(r()-.5)*18));
-   const h=6+r()*(snow?11:12),w=h*(.20+r()*.065);
-   if(!clear(a.x,a.z,w+2,8))continue;
-   const hill=Math.min(Math.max(0,(a.y-GROUND)*(snow?.87:1)-7),snow?66:16);
-   if(hill>3)loaf(b,[a.x,GROUND-.23,a.z],w+3.8,w+3.2,hill,palette.ground,r,'mound',r()*TAU,weather);
-   fir(b,[a.x,GROUND+hill*.89,a.z],h,w,palette,r,snow,true);
+   const h=6+r()*(snow?10:12),w=h*(.20+r()*.065);
+   const p=basis([a.x,GROUND+(raised?hill:0),a.z],(r()-.5)*r1*.98,0,
+    (j/(n-1)-.5)*r2*1.15+(r()-.5)*1.4,yaw);
+   if(!clear(p[0],p[2],w+2,8))continue;
+   fir(b,p,h,w,palette,r,snow,true);
    count.trees++;
   }
  }
- count.landmarks=landmark(b,core,clear,r,snow);
+ if(!snow){
+  count.landmarks=landmark(b,core,clear,r,snow);
+  count.utilitySites=siteDressing(b,core,clear,palette,r,snow);
+ }
  g.userData.biomeStats=count;
  b.finish();
  return g;

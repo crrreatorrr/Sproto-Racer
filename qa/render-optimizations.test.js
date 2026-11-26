@@ -107,7 +107,7 @@ describe('fast rendering & cold-boot optimizations', () => {
       // Pickup InstancedMesh uses GPU shader (`uTime`) and zero steady-state matrix uploads!
       const pickupMesh = track.trackGroup.getObjectByName('pickupCrates');
       expect(pickupMesh).toBeTruthy();
-      expect(pickupMesh.material.customProgramCacheKey()).toBe('racer-pickup-v1');
+      expect(pickupMesh.material.customProgramCacheKey()).toBe('treasure-chest-road-v1');
 
       const initialVersion = pickupMesh.instanceMatrix.version;
       track.update(1.5, 1 / 60, 120, 1);

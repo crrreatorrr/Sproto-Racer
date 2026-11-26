@@ -12,15 +12,17 @@ const FORWARD = new THREE.Vector3(0, 0, 1);
 const clamp = THREE.MathUtils.clamp;
 // Flight decoration follows actual simulation motion. No collision trajectory is changed.
 const FLIGHT = Object.freeze({
-  ball:      { color: 0xff8f38, samples: 6, width: .14, border: .27, spacing: .026, type: 'embers' },
-  disc:      { color: 0x51deff, samples: 9, width: .067, border: .18, spacing: .023, type: 'twin' },
-  lightbolt: { color: 0x7cfaff, samples: 7, width: .063, border: .15, spacing: .017, type: 'laser' },
-  bolt:      { color: 0xff80b4, samples: 7, width: .076, border: .21, spacing: .021, type: 'confetti' },
-  cursor:    { color: 0xff50a7, samples: 8, width: .092, border: .22, spacing: .025, type: 'lock' },
-  lob:       { color: 0xa5e455, samples: 8, width: .13, border: .25, spacing: .026, type: 'droplets' },
-  ring:      { color: 0xffc549, samples: 8, width: .095, border: .24, spacing: .024, type: 'hoop' },
-  rocket:    { color: 0xff8c4e, samples: 11, width: .138, border: .30, spacing: .024, type: 'rocket' },
+  ball:      { color:0xff8f38, hot:0xffbe51, samples:6, width:.17, border:.28, spacing:.029, tail:6.8, rear:.73, type:'embers' },
+  disc:      { color:0x29d8ee, hot:0x9bfff4, samples:9, width:.094,border:.17, spacing:.024, tail:10.5,rear:.74,type:'twin' },
+  lightbolt: { color:0x35dccc, hot:0xd8fff7, samples:7, width:.072,border:.14, spacing:.019, tail:11.4,rear:.319,type:'laser' },
+  bolt:      { color:0xe44591, hot:0xff86bd, samples:7, width:.091,border:.19, spacing:.023, tail:9.2,rear:1.005,type:'confetti' },
+  cursor:    { color:0xf13093, hot:0xffabde, samples:8, width:.077,border:.22, spacing:.026, tail:9.9,rear:1.36,type:'lock' },
+  lob:       { color:0x9ada4a, hot:0xd9f97e, samples:8, width:.11, border:.19, spacing:.027, tail:8.5,rear:.49,type:'droplets' },
+  ring:      { color:0xffb538, hot:0xffe694, samples:8, width:.086,border:.17, spacing:.022, tail:10.2,rear:.97,type:'hoop' },
+  rocket:    { color:0xff6828, hot:0xffaa3f, samples:11,width:.144,border:.30,spacing:.026, tail:13.9,rear:1.3522,type:'rocket' },
 });
+const WINGS=[-1,1], NOZZLES=[-1,0,1], CENTER=[0];
+const CONFETTI=[0xff8abe,0xffd366,0x72e6e0,0xaf8cff,0xff947c];
 const FLAIR = Object.freeze({
   soda: { color: 0xccff4d, style: 'rise' }, triple: { color: 0xffdd64, style: 'triple' },
   speaker: { color: 0xd7a0ff, style: 'bass' }, spool: { color: 0x93f9ff, style: 'spool' },
@@ -45,6 +47,7 @@ export function createGameplay(scene, track, { onVisualCue } = {}) {
   arrow.lineTo(.47, .012); arrow.lineTo(.47, -.27); arrow.lineTo(0, .025); arrow.closePath();
   const geometries = {
     halo: new THREE.TorusGeometry(1, .026, 5, 38),
+    wakeHoop: new THREE.TorusGeometry(1,.054,4,14,Math.PI*1.68),
     floor: new THREE.RingGeometry(.80, 1, 44).rotateX(-Math.PI / 2),
     patch: new THREE.CircleGeometry(1, 34).rotateX(-Math.PI / 2),
     forward: new THREE.ShapeGeometry(arrow).rotateX(Math.PI / 2),
@@ -66,6 +69,7 @@ export function createGameplay(scene, track, { onVisualCue } = {}) {
   const tmpB = new THREE.Vector3();
   const tmpC = new THREE.Vector3();
   const part = new THREE.Object3D();
+  const newest = new THREE.Vector3(), headOffset = new THREE.Vector3(), normal = new THREE.Vector3();
   let pooled = 0, disposed = false;
   const arcs = 14;
 
@@ -74,7 +78,7 @@ export function createGameplay(scene, track, { onVisualCue } = {}) {
     if (!materials.has(key)) materials.set(key, new THREE.MeshBasicMaterial({
       color, opacity, transparent: opacity < 1 || blend, depthWrite: opacity === 1 && !blend,
       blending: blend ? THREE.AdditiveBlending : THREE.NormalBlending,
-      side: THREE.DoubleSide, toneMapped: false,
+      side: THREE.DoubleSide, forceSinglePass: true, toneMapped: false,
     }));
     return materials.get(key);
   }
@@ -99,7 +103,11 @@ export function createGameplay(scene, track, { onVisualCue } = {}) {
 
   function finish(m, count) {
     m.count = count;
-    if (count) m.instanceMatrix.needsUpdate = true;
+    if (count) {
+      m.instanceMatrix.clearUpdateRanges();
+      m.instanceMatrix.addUpdateRange(0,count*16);
+      m.instanceMatrix.needsUpdate = true;
+    }
   }
 
   function bead(m, i, at, width, height = width, depth = width, yaw = 0) {
@@ -121,6 +129,14 @@ export function createGameplay(scene, track, { onVisualCue } = {}) {
     m.setMatrixAt(i, part.matrix);
   }
 
+  function oriented(m, i, at, heading, w, h, d, roll = 0) {
+    part.position.copy(at);
+    part.quaternion.setFromUnitVectors(FORWARD, heading);
+    if(roll) part.rotateZ(roll);
+    part.scale.set(w,h,d);
+    part.updateMatrix(); m.setMatrixAt(i,part.matrix);
+  }
+
   function ground(entry, shape, color, alpha, name, blend = false) {
     return mesh(entry.group, shape, color, alpha, name, blend);
   }
@@ -136,12 +152,12 @@ export function createGameplay(scene, track, { onVisualCue } = {}) {
     const detail = new THREE.Group();
     group.name = (type === 'flair' || type === 'attached') ? o.itemType : type;
     group.add(pose, detail);
-    const e = { key, group, pose, detail, owned: [], a: new THREE.Vector3(), b: new THREE.Vector3() };
+    const e = { key, group, pose, detail, owned: [], a: new THREE.Vector3(), b: new THREE.Vector3(), emit: new THREE.Vector3() };
     if (type === 'pulse') {
       const tint = o.color ?? 0xffefd1;
       e.wave = halo(e, tint, .80, 'pulse-front');
       e.echo = halo(e, tint, .45, 'pulse-echo');
-      e.flash = halo(e, 0xffffda, .66, 'pulse-leading-edge');
+      e.flash = halo(e, 0xe6c4ff, .63, 'pulse-leading-edge','wakeHoop');
       e.dashes = instances(e, 'diamond', tint, .75, 18, 'pulse-fragments', true);
     } else if (type === 'cable' || type === 'beam') {
       const tether = type === 'cable';
@@ -161,22 +177,32 @@ export function createGameplay(scene, track, { onVisualCue } = {}) {
         const tint = o.tint ?? rule.color;
         e.rule = rule;
         e.history = new Float32Array(rule.samples * 3);
-        e.trail = instances(e, 'strand', tint, rule.type === 'embers' ? .52 : .82, rule.samples * 2, 'projectile-core-trail', true);
-        e.haze = instances(e, rule.type === 'rocket' ? 'mote' : 'strand', rule.type === 'rocket' ? 0xd9c9bd : tint,
-          rule.type === 'rocket' ? .31 : .27, rule.samples, 'projectile-outer-trail', rule.type !== 'rocket');
-        e.sparks = instances(e, 'diamond', tint, .87, rule.samples * 2, 'projectile-sparks', true);
+        e.trail = instances(e,'strand',rule.hot,rule.type==='embers'?.47:.78,rule.samples*2+4,'projectile-core-trail',true);
+        e.haze = instances(e,rule.type==='rocket'?'mote':'strand',rule.type==='rocket'?0x706c78:tint,
+          rule.type==='rocket'?.31:rule.type==='embers'?.24:.31,rule.samples+1,'projectile-outer-trail',rule.type!=='rocket');
+        const fragment=rule.type==='confetti'?'tread':rule.type==='droplets'?'mote':rule.type==='hoop'?'wakeHoop':'diamond';
+        const styleColor=rule.type==='confetti'?0xffffff:rule.type==='rocket'?0xff9f40:tint;
+        e.sparks=instances(e,fragment,styleColor,rule.type==='droplets'?.65:.83,rule.samples*2,'projectile-sparks',rule.type!=='droplets');
+        if(rule.type==='confetti'){
+          const swatch=new THREE.Color();
+          for(let i=0;i<e.sparks.instanceMatrix.count;i++)e.sparks.setColorAt(i,swatch.setHex(CONFETTI[i%CONFETTI.length]));
+          e.sparks.instanceColor.needsUpdate=true;
+        }
         if (type === 'cursor' || type === 'rocket') {
           e.lock = new THREE.Group();
           e.lock.name = 'world-lock-reticle';
           group.add(e.lock);
           const lock = mesh(e.lock, 'floor', tint, .83, 'lock-ring', true);
           lock.scale.setScalar(1.26);
-          for (let i = 0; i < 4; i++) {
-            const heading = i * TAU / 4;
-            const mark = mesh(e.lock, 'forward', tint, .91, 'lock-chevron', true);
-            mark.position.set(Math.sin(heading) * 1.35, .006, Math.cos(heading) * 1.35);
-            mark.rotation.y = heading + Math.PI; mark.scale.setScalar(.59);
+          e.lockTicks=instances(e,'forward',tint,.74,4,'lock-chevron',true);
+          e.lock.add(e.lockTicks);
+          for(let j=0;j<4;j++){
+            const heading=j*TAU/4;
+            tmpA.set(Math.sin(heading)*1.35,.013,Math.cos(heading)*1.35);
+            bead(e.lockTicks,j,tmpA,.61,1,.68,heading+Math.PI);
           }
+          e.lockTicks.instanceMatrix.needsUpdate=true;
+
         } else if (type === 'lob' || type === 'ball' || type === 'disc') {
           e.roadCue = ground(e, 'floor', tint, .49, 'projectile-road-cue', true);
         }
@@ -207,7 +233,7 @@ export function createGameplay(scene, track, { onVisualCue } = {}) {
           rail.scale.set(.056, .017, .98);
         }
       } else if (type === 'puck') {
-        e.arming = ground(e, 'floor', 0xe591ff, .68, 'puck-arming-dial', true);
+        e.arming = ground(e,'wakeHoop',0xe591ff,.68,'puck-arming-dial',true);
         e.radius = ground(e, 'floor', 0xbf6dff, .46, 'puck-armed-area', true);
         e.sparks = instances(e, 'diamond', 0xf5bdff, .82, 12, 'puck-charge-nodes', true);
       } else if (type === 'broom') {
@@ -259,8 +285,8 @@ export function createGameplay(scene, track, { onVisualCue } = {}) {
     function tetherPoint(t, v) {
       const d = Math.sin(Math.PI * t);
       v.copy(e.b).multiplyScalar(t);
-      const period = Math.sin(t * 19 - clock * (beam ? -29 : 24));
-      v.addScaledVector(side, (beam ? .26 : .13) * d * period);
+      const period = Math.sin(t * 25 - clock * (beam ? -34 : 24));
+      v.addScaledVector(side,(beam?.27:.105)*d*period + (beam?.085*d*Math.sin(t*63+clock*44):0));
       // Graphical bow above the racing line, not a change to the tow reach or target.
       v.y += d * (beam ? .41 + .22 * Math.cos(t * 15 + clock * 27) : .20 + .066 * period);
       return v;
@@ -277,13 +303,16 @@ export function createGameplay(scene, track, { onVisualCue } = {}) {
     for (let i = 0; i < 8; i++) {
       const t = ((i / 8 + (beam ? -age * 5.2 : age * 2.0)) % 1 + 1) % 1;
       tetherPoint(t * charge, tmpA);
-      bead(e.charge, i, tmpA, (beam ? .105 : .10) * expiry, .083 * expiry, .22 * expiry, clock * 7 + i);
+      tmpC.copy(e.b).normalize();
+      if(tmpC.lengthSq()<.001)tmpC.copy(FORWARD);
+      oriented(e.charge,i,tmpA,tmpC,(beam?.105:.09)*expiry,.083*expiry,(beam?.31:.17)*expiry,clock*7+i);
     }
     finish(e.charge, 8);
-    tmpA.set(0, 0, 0);
-    bead(e.socket, 0, tmpA, .27, .27, .27, clock * 4);
-    tetherPoint(charge, tmpA);
-    bead(e.socket, 1, tmpA, .34, .34, .34, -clock * 4);
+    tmpA.set(0,0,0);tmpC.copy(e.b).normalize();
+    if(tmpC.lengthSq()<.001)tmpC.copy(FORWARD);
+    oriented(e.socket,0,tmpA,tmpC,.27,.27,.59,clock*4);
+    tetherPoint(charge,tmpA);
+    oriented(e.socket,1,tmpA,tmpC,.34,.34,.63,-clock*4);
     finish(e.socket, 2);
   }
 
@@ -292,6 +321,9 @@ export function createGameplay(scene, track, { onVisualCue } = {}) {
     const n = r.samples;
     const before = sample(o.s0 ?? o.s, o.x0 ?? o.x, previousScratch).position;
     pBefore.set(before.x, o.y0 ?? o.y, before.z);
+    if(clock<e.lastSample || (e.size && newest.fromArray(e.history,e.head*3).distanceToSquared(pNow)>625)){
+      e.head=-1; e.size=0; e.lastSample=-Infinity;
+    }
     dir.subVectors(pNow, pBefore);
     if (dir.lengthSq() < .00001) {
       const v = o.v ?? 0, vx = o.vx ?? 0;
@@ -321,52 +353,95 @@ export function createGameplay(scene, track, { onVisualCue } = {}) {
     const kick = o.type === 'lob' ? 1 + .13 * Math.sin(age * 14) : 1;
     e.pose.scale.set((o.scaleX ?? 1) * squash * pulse * kick, (o.scaleY ?? 1) * (2 - squash) * pulse / kick, (o.scaleZ ?? 1));
     e.pose.position.set(0, o.type === 'ball' ? .044 * Math.abs(Math.sin(age * 20)) : 0, 0);
-    tmpA.set(0, 0, 0);
-    let sCount = 0, hCount = 0, pCount = 0;
-    for (let i = 0; i < e.size; i++) {
-      const k = ((e.head - i + n) % n) * 3;
-      tmpB.fromArray(e.history, k).sub(pNow);
-      if (tmpA.distanceToSquared(tmpB) < .006) continue;
-      const taper = Math.pow(1 - i / n, .85);
-      if (r.type === 'twin') {
-        for (const s of [-1, 1]) {
-          e.b.copy(tmpA).addScaledVector(side, s * (.28 + i * .020));
-          tmpC.copy(tmpB).addScaledVector(side, s * (.28 + i * .023));
-          segment(e.trail, sCount++, e.b, tmpC, r.width * taper, r.width * taper * .62);
+    const rear=-(o.scaleZ??1)*r.rear;
+    // Direction is the sampled flight vector. Twisting tail-led models use their
+    // own pose basis so wakes remain seated through swerves and ribbon rolls.
+    headOffset.set(0,r.type==='rocket'?.1452*e.pose.scale.y:0,rear);
+    const articulated=r.type==='rocket'||r.type==='lock'||r.type==='laser'||r.type==='confetti';
+    if(articulated)headOffset.applyQuaternion(e.pose.quaternion).add(e.pose.position);
+    else headOffset.copy(e.a).multiplyScalar(rear);
+    e.emit.copy(pNow).add(headOffset);
+    normal.crossVectors(side,e.a).normalize();
+    tmpA.copy(headOffset);
+    let sCount=0,hCount=0,pCount=0, walked=0;
+
+    if(r.type==='rocket'||r.type==='laser'||r.type==='confetti'||r.type==='lock'){
+      const taper=.80+.20*Math.sin(clock*(r.type==='rocket'?57:51)+o.id*.61);
+      const close=r.type==='rocket'?(1.23+.64*taper):r.type==='laser'?.51:.37;
+      for(const j of r.type==='rocket'?NOZZLES:CENTER){
+        const strength=j===0?1:.64;
+        if(r.type==='rocket'){
+          // Measured aperture centers of the approved normalized model (unit pose).
+          e.b.set(.1891*j*e.pose.scale.x,(j===0?.1452:-.0726)*e.pose.scale.y,rear)
+            .applyQuaternion(e.pose.quaternion).add(e.pose.position);
+        } else e.b.copy(headOffset);
+        tmpC.copy(e.b).addScaledVector(e.a,-close*strength);
+        segment(e.trail,sCount++,e.b,tmpC,r.width*(.84+.24*taper)*strength,r.width*(.66+.38*taper)*strength);
+      }
+    }
+
+    for(let i=0;i<e.size;i++){
+      const k=((e.head-i+n)%n)*3;
+      tmpB.fromArray(e.history,k).sub(pNow);
+      const distance=tmpA.distanceTo(tmpB);
+      if(distance<.087)continue;
+      if(walked>=r.tail)break;
+      if(walked+distance>r.tail)tmpB.lerp(tmpA,1-(r.tail-walked)/distance);
+      walked=Math.min(r.tail,walked+distance);
+      const taper=Math.max(.035,(1-Math.max(i/n*.82,walked/r.tail*.75))**1.02);
+      if(r.type==='twin'){
+        for(const j of WINGS){
+          e.b.copy(tmpA).addScaledVector(side,j*(.39+i*.024));
+          tmpC.copy(tmpB).addScaledVector(side,j*(.42+i*.026));
+          segment(e.trail,sCount++,e.b,tmpC,r.width*taper,r.width*taper*.45);
         }
-      } else if (r.type !== 'droplets') {
-        segment(e.trail, sCount++, tmpA, tmpB, r.width * taper, r.width * taper * (r.type === 'laser' ? .62 : 1));
+      }else if(r.type!=='droplets'&&((r.type!=='hoop'&&r.type!=='embers'&&r.type!=='confetti')||i%2===0)&&
+        (r.type!=='rocket'||walked<4.25)){
+        const thickness=r.type==='laser'?.48:r.type==='lock'?.61:1;
+        const hot=r.type==='rocket'?.96-i/n*.66:1;
+        if(r.type==='embers'||r.type==='confetti'){
+          tmpC.copy(tmpA).lerp(tmpB,r.type==='embers'?.58:.69);
+          segment(e.trail,sCount++,tmpA,tmpC,r.width*taper*hot,r.width*taper*thickness*hot);
+        }else segment(e.trail,sCount++,tmpA,tmpB,r.width*taper*hot,r.width*taper*thickness*hot);
       }
-      if (r.type === 'rocket') {
-        tmpC.copy(tmpB); tmpC.y += i * .064;
-        const wobble = .085 * i * Math.sin(clock * 13 + i * 1.51);
-        tmpC.addScaledVector(side, wobble);
-        bead(e.haze, hCount++, tmpC, .15 + i * .059, .15 + i * .062, .15 + i * .082, age * 3 + i);
-      } else {
-        segment(e.haze, hCount++, tmpA, tmpB, r.border * taper, r.border * taper * (r.type === 'embers' ? .35 : .66));
+      if(r.type==='rocket'){
+        // Discrete puffs rise and spread instead of a full-width opaque trail.
+        tmpC.copy(tmpB).addScaledVector(normal,.049*i+.019*i*i).addScaledVector(side,.092*i*Math.sin(clock*10.8+i*2.36));
+        const billow=.13+.061*i;
+        bead(e.haze,hCount++,tmpC,billow*.92,billow*.75,billow*1.43,age*1.9+i);
+      }else if((r.type!=='droplets'||i%2===0)&&(r.type!=='embers'||i<3)){
+        segment(e.haze,hCount++,tmpA,tmpB,r.border*taper,r.border*taper*(r.type==='embers'?.58:.53));
       }
-      if (r.type !== 'laser' && r.type !== 'lock') {
-        const turn = i * 1.9 + clock * (r.type === 'hoop' ? 24 : 15);
-        const radius = (r.type === 'hoop' ? .88 : r.type === 'confetti' ? .36 : .20) * taper;
-        const length = (r.type === 'droplets' ? .17 : r.type === 'embers' ? .18 : .12) * taper;
-        tmpC.copy(tmpB).addScaledVector(side, Math.cos(turn) * radius);
-        tmpC.y += Math.sin(turn) * radius + (r.type === 'droplets' ? -i * .054 : 0);
-        bead(e.sparks, pCount++, tmpC, length, length * .66, length * 1.24, turn);
-        if (r.type === 'hoop' || r.type === 'confetti') {
-          tmpC.copy(tmpB).addScaledVector(side, -Math.cos(turn) * radius);
-          tmpC.y -= Math.sin(turn) * radius;
-          bead(e.sparks, pCount++, tmpC, length * .76, length * .57, length, turn);
+      if(r.type==='hoop'){
+        const radius=(.35+i*.102)*Math.max(.46,taper);
+        tmpC.copy(tmpB).addScaledVector(normal,.083*Math.sin(i*.79+age*12));
+        oriented(e.sparks,pCount++,tmpC,e.a,radius,radius,.55,age*9+i*.74);
+      }else if(r.type!=='laser'){
+        const repeats=r.type==='confetti'||r.type==='twin'||r.type==='lock'?2:1;
+        for(let j=0;j<repeats;j++){
+          const theta=clock*(r.type==='lock'?21:16)+i*2.04+j*Math.PI;
+          const spread=r.type==='confetti'?.71:r.type==='twin'?.62:r.type==='lock'?.43:.225;
+          tmpC.copy(tmpB).addScaledVector(side,Math.cos(theta)*spread*taper);
+          tmpC.addScaledVector(normal,Math.sin(theta)*spread*taper+(r.type==='droplets'?-i*.072:r.type==='embers'?.041*i:0));
+          const w=(r.type==='droplets'?.23:r.type==='confetti'?.19:r.type==='rocket'?.14:.12)*taper;
+          if(r.type==='droplets'){
+            bead(e.sparks,pCount++,tmpC,w*1.23,w*1.07,w*.89,theta);
+          }else if(r.type==='confetti'){
+            oriented(e.sparks,pCount++,tmpC,e.a,w*.94,w*.38,w*(1.26+j*.22),theta);
+          }else{
+            oriented(e.sparks,pCount++,tmpC,e.a,w,w*.70,w*(r.type==='rocket'?2.6:1.9),theta);
+          }
         }
       }
       tmpA.copy(tmpB);
     }
-    finish(e.trail, sCount); finish(e.haze, hCount); finish(e.sparks, pCount);
+    finish(e.trail,sCount);finish(e.haze,hCount);finish(e.sparks,pCount);
     if (e.roadCue) {
       const floor = road.position.y;
       e.roadCue.position.set(0, floor + .064 - o.y, 0);
       const scale = (o.type === 'lob' ? .66 + Math.max(0, o.y - floor) * .081 : .68) * (.87 + .17 * Math.sin(clock * 15));
       e.roadCue.scale.set(scale, 1, scale);
-      e.roadCue.rotation.set(road.grade ?? 0, 0, road.bank ?? 0);
+      e.roadCue.rotation.set(road.grade ?? 0, Math.atan2(road.forward?.x??0,road.forward?.z??1), road.bank ?? 0,'YXZ');
     }
     if (e.lock) {
       const target = o.target?.kart;
@@ -376,9 +451,10 @@ export function createGameplay(scene, track, { onVisualCue } = {}) {
         e.lock.position.copy(tmpA).sub(pNow);
         e.lock.scale.setScalar(.90 + .13 * Math.sin(age * 17));
         e.lock.rotation.y = age * (o.type === 'rocket' ? 4.4 : -2.1);
+        e.lockTicks.count=4;
       }
     }
-    writeHistory(e, pNow, clock);
+    writeHistory(e,e.emit,clock);
   }
 
   function drawPulse(o, e, age) {
@@ -389,7 +465,7 @@ export function createGameplay(scene, track, { onVisualCue } = {}) {
     const rings = [e.wave, e.echo, e.flash];
     for (let i = 0; i < rings.length; i++) {
       const radiusNow = leading * (i === 0 ? 1 : i === 1 ? .713 : .920);
-      rings[i].rotation.x = -Math.PI / 2;
+      rings[i].rotation.set(-Math.PI / 2,0,i===2?age*10:0);
       rings[i].position.y = (i - 1) * (.045 + phase * .095);
       rings[i].scale.set(radiusNow, radiusNow, Math.max(.013, radiusNow * fade * (i === 0 ? .62 : .49)));
       rings[i].visible = phase < (i === 2 ? .79 : .97);
@@ -444,7 +520,8 @@ export function createGameplay(scene, track, { onVisualCue } = {}) {
       e.pool.scale.set(2.02 * tremble, 1, 1.50 * tremble);
       e.lip.position.y = floor + .008;
       e.lip.rotation.copy(e.pool.rotation);
-      const spread = .76 + .24 * ((age * .69) % 1);
+      const swell=.5+.5*Math.sin(age*5.28-.6);
+      const spread=.72+.28*swell;
       e.lip.scale.set(2.04 * spread, 1, 1.49 * spread);
       for (let i = 0; i < 7; i++) {
         const p = (age * (.68 + i * .04) + i * .31) % 1;
@@ -496,15 +573,15 @@ export function createGameplay(scene, track, { onVisualCue } = {}) {
       const armed = age >= .45;
       const dial = clamp(age / .45, 0, 1);
       e.arming.position.y = floor + .011;
-      e.arming.rotation.set(grade, 0, bank);
+      e.arming.rotation.set(-Math.PI/2+grade,0,age*(armed?-2.2:1.4),'YXZ');
       const outer = armed ? .90 + .11 * Math.sin(age * 13) : .76 + .27 * dial;
-      e.arming.scale.set(outer, 1, outer);
+      e.arming.scale.set(outer,outer,.67);
       e.radius.position.y = floor + .024;
-      e.radius.rotation.copy(e.arming.rotation);
-      const alarm = armed ? 2.4 + .83 * ((age * 1.72) % 1) : .83 + .17 * dial;
+      e.radius.rotation.set(grade,0,bank);
+      const alarm=armed?2.27+.69*(1-Math.cos(TAU*((age*1.65)%1)))*.5:.83+.17*dial;
       e.radius.visible = armed;
       e.radius.scale.set(alarm, 1, alarm);
-      e.pose.position.y = armed ? .047 + .052 * Math.sin(age * 17) : -.022;
+      e.pose.position.y=armed?.047+.037*Math.sin(age*17):-.022;
       e.pose.rotateX(armed ? .046 * Math.sin(age * 17) : 0);
       for (let i = 0; i < 12; i++) {
         const t = i * TAU / 12 + age * (armed ? -2.84 : 1.76), step = (age * 3.7 + i / 12) % 1;

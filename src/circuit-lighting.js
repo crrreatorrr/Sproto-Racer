@@ -53,7 +53,7 @@ export function createCircuitLighting(world,renderer,{enabled=true}={}){
     // Opaque decks, terrain and props cast. The unbounded ground and the GPU
     // animated item crates are receivers only; their local cue already exists.
     const ground=m.geometry?.type==='PlaneGeometry'&&m.geometry?.parameters?.width>1000;
-    m.castShadow=!ground&&m.name!=='pickupCrates'&&m.name!=='Circuit puddle patches';
+    m.castShadow=!ground&&m.name!=='pickupCrates'&&m.name!=='skyTreasureChests'&&!m.name.startsWith('Scenery prop fan-')&&m.name!=='Circuit puddle patches';
    });
    force=true;
  }

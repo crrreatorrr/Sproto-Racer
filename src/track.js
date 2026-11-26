@@ -5,6 +5,10 @@ import { createTrackCore, createTrackSample } from './sim/track-core.js';
 import { createSkyVisuals } from './sky-visuals.js';
 import { createCircuitSkyline } from './circuit-skyline.js';
 import { buildCircuitBiome } from './circuit-biomes.js';
+import { makeCircuitProp } from './circuit-props.js';
+import { buildTestTrackLandmarks } from './test-track-landmarks.js';
+import { buildMountainCabins, mountainCabinSites } from './mountain-cabins.js';
+import { makePickupGeometry, applyPickupVertexShader } from './pickup-chest.js';
 
 const TAU = Math.PI * 2;
 const mix = THREE.MathUtils.lerp;
@@ -154,160 +158,6 @@ function chamferCase(w, h, d, bevel) {
   return g;
 }
 
-function makePickupGeometry() {
-  const parts = [];
-  function piece(source, color, kind, offset = [0, 0, 0], rotation = 0) {
-    const g = source.index ? source.toNonIndexed() : source;
-    if (g !== source) source.dispose();
-    const n = g.getAttribute('position').count;
-    const uv = g.getAttribute('uv');
-    const panelUV = new Float32Array(n * 2);
-    if (kind === 1) panelUV.set(uv.array);
-    g.deleteAttribute('uv');
-    g.translate(...offset);
-    if (rotation) g.rotateY(rotation);
-    const colors = new Float32Array(n * 3), ids = new Float32Array(n).fill(kind);
-    const c = new THREE.Color(color);
-    for (let i = 0; i < n; i++) c.toArray(colors, i * 3);
-    g.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-    g.setAttribute('aPickupPart', new THREE.BufferAttribute(ids, 1));
-    g.setAttribute('aPickupPanel', new THREE.BufferAttribute(panelUV, 2));
-    parts.push(g);
-  }
-  const box = (w, h, d, c, k, p) => piece(new THREE.BoxGeometry(w, h, d), c, k, p);
-  const indigo = 0x13264c, teal = 0x38dae1, gold = 0xffc850;
-  piece(chamferCase(1.31, 1.31, 1.31, .145), indigo, 0);
-  for (const y of [-.562, .562]) piece(chamferCase(1.396, .169, 1.396, .055), gold, 2, [0, y, 0]);
-  box(.47, .021, .47, teal, 2, [0, .655, 0]);
-  for (const x of [-.596, .596]) for (const z of [-.596, .596]) {
-    box(.13, .98, .13, teal, 2, [x, 0, z]);
-  }
-  for (let i = 0; i < 4; i++) {
-    const angle = i * Math.PI * .5;
-    // The text and face circuitry are antialiased distance fields, not tessellated lettering.
-    piece(new THREE.PlaneGeometry(1.125, .934), 0x16417f, 1, [0, 0, .660], angle);
-    piece(new THREE.RingGeometry(.990, 1.090, 5, 1, 0.14, 1.25).rotateX(-Math.PI * .5), teal, 3, [0, 0, 0], angle);
-    piece(new THREE.OctahedronGeometry(.084, 0).scale(.70, 1.36, .70), i % 2 === 0 ? gold : teal,
-      4, [1.00 + i % 2 * .095, i % 2 ? -.185 : .21, 0], angle);
-  }
-  const merged = mergeGeometries(parts);
-  parts.forEach(g => g.dispose());
-  merged.computeBoundingSphere();
-  return merged;
-}
-
-function applyPickupVertexShader(material, uniforms) {
-  // This material is compiled only for pickupCrates. Keep the existing track cache slot.
-  material.customProgramCacheKey = () => 'racer-pickup-v1';
-  material.onBeforeCompile = (shader) => {
-    shader.uniforms.uTime = uniforms.uTime;
-    shader.vertexShader = `uniform float uTime;
-      attribute vec2 aPickupState;
-      attribute float aPickupPart;
-      attribute vec2 aPickupPanel;
-      varying vec2 vPickupPanel;
-      varying float vPickupPart;
-      varying float vPickupVisible;
-      varying float vPickupGlow;
-      varying float vPickupDim;
-      vec3 pickupY(vec3 p, float a) {
-        float c = cos(a), s = sin(a);
-        return vec3(c*p.x+s*p.z, p.y, c*p.z-s*p.x);
-      }
-      vec3 pickupTilt(vec3 p, float a) {
-        float c = cos(a), s = sin(a);
-        return vec3(p.x*c-p.y*s, p.x*s+p.y*c, p.z);
-      }
-    ` + shader.vertexShader
-      .replace(
-        '#include <beginnormal_vertex>',
-        `#include <beginnormal_vertex>
-        float pId = float(gl_InstanceID);
-        float pTurn = uTime * 1.9 + pId * 0.64;
-        float pLean = 0.15 + 0.19 * sin(uTime * 1.7 + pId * .46);
-        float age = max(0.0, uTime - aPickupState.x);
-        bool hidden = aPickupState.y > 0.5;
-        bool disabled = aPickupState.y > 1.5;
-        float recover = smoothstep(0.0, .36, age);
-        float pSpin = pTurn + (hidden ? min(age, .18) * 9.0 : (1.0 - recover) * 1.45);
-        if (aPickupPart < 2.5) objectNormal = pickupY(pickupTilt(objectNormal, pLean), pSpin);`,
-      )
-      .replace(
-        '#include <begin_vertex>',
-        `#include <begin_vertex>
-        float bob = 0.29 * sin(uTime * 2.7 + pId * 0.65);
-        float pulse = 0.5 + 0.5 * sin(uTime * 5.3 + pId * 0.39);
-        vPickupVisible = 1.0;
-        vPickupGlow = 0.0;
-        vPickupDim = 1.0;
-        vPickupPart = aPickupPart;
-        vPickupPanel = aPickupPanel;
-        if (aPickupPart < 2.5) {
-          float pop = 0.15 * sin(recover * 3.141593);
-          float scale = hidden ? 1.0 - smoothstep(0.0, .18, age) : 0.16 + 0.84 * recover + pop;
-          transformed = pickupY(pickupTilt(transformed * max(scale, .001), pLean), pSpin);
-          transformed.y += bob + (hidden ? .28 * min(age * 5.0, 1.0) : -.12 * (1.0 - recover));
-          vPickupVisible = hidden && age >= .18 ? 0.0 : 1.0;
-          if (aPickupPart > 0.5) vPickupGlow = aPickupPart < 1.5 ? .90 : .40 + .25 * pulse;
-          if (hidden) vPickupGlow = mix(vPickupGlow, .94, smoothstep(0.0, .10, age));
-        } else if (aPickupPart < 3.5) {
-          transformed = pickupY(transformed, uTime * (hidden ? -.8 : 1.3) + pId * .44);
-          transformed.xz *= hidden ? 0.79 + .06 * pulse : 1.05 + .10 * pulse;
-          transformed.y = -(2.0 - .215) / (hidden ? .98 : 1.16);
-          vPickupGlow = hidden ? .08 + .06 * pulse : .64 + .28 * pulse;
-          vPickupDim = hidden ? .30 + .12 * pulse : 1.0;
-        } else {
-          float spread = hidden ? 1.0 + 1.85 * smoothstep(0.0, .31, age) : 1.0 + .38 * (1.0 - smoothstep(0.0, .48, age));
-          transformed = pickupY(transformed, uTime * (hidden ? 7.0 : 1.95) + pId * .6);
-          transformed.xz *= spread;
-          float burstAge = min(age, .31);
-          transformed.y += bob + (hidden ? burstAge * 2.5 - burstAge * burstAge * 4.2 : .10 * sin(pTurn));
-          vPickupVisible = hidden && age >= .31 ? 0.0 : 1.0;
-          vPickupGlow = hidden ? .98 : .46 + .42 * pulse;
-        }
-        if (disabled) vPickupVisible = 0.0;`,
-      );
-    shader.fragmentShader = `uniform float uTime;
-      varying float vPickupVisible;
-      varying float vPickupGlow;
-      varying float vPickupDim;
-      varying vec2 vPickupPanel;
-      varying float vPickupPart;
-      float pickupStroke(vec2 p, vec2 a, vec2 b) {
-        vec2 d = b-a;
-        return length(p-a-d*clamp(dot(p-a,d)/dot(d,d),0.0,1.0));
-      }
-      vec3 pickupFace(vec2 uv) {
-        vec2 p = uv-.5;
-        vec2 arc = p-vec2(0.,.153);
-        float curve = abs(length(arc)-.162);
-        if (arc.y < 0.0 && (arc.x < .09 || arc.y < -.099)) curve = 1.0;
-        float stem = min(pickupStroke(p,vec2(.130,.058),vec2(.036,-.043)),
-          pickupStroke(p,vec2(.036,-.043),vec2(.008,-.115)));
-        stem = min(stem,pickupStroke(p,vec2(.008,-.108),vec2(.008,-.168)));
-        float distanceField = min(min(curve,stem)-.060,length(p-vec2(.008,-.286))-.064);
-        float edge = max(fwidth(distanceField),.009);
-        float glyph = 1.0 - smoothstep(-edge,edge,distanceField);
-        float frame = smoothstep(.437,.479,max(abs(p.x),abs(p.y)));
-        vec2 panelCorner = abs(p)-vec2(.365,.337);
-        float pin = 1.0 - smoothstep(.019,.035,length(panelCorner));
-        float sheen = .035 * exp(-abs((p.x + p.y)-sin(uTime * 1.7)*.54)*9.0);
-        vec3 deep = vec3(.010,.045,.18) + vec3(sheen);
-        vec3 trim = vec3(.036,.48,.70);
-        return mix(mix(deep,trim,max(frame,pin*.68)),vec3(1.0,1.0,.91),glyph);
-      }
-    ` + shader.fragmentShader.replace(
-      '#include <opaque_fragment>',
-      `if (vPickupVisible < 0.5) discard;
-      if (vPickupPart > .5 && vPickupPart < 1.5) {
-        vec3 face = pickupFace(vPickupPanel);
-        outgoingLight = mix(face, vec3(1.0,.94,.66), max(0.,vPickupGlow-.90)*6.0);
-      } else outgoingLight = mix(outgoingLight, diffuseColor.rgb, vPickupGlow) * vPickupDim;
-      #include <opaque_fragment>`,
-    );
-  };
-}
-
 export function createTrack(scene, course = CIRCUITS[0], options = {}) {
   const { deferVisuals = false, externalSkyline = false } = options;
   const core = createTrackCore(course);
@@ -360,7 +210,7 @@ export function createTrack(scene, course = CIRCUITS[0], options = {}) {
   function writePickupMatrix(index, hiddenFlag, partial) {
     const pos = pickupPositions[index];
     pickupTransform.position.set(pos.x, pos.y + 2, pos.z);
-    pickupTransform.rotation.set(0, 0, 0);
+    pickupTransform.rotation.set(0,pos.yaw,0);
     pickupTransform.scale.setScalar(hiddenFlag ? .98 : 1.16);
     pickupTransform.updateMatrix();
     pickupMesh.setMatrixAt(index, pickupTransform.matrix);
@@ -438,10 +288,11 @@ export function createTrack(scene, course = CIRCUITS[0], options = {}) {
       glaze: new THREE.BoxGeometry(1,1,1),
     };
     const solid = new THREE.MeshLambertMaterial({ flatShading: true });
+    const propMaterial=new THREE.MeshStandardMaterial({vertexColors:true,roughness:.78,metalness:.03});
     const dirt = new THREE.MeshLambertMaterial({ color: C.floor });
     styleGround(dirt);
     const windowMaterial = new THREE.MeshPhongMaterial({shininess:68,specular:0x8eafb8,emissive:0x071420});
-    extraDisposables = [...Object.values(geo), solid, dirt, windowMaterial];
+    extraDisposables = [...Object.values(geo), solid, dirt, windowMaterial,propMaterial];
 
     const ground = new THREE.Mesh(new THREE.PlaneGeometry(18000, 18000), dirt);
     ground.rotation.x = -Math.PI / 2;
@@ -982,7 +833,6 @@ export function createTrack(scene, course = CIRCUITS[0], options = {}) {
         trackShape('sphere',s,x,11.38,.67,.6,.67,trim);
       }
     }
-    const fans = [C.orange, C.lime, 0x5686a0, 0x9d7495, C.milk, C.ink];
     function grandstandProfile(f) {
       const profile = [[-25.9, 1.67], [-27.7, 1.67], [-27.7, 2.55], [-29.5, 2.55],
         [-29.5, 3.43], [-31.3, 3.43], [-31.3, 4.31], [-33.2, 4.31]];
@@ -1019,9 +869,10 @@ export function createTrack(scene, course = CIRCUITS[0], options = {}) {
     }
     for (const s of [48, 84, 120]) {
       for (let row = 0; row < 4; row++) {
-        for (let j = 0; j < 15; j++) {
-          const pos = s - 14 + j * 1.95 + rand() * 0.5;
-          trackShape('sphere', pos, -26.8 - row * 1.8, 2.17 + row * 0.88, 0.82 + rand() * 0.45, 0.95 + rand() * 0.65, 0.91, fans[Math.floor(rand() * fans.length)]);
+        for(let j=0;j<11;j++){
+          const pos=s-14+j*2.68+rand()*.5;
+          const w=.84+rand()*.22,h=1.34+rand()*.36,variant=Math.floor(rand()*3);
+          trackShape('detail-fan-'+variant,pos,-26.8-row*1.8,2.34+row*.88,w,h,.92,0xffffff,(j%3-1)*.16);
         }
       }
       for (const d of [-13, 13]) trackShape('box', s + d, -34.2, 4.45, 0.47, 9.1, 0.48, C.dark);
@@ -1030,10 +881,22 @@ export function createTrack(scene, course = CIRCUITS[0], options = {}) {
       trackShape('pillar', s, 19.4, 5.5, 0.19, 11, 0.19, C.dark);
       trackShape('box', s, 20.9, 9.9, 3, 0.95, 0.09, C.orange);
     }
-    trackShape('box', 87, 35, 9, 14, 18, 16, C.foam);
-    trackShape('box', 87, 35, 18.1, 15, 0.8, 17, C.lime);
-    trackShape('box', 87, 35, 13, 14.3, 3.8, 16.4, C.ink);
-    textPanel(87, 35, 6.8, 11.9, 5, course.number, original?'TEST FACILITY':'RIDGE CONTROL', C.orange, C.ink, 8.035);
+    if(original){
+      // Track control booth: paneled concrete, upper control glazing and real roof equipment.
+      trackShape('bevel',87,35,8.8,14,17.6,16,C.foam);
+      trackShape('box',87,35,18.1,15,.8,17,C.lime);
+      trackShape('box',87,35,13,14.3,3.8,16.4,C.ink);
+      for(let i=-2;i<=2;i++){
+        trackShape('glaze',87+i*2.85,27.73,13.15,.14,2.5,2.53,0x83bbce);
+        trackShape('box',87+i*2.85,27.66,12.22,.13,.21,2.67,0x8a9fa1);
+      }
+      trackShape('pillar',90,36,19.45,.31,2.7,.31,C.steel);
+      trackShape('bevel',84,38,18.94,3.4,1.18,3.6,C.steel);
+    }else{
+      const winter=course.id==='track02';
+      trackShape(winter?'detail-snow-station':'detail-timber-station',87,35,7.8,16,15.6,18,0xffffff,Math.PI*.5);
+    }
+    textPanel(87,35,6.8,11.9,5,course.number,original?'TEST FACILITY':course.id==='track02'?'SNOW RESCUE':'RANGER STATION',C.orange,C.ink,8.035);
     textPanel(150, 28, 9, 20, 7, 'SPROTO', 'RACING DIVISION     /     ' + course.number, C.orange, C.ink);
     trackShape('box', 150, 28, 4.5, 0.56, 9, 0.66, C.dark);
 
@@ -1169,8 +1032,10 @@ export function createTrack(scene, course = CIRCUITS[0], options = {}) {
         const s = at(11, 0.1 + rand() * 0.67);
         const x = (j % 2 ? -1 : 1) * (24 + rand() * 17);
         const ht = 3.1 + (j % 4) * 1.5;
-        trackShape('box', s, x, ht / 2, 4 + rand() * 4, ht, 7 + rand() * 6, [C.steel, C.mint, C.foam, C.orange][j % 4]);
-        trackShape('box', s, x, ht + 0.03, 4, 0.12, 5, C.ink);
+        const scaleW=4+rand()*4,scaleD=7+rand()*6;
+        trackShape(j%4===0?'detail-workshop':'detail-cargo',s,x,ht*.5,scaleW,ht,scaleD,
+          [0xece1b9,0xbddccd,0xd4e8e2,0xf4b28f][j%4],j%2?Math.PI*.5:-Math.PI*.5);
+
       }
 
       const drumYaw = Math.atan2(-drumFrame.forward.x, -drumFrame.forward.z);
@@ -1364,7 +1229,7 @@ export function createTrack(scene, course = CIRCUITS[0], options = {}) {
       }
     }
 
-    // All crate and availability effects are one draw. Only a uniform changes every frame;
+    // All road chest and availability effects are one draw. Only a uniform changes every frame;
     // updateRanges upload individual instance data on hide/reveal, not all matrices.
     const pickupGeometry = makePickupGeometry();
     pickupStates = new THREE.InstancedBufferAttribute(new Float32Array(pickups.length * 2), 2).setUsage(THREE.DynamicDrawUsage);
@@ -1376,7 +1241,8 @@ export function createTrack(scene, course = CIRCUITS[0], options = {}) {
     pickupMesh.name = 'pickupCrates';
     pickupPositions = pickups.map((item) => {
       core.sampleInto(item.s, item.x, sampleScratch, true);
-      return { x: sampleScratch.position.x, y: sampleScratch.position.y, z: sampleScratch.position.z };
+      return { x: sampleScratch.position.x, y: sampleScratch.position.y, z: sampleScratch.position.z,
+        yaw:Math.atan2(-sampleScratch.forward.x,-sampleScratch.forward.z) };
     });
     lastHidden = new Uint8Array(pickups.length);
     lastHidden.fill(255);
@@ -1390,8 +1256,12 @@ export function createTrack(scene, course = CIRCUITS[0], options = {}) {
     trackGroup.add(pickupMesh);
 
     trackGroup.add(createCircuitSkyline(course.id));
-    const biome=buildCircuitBiome(core);
+    const cabins=mountainCabinSites(core);
+    const reservedSites=cabins.map(site=>({...site,radius:Math.max(19,site.radius)}));
+    const biome=buildCircuitBiome(core,{reservedSites});
     if(biome)trackGroup.add(biome);
+    const finishScenery=original?buildTestTrackLandmarks(core):buildMountainCabins(core,cabins);
+    if(finishScenery)trackGroup.add(finishScenery);
 
     if (original) {
       // Tarmac research campus: three low wind-tunnel/power annexes face the
@@ -1436,8 +1306,8 @@ export function createTrack(scene, course = CIRCUITS[0], options = {}) {
         for(let k=0;k<3;k++){
           const ang=rand()*TAU, dx=Math.cos(ang)*r*.34, dz=Math.sin(ang)*d*.34;
           const ht=4+rand()*5;
-          world('pillar',p.x+dx,p.y+h*.57+ht*.46,p.z+dz,.64,ht,.64,0x6c7161);
-          world(k%2?'sphere':'cone',p.x+dx,p.y+h*.58+ht,p.z+dz,ht*.88,ht*.94,ht*.84,k%2?0x618e6b:0x477d69);
+          world(k%2?'detail-tree':'detail-fir',p.x+dx,p.y+h*.51+ht*.56,p.z+dz,ht*.88,ht*1.12,ht*.84,0xffffff,ang);
+
         }
       }
       // Roadside verges form an amber/green vegetation rhythm visible from cockpit.
@@ -1450,42 +1320,32 @@ export function createTrack(scene, course = CIRCUITS[0], options = {}) {
           // Decorative grasses are tiny and below the actual retaining edge.
           if(f.center.y<12){
             p.y=-4.4+rand()*1.4;
-            shape('sphere',p,3.2+rand()*4.4,1.5+rand()*1.9,3+rand()*5,side>0?0x94ab6d:0x708f62,rand()*TAU);
+            shape('detail-brush',p,3.2+rand()*4.4,1.5+rand()*1.9,3+rand()*5,side>0?0xffedcb:0xd4e7d3,rand()*TAU);
           }
         }
       }
-      const siteColors = [C.mint, C.foam, C.steel, 0xabc2af];
-      for (const [sIdx, u, side] of [[0, 0.6, 1], [1, 0.7, -1], [2, 0.2, 1], [6, 0.88, 1], [7, 0.47, 1], [9, 0.3, 1], [10, 0.81, -1]]) {
-        const f = frame(at(sIdx, u));
-        for (let j = 0; j < 5; j++) {
-          const p = f.center.clone().addScaledVector(f.right, side * (60 + rand() * 65)).addScaledVector(f.forward, (rand() - 0.5) * 96);
-          const w = 11 + rand() * 12;
-          const d = 13 + rand() * 16;
-          const h = 8 + rand() * 14;
-          if (nodes.some((n, i) => i % 6 === 0 && n.p.y < h + 4 && Math.hypot(n.p.x - p.x, n.p.z - p.z) < 20 + Math.max(w, d))) continue;
-          p.y = -6.3 + h / 2;
-          shape('box', p, w, h, d, siteColors[j % 4]);
-          shape('box',p.clone().add(new THREE.Vector3(0,h*.10,-.5*d)),w*.91,.66,.18,0x486665);
-          p.y += h / 2;
-          shape('box', p, w + 1, 0.72, d + 1, C.foam);
-          if (j % 2 === 0) {
-            p.y += 1.6;
-            shape('box', p, 4, 3, 4, C.steel);
-          }
+      // Convert unlabeled blocks into dock workshops and utility systems.
+      for(const [section,u,side] of [[0,.64,1],[1,.71,-1],[2,.23,1],[6,.86,1],[7,.47,1],[9,.30,1],[10,.81,-1]]){
+        const f=frame(at(section,u));
+        const heading=Math.atan2(-f.forward.x,-f.forward.z)-side*Math.PI*.5;
+        for(let j=0;j<4;j++){
+          const p=f.center.clone().addScaledVector(f.right,side*(61+13*j+rand()*18)).addScaledVector(f.forward,(j-1.5)*27);
+          const w=12+rand()*7,d=13+rand()*9,h=j===2?11.5:7+rand()*5.5;
+          if(!safeCampus(p.x,p.z,Math.max(w,d)*.64))continue;
+          p.y=-6.4+h*.5;
+          shape(j===2?'detail-tanks':j===1?'detail-cargo':'detail-workshop',p,w,h,d,j===1?0xf1bfa7:0xffffff,heading);
         }
       }
-      for (let i = 0; i < 165; i++) {
-        const s = rand() * length;
-        const f = frame(s);
-        if (f.index === 3 || f.index === 4) continue;
-        const offset = (rand() > 0.5 ? -1 : 1) * (43 + rand() * 65);
-        const p = f.center.clone().addScaledVector(f.right, offset);
-        const size = 2.8 + rand() * 4;
-        if (nodes.some((n, index) => index % 10 === 0 && n.p.y < 16 && (n.p.x - p.x) ** 2 + (n.p.z - p.z) ** 2 < 21 ** 2)) continue;
-        p.y = -4.2;
-        shape('pillar', p, 0.75, 4.6, 0.75, C.ink);
-        p.y = -2.6 + size * 0.45;
-        shape('sphere', p, size * 1.28, size * 1.5, size, siteColors[i % 4]);
+      // Tree canopies now sit on their own branching trunks; plant less,
+      // at better-selected spots so off-camera geometry stays cheap.
+      for(let i=0;i<112;i++){
+        const s=rand()*length,f=frame(s);
+        if(f.index===3||f.index===4)continue;
+        const offset=(rand()>.5?-1:1)*(45+rand()*70),p=f.center.clone().addScaledVector(f.right,offset);
+        const h=5+rand()*8,w=h*(i%3===0?.68:.8);
+        if(!safeCampus(p.x,p.z,w+2))continue;
+        p.y=-6.4+h*.5;
+        shape(i%3===0?'detail-fir':'detail-tree',p,w,h,w,0xffffff,rand()*TAU);
       }
     } // Winter scenery and mountains are mounted by the biome layer.
     const pavementMaterial = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide, flatShading: true });
@@ -1500,7 +1360,14 @@ export function createTrack(scene, course = CIRCUITS[0], options = {}) {
       const mesh=new THREE.Mesh(g,pavementMaterial);mesh.name='pavedCircuit';trackGroup.add(mesh);
     }
     for (const { kind, parts } of instances.values()) {
-      const mesh = new THREE.InstancedMesh(geo[kind], kind==='glaze'?windowMaterial:solid, parts.length);
+      const detail=kind.startsWith('detail-');
+      let g=geo[kind];
+      if(detail&&!g){
+        g=geo[kind]=makeCircuitProp(kind.slice(7));
+        extraDisposables.push(g);
+      }
+      const mesh = new THREE.InstancedMesh(g, detail?propMaterial:kind==='glaze'?windowMaterial:solid, parts.length);
+      if(detail)mesh.name='Scenery prop '+kind.slice(7);
       parts.forEach(([matrix, hex], index) => {
         mesh.setMatrixAt(index, matrix);
         mesh.setColorAt(index, colorValue(hex));

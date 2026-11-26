@@ -5,8 +5,9 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { bladeAngle, partPose } from './sim/sky.js';
-import { itemModel } from './item-art.js';
+import { createSkyChests } from './pickup-chest.js';
 import { createSkyCrossingArt } from './sky-crossing-art.js';
+import { makeCircuitProp } from './circuit-props.js';
 
 const THEMES = {
   rig: { solid: 0xed9a59, trim: 0xf5e8c3, moving: 0xff6959, accent: 0x78f3f7, below: 0x6f9290, texture:'rig' },
@@ -75,7 +76,6 @@ export function createSkyVisuals(group, core) {
 
   const geo = {
     box: keep(new THREE.BoxGeometry(1, 1, 1)),
-    scenery: keep(theme.texture==='rig'?new THREE.BoxGeometry(1,1,1):new THREE.IcosahedronGeometry(0.70,1)),
     cell: keep(boostCrystal()),
     structure: keep(new RoundedBoxGeometry(1,1,1,1,.024)),
     halo: keep(new THREE.TorusGeometry(1.55, 0.09, 6, 28)),
@@ -95,7 +95,7 @@ export function createSkyVisuals(group, core) {
     stripe: keep(new THREE.MeshBasicMaterial({ color: 0xf3efd9 })),
     chevron: keep(new THREE.MeshBasicMaterial({ color: theme.accent })),
     closed: keep(new THREE.MeshLambertMaterial({ color: 0xe0503c, emissive: 0x6a1a10 })),
-    below: keep(new THREE.MeshLambertMaterial({ color: theme.below, flatShading: true })),
+    below: keep(new THREE.MeshStandardMaterial({vertexColors:true,roughness:.76,metalness:.04})),
   };
 
   // Canvas textures where a DOM exists; a plain white texel in headless checks.
@@ -188,12 +188,6 @@ export function createSkyVisuals(group, core) {
     mega: keep(new THREE.SpriteMaterial({ map: glowTexture, color: MEGA_COLOR, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true })),
   };
 
-  // Floating item boxes reuse the road's item crate, without its ground animation.
-  const crate = itemModel('pickup');
-  const crateGeometry = keep(crate.geometry.clone());
-  const crateMaterial = keep(crate.material.clone());
-  const boxGlow = keep(new THREE.SpriteMaterial({ map: glowTexture, color: 0xffd0f4, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }));
-
   const lanes = [];
   const dummy = new THREE.Object3D();
   const vec = new THREE.Vector3();
@@ -256,26 +250,32 @@ export function createSkyVisuals(group, core) {
     posts.frustumCulled = false;
     laneGroup.add(posts);
 
-    // Scenery far below gives the speed something to rush past.
-    if (!lane.optional) {
-      const props = keep(new THREE.InstancedMesh(geo.scenery, mat.below, 80));
-      let n = 0;
-      for (let s = lane.start; s < lane.end && n < 80; s += 20) {
-        const r = Math.sin(s * 12.9898) * 43758.5453;
-        const u = r - Math.floor(r);
-        const side = u > 0.5 ? 1 : -1;
-        const x = side * (half + 6 + u * 40);
-        lanePoint(s, x, 0, vec);
-        const h = (theme.texture==='rig'?6:3) + u * (theme.texture==='rig'?22:10);
-        dummy.position.set(vec.x, -6.4 + h / 2, vec.z);
-        dummy.rotation.set(0, laneYaw(s) + u, 0);
-        const girth=theme.texture==='rig'?4+u*8:7+u*15;
-        dummy.scale.set(girth, h, girth);
-        dummy.updateMatrix();
-        props.setMatrixAt(n++, dummy.matrix);
+    // Course-specific utility outposts are recognizable from both chase and
+    // aerial cameras. Place well outside every route leg, not just this lane.
+    if(!lane.optional){
+      const kits=theme.texture==='snow'?['snow-relay','snow-station']:
+        theme.texture==='summit'?['alpine-relay','timber-station']:['tanks','workshop','alpine-relay'];
+      const placements=new Map();
+      let index=0;
+      for(let s=lane.start+78;s<lane.end-65;s+=86){
+        const phase=Math.sin(s*18.947)*913.151,t=phase-Math.floor(phase),side=index++%2?1:-1;
+        const kind=kits[index%kits.length],tower=kind.endsWith('relay');
+        const w=tower?7.8:13+t*4,d=tower?8.1:15+t*5,h=tower?27+t*10:7.2+t*5;
+        const x=side*(half+29+t*16);
+        lanePoint(s,x,0,vec);
+        if(core.nodes.some((n,i)=>i%5===0&&Math.hypot(n.p.x-vec.x,n.p.z-vec.z)<36+Math.max(w,d)*.57))continue;
+        dummy.position.set(vec.x,-6.4+h*.5,vec.z);
+        dummy.rotation.set(0,laneYaw(s)-side*Math.PI*.5,0);
+        dummy.scale.set(w,h,d);dummy.updateMatrix();
+        if(!placements.has(kind))placements.set(kind,[]);
+        placements.get(kind).push(dummy.matrix.clone());
       }
-      props.count = n;
-      laneGroup.add(props);
+      for(const [kind,matrices] of placements){
+        const props=keep(new THREE.InstancedMesh(keep(makeCircuitProp(kind)),mat.below,matrices.length));
+        props.name='Sky Lane support scenery '+kind;
+        matrices.forEach((m,i)=>props.setMatrixAt(i,m));
+        props.computeBoundingSphere();laneGroup.add(props);
+      }
     }
 
     // Catapult: chevrons on the approach, a launch lip and an arch of light.
@@ -373,18 +373,17 @@ export function createSkyVisuals(group, core) {
         lapGroup.add(holder);
         return { cell, holder, gem, halo, baseY: holder.position.y };
       });
-      const boxes = (layout.boxes || []).map((box) => {
-        const holder = new THREE.Group();
-        place(holder, box.s, box.x, box.y);
-        const mesh = new THREE.Mesh(crateGeometry, crateMaterial);
-        mesh.scale.setScalar(1.7);
-        const aura = new THREE.Sprite(boxGlow);
-        aura.scale.setScalar(6);
-        holder.add(mesh, aura);
-        lapGroup.add(holder);
-        return { box, holder, mesh, baseY: holder.position.y };
-      });
-      return { group: lapGroup, moving, cells, boxes };
+      const entries=(layout.boxes || []).map(box=>({
+        index:box.index,position:lanePoint(box.s,box.x,box.y),yaw:laneYaw(box.s),
+      }));
+      const chests=entries.length?createSkyChests(entries):null;
+      if(chests){
+        keep(chests.mesh);
+        keep(chests.mesh.geometry);
+        keep(chests.mesh.material);
+        lapGroup.add(chests.mesh);
+      }
+      return { group: lapGroup, moving, cells, chests };
     });
     lanes.push({ lane, laps, gateBarrier, collected: 0, boxesTaken: 0, lapShown: -1 });
   }
@@ -393,7 +392,8 @@ export function createSkyVisuals(group, core) {
     streamTexture.offset.y = -time * 2.6;
     const shown = Math.max(1, Math.min(3, lap)) - 1;
     for (const entry of lanes) {
-      if (entry.lapShown !== shown) {
+      const changedLap=entry.lapShown!==shown;
+      if (changedLap) {
         entry.laps.forEach((l, i) => { l.group.visible = i === shown; });
         entry.lapShown = shown;
       }
@@ -422,14 +422,7 @@ export function createSkyVisuals(group, core) {
         c.halo.rotation.y = time * 1.3;
         c.holder.position.y = c.baseY + Math.sin(time * 3 + i) * 0.25;
       }
-      for (let i = 0; i < view.boxes.length; i++) {
-        const b = view.boxes[i];
-        const visible = !(entry.boxesTaken & (1 << b.box.index));
-        b.holder.visible = visible;
-        if (!visible) continue;
-        b.mesh.rotation.set(time * 0.9 + i, time * 1.7 + i, 0);
-        b.holder.position.y = b.baseY + Math.sin(time * 2.2 + i) * 0.35;
-      }
+      view.chests?.update(time,entry.boxesTaken,{silent:changedLap});
     }
   }
 

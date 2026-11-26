@@ -2,6 +2,7 @@
 // Runs identically in browsers, Node tests, and Nakama's Goja VM (lazy caches only).
 
 import { PI, atan2, clamp, damp, hypot, mix, mod, sin, cos, smoothstep } from './math.js';
+import { createSky } from './sky.js';
 
 const NAMES = [
   'Launch Grid', 'Linked Switchbacks', 'Rolling Drum Floor', 'Uphill Drift Spiral',
@@ -300,11 +301,14 @@ export function createTrackCore(course = CIRCUITS[0]) {
   const segments = Math.ceil(length / 3.1);
   const segmentLength = length / segments;
   const railBoundary = (s) => Math.round(s / segmentLength) * segmentLength;
+  // Main Sky Lanes replace their stretch of road, so nothing on that road survives.
+  const sky = createSky(course, sections, length);
+  const offRoad = (s, margin = 0) => sky.inMainLane(s, margin);
   const drops = (course.drops ?? []).map(([i, from, to, side]) => ({
     start: railBoundary(at(i, from)),
     end: railBoundary(at(i, to)),
     side,
-  }));
+  })).filter((gap) => !offRoad(gap.start, 20) && !offRoad(gap.end, 20));
 
   function dropAt(s, side) {
     const d = mod(s, length);
@@ -342,12 +346,15 @@ export function createTrackCore(course = CIRCUITS[0]) {
     [0, 0.76, -7, 5, 1], [1, 0.84, 5, 5, 1], [2, 0.68, -8, 5, 1], [4, 0.52, 10, 5.8, 2],
     [6, 0.89, -6, 5, 1], [7, 0.38, 8, 5, 1], [7, 0.77, -9, 5, 1], [8, 0.86, 5, 5, 1],
     [10, 0.18, -6, 5, 2], [11, 0.67, 8, 5, 1],
-  ]).map(([i, f, x, width, tier]) => ({ s: at(i, f), x, width, tier }));
+  ]).map(([i, f, x, width, tier]) => ({ s: at(i, f), x, width, tier })).filter((p) => !offRoad(p.s, 10));
 
-  const ramps = (course.ramps ?? [
+  const allRamps = (course.ramps ?? [
     [2, 0.79, -9, 6, 6.5], [4, 0.91, 8, 9, 10], [5, 0.34, -10, 7, 7], [6, 0.68, 8, 6, 6.5],
     [9, 0.64, -6.5, 9, 0], [10, 0.48, -10, 7, 6.8], [10, 0.54, 7, 8, 11], [11, 0.35, -9, 7, 7.5],
   ]).map(([i, f, x, width, power]) => ({ s: at(i, f), x, width, power }));
+  // Test Track 01's switch bridge is the fifth ramp; keep it by identity after filtering.
+  const bridge = originalCourse ? allRamps[4] : null;
+  const ramps = allRamps.filter((ramp) => ramp === bridge || !offRoad(ramp.s, 25));
 
   const drum = { s: at(2, 0.52), x: 0, width: 4.6, height: 4.6, depth: 4.6, type: 'rollingDrum' };
   const switchTrigger = originalCourse ? { s: at(9, 0.38), x: -9, width: 5, type: 'bridgeSwitch' } : null;
@@ -356,7 +363,7 @@ export function createTrackCore(course = CIRCUITS[0]) {
     ? [drum, door]
     : (course.gates ?? []).map(([i, f, x]) => ({
         s: at(i, f), x, width: 4, height: 1.7, depth: 1.2, type: 'laneDivider',
-      }));
+      })).filter((h) => !offRoad(h.s, 10));
 
   let bridgeAngle = 0;
   let bridgeTimer = 0;
@@ -413,6 +420,7 @@ export function createTrackCore(course = CIRCUITS[0]) {
     const fractions = course.pickupRows[section];
     for (let j = 0; j < fractions.length; j++) {
       const s = at(section, fractions[j]);
+      if (offRoad(s, 10)) continue;
       evalFrame(s, scratchFrame);
       const lanes = pickupLanes[pickupRow % pickupLanes.length];
       const offset = (pickupRow % 2 === 0 ? 1 : -1) * Math.sign(scratchFrame.curvature) * 0.04;
@@ -429,7 +437,6 @@ export function createTrackCore(course = CIRCUITS[0]) {
     }
   }
 
-  const bridge = originalCourse ? ramps[4] : null;
 
   function crossHeight(f, x) {
     let h = f.bank * x;
@@ -588,6 +595,7 @@ export function createTrackCore(course = CIRCUITS[0]) {
     door,
     switchTrigger,
     triggerSwitch,
+    sky,
     sample,
     sampleInto,
     heightAt,

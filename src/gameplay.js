@@ -671,6 +671,7 @@ export function createGameplay(scene, track, { onVisualCue } = {}) {
     update: core.update,
     decide: core.decide,
     hitHazard: core.hitHazard,
+    skyGot: core.skyGot,
     syncFromCore,
   };
 }

@@ -86,8 +86,10 @@ export function mountExhausts(body,carId){
   });
 }
 
-export function animateExhausts(flames,b,time){
-  const flash=b.ignition||0,power=b.plume||0,superFire=b.flameTier===2;
+// skyTier >= 0 while flying a Sky Lane: the exhaust burns hot, longer per tier, gold at tier 3.
+export function animateExhausts(flames,b,time,skyTier=-1){
+  const flying=skyTier>=0,flash=b.ignition||0,power=flying?1.05+.28*skyTier:(b.plume||0);
+  const superFire=flying?skyTier>=2:b.flameTier===2,gold=skyTier>=3;
   for(const {nozzle,outer,core,ring,index,spec,outerPaint,corePaint,ringPaint} of flames){
     nozzle.visible=power>.015||flash>.02;
     if(!nozzle.visible)continue;
@@ -98,9 +100,9 @@ export function animateExhausts(flames,b,time){
     const radius=throat*Math.min(.98,.28+.65*Math.sqrt(Math.max(0,power+.68*flash)));
     const style=spec.flame??(jet?'ice':'torch');
     const color=style==='violet'?(superFire?0xa56cff:0x59edd9):style==='ice'?(superFire?0x5489ff:0x49dbf8):(superFire?0x50b5ff:0xff732d);
-    outerPaint.color.setHex(color);
+    outerPaint.color.setHex(gold?0xffd34a:color);
     outerPaint.opacity=.73+.18*Math.max(power,flash);
-    corePaint.color.setHex(superFire||style!=='torch'?0xdffaff:0xffecc7);
+    corePaint.color.setHex(gold?0xfffbe0:superFire||style!=='torch'?0xdffaff:0xffecc7);
     outer.scale.set(radius,radius,length);
     outer.rotation.z=time*.8+index*.5;
     core.scale.set(radius*.51,radius*.51,length*.59);

@@ -44,3 +44,4 @@
   .ctrl-row,.ctrl-rowhead { grid-template-columns:minmax(74px,1fr) minmax(90px,.95fr) 47px; gap:5px; }
   .ctrl-row label { font-size:12px; }
 }
+.ctrl-sky { font-size:12px; color:#9ff7ff; margin:10px 0 4px; line-height:1.4; }

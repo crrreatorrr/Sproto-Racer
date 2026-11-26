@@ -5,12 +5,14 @@ const PARTICLES = 180;
 const clamp = THREE.MathUtils.clamp;
 
 function createMotor() {
-  let context, master, engine, bass, reed, filter;
+  let context, master, engine, bass, reed, filter, wind, windFilter;
   let muted = false, audioClock = 0;
   const lastTone = new Map();
   const cues = {
     count:[435,.10,'sine',.13], go:[820,.23,'triangle',.16],
     boost:[330,.12,'triangle',.10], click:[660,.045,'sine',.08], bump:[96,.085,'triangle',.24],
+    cell:[880,.09,'sine',.11], mega:[523,.32,'triangle',.16], tier:[660,.22,'square',.06],
+    launch:[180,.42,'sawtooth',.12], crash:[70,.24,'square',.16], final:[988,.5,'triangle',.15],
   };
   function unlock() {
     const Audio = globalThis.AudioContext || globalThis.webkitAudioContext;
@@ -34,12 +36,24 @@ function createMotor() {
         harmonic.gain.value = .18;
         bass.connect(filter); reed.connect(harmonic); harmonic.connect(filter);
         bass.start(); reed.start();
+        // Rushing air for Sky Lane flight: looped noise through a sweeping band-pass.
+        const noise = context.createBuffer(1, context.sampleRate * 2, context.sampleRate);
+        const data = noise.getChannelData(0);
+        for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+        const source = context.createBufferSource();
+        source.buffer = noise; source.loop = true;
+        windFilter = context.createBiquadFilter();
+        windFilter.type = 'bandpass'; windFilter.Q.value = .7; windFilter.frequency.value = 600;
+        wind = context.createGain(); wind.gain.value = 0;
+        source.connect(windFilter); windFilter.connect(wind); wind.connect(master);
+        source.start();
       }
       if (context.state === 'suspended') context.resume().catch(()=>{});
     } catch { /* Browser audio may be unavailable on a remote desktop. */ }
   }
   function pause() {
     if (engine) engine.gain.setTargetAtTime(0,context.currentTime,.025);
+    if (wind) wind.gain.setTargetAtTime(0,context.currentTime,.025);
     audioClock = 0;
   }
   function mute(value) {
@@ -52,23 +66,32 @@ function createMotor() {
     if (audioClock > 0) return;
     audioClock = .045;
     const speed=clamp(actor.kart.speed,0,65), tier=actor.boost.tier;
+    const flying=!!actor.kart.flying, skyTier=flying?(actor.boost.skyTier||0):0;
     const gear=Math.min(4,Math.floor(speed/9));
-    const rpm=revving ? 44+actor.boost.rev*65 : 44+gear*6+(speed-gear*9)*2.6+tier*5;
+    // In flight the motor climbs with each chain tier on top of top gear.
+    const rpm=revving ? 44+actor.boost.rev*65 : 44+gear*6+(speed-gear*9)*2.6+tier*5+(flying?26+skyTier*11:0);
     const now=context.currentTime;
     bass.frequency.setTargetAtTime(rpm,now,.065);
     reed.frequency.setTargetAtTime(rpm*2.013,now,.07);
-    filter.frequency.setTargetAtTime(185+speed*9+tier*95,now,.08);
-    engine.gain.setTargetAtTime(.045+speed*.0012+tier*.005,now,.045);
+    filter.frequency.setTargetAtTime(185+speed*9+tier*95+(flying?380+skyTier*160:0),now,.08);
+    engine.gain.setTargetAtTime(.045+speed*.0012+tier*.005+(flying?.012:0),now,.045);
+    if (wind) {
+      const rush=flying?clamp((actor.kart.speed-80)/45,0,1):0;
+      wind.gain.setTargetAtTime(flying?.05+.07*rush:0,now,flying?.12:.3);
+      windFilter.frequency.setTargetAtTime(500+rush*1600,now,.15);
+    }
   }
-  function tone(name) {
+  function tone(name, scale=1) {
     if (muted || !context || context.state!=='running' || !cues[name]) return;
     const now=context.currentTime;
     if (now-(lastTone.get(name)??-1)<.055) return;
     lastTone.set(name,now);
-    const [pitch,duration,type,volume]=cues[name];
+    const [base,duration,type,volume]=cues[name];
+    const pitch=base*scale;
     const osc=context.createOscillator(), env=context.createGain();
     osc.type=type; osc.frequency.setValueAtTime(pitch,now);
-    if(name==='boost') osc.frequency.exponentialRampToValueAtTime(pitch*1.65,now+duration);
+    if(name==='boost'||name==='launch'||name==='tier'||name==='mega') osc.frequency.exponentialRampToValueAtTime(pitch*1.65,now+duration);
+    if(name==='crash') osc.frequency.exponentialRampToValueAtTime(32,now+duration);
     if(name==='bump') osc.frequency.exponentialRampToValueAtTime(40,now+duration);
     env.gain.setValueAtTime(.0001,now);
     env.gain.exponentialRampToValueAtTime(volume,now+.009);
@@ -111,6 +134,7 @@ export function createRaceFX(scene,track) {
   const colors={
     smoke:new THREE.Color('#cad1bd'), gravel:new THREE.Color('#c7ae85'),
     spark:new THREE.Color('#ffbf52'), super:new THREE.Color('#83f3ed'),
+    contrail:new THREE.Color('#e9fdff'), gold:new THREE.Color('#ffe08a'),
   };
   let markCursor=0,particleCursor=0,clock=0,states=new WeakMap();
   function reset() {
@@ -147,6 +171,25 @@ export function createRaceFX(scene,track) {
     if(!st) {
       st={timer:0,trail:false,left:new THREE.Vector3(),right:new THREE.Vector3(),side:false};
       states.set(actor,st);
+    }
+    if(k.flying){
+      // Twin contrails stream off a kart in a Sky Lane, gold at tier 3.
+      st.timer-=dt;if(st.timer>0)return;
+      st.timer=.045;
+      const frame=track.sample(k.s,k.x);
+      rear.copy(frame.position).addScaledVector(frame.forward,-1.3);
+      rear.y+=k.y+.35;
+      const tint=(actor.boost.skyTier||0)>=3?colors.gold:colors.contrail;
+      for(const sign of [-1,1]){
+        left.copy(rear).addScaledVector(frame.right,sign*.85);
+        const p=particles[particleCursor++%PARTICLES];
+        p.p.copy(left);
+        p.v.copy(frame.forward).multiplyScalar(-4);
+        p.size=.12+.03*(actor.boost.skyTier||0);
+        p.duration=p.life=.55;
+        p.color.copy(tint);
+      }
+      return;
     }
     const slide=actor.car!=='saucer' && k.grounded && k.sliding && k.speed>6;
     const gravel=k.grounded && k.offroad && k.speed>7;

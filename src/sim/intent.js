@@ -14,7 +14,22 @@ export const BTN_ITEM_BACKWARD = 1 << 5;
 export const BTN_BLASTERS_HELD = 1 << 6;
 export const BTN_BLASTERS_PRESSED = 1 << 7;
 
-export const HELD_BUTTON_MASK = BTN_DRIFT_HELD | BTN_ITEM_BACKWARD | BTN_BLASTERS_HELD;
+// Bits 8-15 carry the Sky Lane pitch axis as a held value. Zero means level, so
+// frames from builds without flight decode unchanged.
+export const PITCH_SHIFT = 8;
+export const PITCH_MASK = 0xff << PITCH_SHIFT;
+
+export function quantizePitch(pitch) {
+  const p = clamp(pitch || 0, -1, 1);
+  return Math.abs(p) < 1 / 254 ? 0 : Math.round(p * 127) + 128;
+}
+
+export function dequantizePitch(q) {
+  const v = q & 0xff;
+  return v ? clamp((v - 128) / 127, -1, 1) : 0;
+}
+
+export const HELD_BUTTON_MASK = BTN_DRIFT_HELD | BTN_ITEM_BACKWARD | BTN_BLASTERS_HELD | PITCH_MASK;
 export const EDGE_BUTTON_MASK =
   BTN_DRIFT_PRESSED | BTN_DRIFT_RELEASED | BTN_DRIFT_BOOST_PRESSED | BTN_ITEM_PRESSED | BTN_BLASTERS_PRESSED;
 
@@ -47,6 +62,7 @@ export function packButtons(controls = {}) {
   if (itemBack) mask |= BTN_ITEM_BACKWARD;
   if (controls.blasters) mask |= BTN_BLASTERS_HELD;
   if (controls.blastersPressed) mask |= BTN_BLASTERS_PRESSED;
+  mask |= quantizePitch(controls.pitch) << PITCH_SHIFT;
   return mask;
 }
 
@@ -75,6 +91,7 @@ export function intentFrameToControls(frame, out = {}) {
     out.itemBackward = false;
     out.blasters = false;
     out.blastersPressed = false;
+    out.pitch = 0;
     return out;
   }
   const b = frame.buttons >>> 0;
@@ -90,6 +107,7 @@ export function intentFrameToControls(frame, out = {}) {
   out.itemBackward = Boolean(b & BTN_ITEM_BACKWARD);
   out.blasters = Boolean(b & BTN_BLASTERS_HELD);
   out.blastersPressed = Boolean(b & BTN_BLASTERS_PRESSED);
+  out.pitch = dequantizePitch(b >>> PITCH_SHIFT);
   return out;
 }
 

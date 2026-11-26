@@ -65,6 +65,8 @@ for(const course of CIRCUITS){
   const session=createSession(t,game,{tone(){},reset(){}});
   for(const [sector,from,to,side] of course.drops){
     const sec=t.sections[sector],s=sec.start+(sec.end-sec.start)*(from+to)/2;
+    // A main Sky Lane replaces this stretch of road, so its drop no longer exists.
+    if(t.sky.inMainLane(s,20)){assert(!t.dropAt(s,side));continue;}
     const gap=t.dropAt(s,side);
     assert(gap && !t.dropAt(s,-side) && !t.dropAt(gap.start-1,side) && !t.dropAt(gap.end+1,side));
     assert.equal(t.edgeAt(s,side),Infinity);

@@ -1,10 +1,11 @@
 import { ITEMS, startPickup, settlePickup } from './items.js';
 import { racerSetup } from './roster.js';
-import { createKart, stepKart, launchFromRamp, CRUISE_SPEED } from './driving.js';
+import { createKart, stepKart, launchFromRamp, CRUISE_SPEED, settleInSky } from './driving.js';
 import { createBoost, stepBoost, grantBoost, updateRevs, gradeLaunch } from './boost.js';
 import { acceptTrial, noteTrial, pageRecords } from './hub/records.js';
 import { atan2, mod } from './sim/math.js';
 import { createTrackSample } from './sim/track-core.js';
+import { grabSkyBox } from './sim/sky.js';
 import { chassisContactMetrics, crossedTrackRamp, overlapsTrackHazard } from './sim/world.js';
 
 export const DEFAULT_TEST = { sector: 0, speed: 'standstill', rivals: 'solo', item: 0, lap: 1, hazards: true };
@@ -87,6 +88,9 @@ export function createSession(track, play, fx, records = pageRecords, onVisualCu
       (offsets[settings.rivals] ?? []).forEach(([d, x], i) => state.actors.push(make(i + 1, base + d, x, speed)));
     }
     if (test) {
+      // A sector inside a main Sky Lane starts in flight: its road is gone.
+      const road = { sky: track.sky, length: track.length, heightAt };
+      for (const a of state.actors) settleInSky(a.kart, road);
       state.player.inventoryCharges = ITEMS.map((item) => item.charges ?? 1);
       select(settings.item);
       for (const a of state.actors) {
@@ -161,6 +165,10 @@ export function createSession(track, play, fx, records = pageRecords, onVisualCu
         grantBoost(a.boost, p.tier === 2 ? 2.2 : 1.35, p.tier);
       }
     }
+    // Floating item boxes in a Sky Lane draw from the same roulette.
+    if (k.flying && state.mode !== 'trial' && a.finish == null && !a.roulette && (a.held == null || a.unlimited)) {
+      if (grabSkyBox(track.sky, track.length, k) && !a.unlimited) startPickup(a, state.actors, state.elapsed);
+    }
     if (state.mode !== 'trial' && a.finish == null && !a.roulette && (a.held == null || a.unlimited)) {
       for (const p of track.pickups) {
         if (!p.hidden && cross(p) && k.y < 2.5) {
@@ -192,6 +200,7 @@ export function createSession(track, play, fx, records = pageRecords, onVisualCu
       road.grade = rise / ((front + rear) * Math.max(0.55, 1 - k.x * road.curvature));
     }
     road.crossedRamp = crossedRamp;
+    road.sky = track.sky;
     stepKart(k, controls, road, a.boost, dt);
     if (k.fall && !wasFalling) {
       Object.assign(a.boost, createBoost());

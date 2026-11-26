@@ -1,6 +1,6 @@
 import { encodeSave, SAVE_MAX_BYTES } from '@metaverse/hub-sdk/core';
 import { createProgressStore } from '@metaverse/hub-sdk/progress';
-import { LEGACY_GHOST, RECORD_KEY } from './config.js';
+import { LEGACY_GHOST, RECORD_KEY, TRIAL_LAYOUT } from './config.js';
 
 /**
  * Time-trial records, one per circuit. Progress only advances: the faster time wins, and two
@@ -32,9 +32,11 @@ function cleanFrames(frames) {
   return frames.map((frame) => frame.slice(0, 6));
 }
 
-/** One stored record, or null. Bad frames are dropped; the time remains. */
+/** One stored record, or null. Bad frames are dropped; the time remains. A record set on an
+ * older circuit layout is null. */
 export function normalizeTrial(raw) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  if (raw.layout !== TRIAL_LAYOUT) return null;
   const time = typeof raw.time === 'number' ? raw.time : (typeof raw.t === 'number' ? raw.t / 1000 : NaN);
   const length = typeof raw.length === 'number' ? raw.length : raw.len;
   if (!Number.isFinite(time) || time <= 0 || time > MAX_TIME) return null;
@@ -43,7 +45,8 @@ export function normalizeTrial(raw) {
   const driver = cleanName(raw.driver);
   if (!car || !driver) return null;
   const frames = cleanFrames(raw.frames);
-  return frames ? { time, length, car, driver, frames } : { time, length, car, driver };
+  const layout = TRIAL_LAYOUT;
+  return frames ? { time, length, car, driver, layout, frames } : { time, length, car, driver, layout };
 }
 
 function trialsOf(raw) {
@@ -104,6 +107,7 @@ export function recordsCloudBody(value) {
       len: trial.length,
       car: trial.car,
       driver: trial.driver,
+      lay: trial.layout,
     };
   }
   return { v: 1, trials };
@@ -119,7 +123,7 @@ function cloudRows(data) {
   const rows = Object.create(null);
   for (const [id, row] of Object.entries(src)) {
     if (!row || typeof row !== 'object') continue;
-    rows[id] = { time: row.t / 1000, length: row.len, car: row.car, driver: row.driver };
+    rows[id] = { time: row.t / 1000, length: row.len, car: row.car, driver: row.driver, layout: row.lay };
   }
   return rows;
 }
@@ -232,7 +236,8 @@ export function createRecordBook(opts = {}) {
     },
     commit(trackId, result) {
       if (!TRACK_ID.test(trackId)) return null;
-      const trial = normalizeTrial(result);
+      // A run just driven is on the current layout.
+      const trial = normalizeTrial({ ...result, layout: TRIAL_LAYOUT });
       if (!trial) return this.get(trackId);
       store.update((current) => {
         const trials = Object.create(null);

@@ -21,7 +21,7 @@ import {barrageDriver,barrageAxles,barrageHalfTrack,barrageTail} from './barrage
 import {attachGeep,geepDriver} from './geep.js';
 import {geepAxles,geepScale,geepHalfTrack} from './geep-layout.js';
 import {releaseKartFade} from './kart-visibility.js';
-import {HIT_STUN_SECONDS} from './driving.js';
+import {HIT_STUN_SECONDS,TRICK_SECONDS} from './driving.js';
 import {CARS,DRIVERS} from './roster.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
@@ -273,14 +273,24 @@ export function animateKart(g,k,b,time) {
   const lift=k.y||0, hop=THREE.MathUtils.clamp((k.hopLift||0)/.57,0,1);
   const suspension=k.suspension||0, slip=k.slipAngle||0;
   const progress=k.stunRemaining>0?1-k.stunRemaining/HIT_STUN_SECONDS:0;
-  const roll=(k.hitRollSide||1)*2*Math.PI*THREE.MathUtils.smoothstep(progress,0,1);
+  // Sky Lane barrel roll: one full turn about the seat over the roll's 0.4 s.
+  const barrel=k.rollTime>0?(k.rollDir||1)*-2*Math.PI*THREE.MathUtils.smoothstep(1-k.rollTime/.4,0,1):0;
+  const roll=(k.hitRollSide||1)*2*Math.PI*THREE.MathUtils.smoothstep(progress,0,1)+barrel;
   const bounce=1.15*Math.sin(Math.PI*progress);
   // Rotate the whole assembly around the seat. Its normal origin is at the tires.
   const pivot=1.2;
   a.body.position.x=pivot*Math.sin(roll);
   a.body.position.y=lift+suspension+bounce+pivot*(1-Math.cos(roll));
-  a.body.rotation.x=hop*.12+suspension*.42;
-  a.body.rotation.z=roll-slip*hop*.36;
+  // A tumble in the air pitches the kart end over end; a ram wobbles it.
+  const tumble=k.tumble>0?k.tumble*10.5:0;
+  const wobble=k.wobble>0?Math.sin(time*38)*k.wobble*.5:0;
+  // Ramp trick: a forward flip (kind 1) or a flat spin left/right (kinds 2 and 3).
+  const trick=k.trickTime>0?THREE.MathUtils.smoothstep(1-k.trickTime/TRICK_SECONDS,0,1)*2*Math.PI:0;
+  const flip=k.trickKind===1?trick:0;
+  const spin=k.trickKind===2?trick:k.trickKind===3?-trick:0;
+  a.body.rotation.x=hop*.12+suspension*.42+tumble-flip;
+  a.body.rotation.y=spin;
+  a.body.rotation.z=roll-slip*hop*.36+wobble;
   // Scale the smaller buggy occupant’s excursion to the bucket and wheel.
   const driverMotion=a.driver.scale.x**2*(a.concept?.hover?.9:a.concept?.mount?.scale<.85?.55:1);
   a.driver.rotation.z=driverMotion*(Math.sin(time*10)*Math.min(k.speed/450,.045)-slip*.26);
@@ -300,14 +310,16 @@ export function animateKart(g,k,b,time) {
   const shadowSize=1/(1+Math.max(0,lift+bounce)*.19);
   a.shadow.scale.set((a.concept?a.concept.bounds[0]:a.car==='saucer'?saucerRadius:a.car==='ironhide'?1.77:a.car==='manta'?1.65:1.32)*shadowSize,(a.concept?Math.max(-a.concept.bounds[1],a.concept.bounds[2]):a.car==='saucer'?saucerRadius:a.car==='ironhide'?2.43:a.car==='manta'?2.60:2)*shadowSize,1);
   if(a.concept?.hover)a.body.position.y+=.035*Math.sin(time*3.8);
-  const flash=b.ignition||0, power=b.plume||0;
+  // In a Sky Lane the existing exhaust runs hot, longer with each chain tier.
+  const skyTier=k.flying?(b.skyTier||0):-1;
+  const flash=b.ignition||0, power=skyTier>=0?1.05+.28*skyTier:(b.plume||0);
   if(a.gem){
     animateLunarWake(a.moons,power,slip,time);
     a.gem.rotation.y=time*1.4;
     a.gem.position.y=.47+.018*Math.sin(time*3);
   }
   a.driver.rotation.x=driverMotion*(flash*.13-hop*.10);
-  animateExhausts(a.flames,b,time);
+  animateExhausts(a.flames,b,time,skyTier);
 }
 
 // Only release resources owned by this instance. Color/number materials are pooled.

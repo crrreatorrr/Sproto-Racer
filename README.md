@@ -49,12 +49,45 @@ Select a circuit in the paddock before choosing a mode, driver, and car. Each ma
 | Crestline Ridge | 7.93 km | Climb the Staircase switchbacks and carry speed through the sweeping descent. The paired ramps have different jump impulses. Landing lanes have brackets every 10 m for 50–120 m, and stronger ramps have a trackside 40 m board. |
 | Switchyard GP | 9.17 km | Brake into the enlarged freight and return hairpins, then switch lines through the container esses. The 75, 50, and 25 m boards mark braking distances. White arrows point past the dividers. |
 
-Item boxes start about 42 m from the line on every circuit. Each row has two or three boxes across five possible positions. The open lanes change with each row. Test Track 01 has 73 rows per lap, Crestline Ridge has 89, and Switchyard GP has 99. In Quick Race, crossing a box with an empty slot starts the item roulette. In Test Drive, you can practice taking the same pickup lines while keeping your selected unlimited item.
+## Sky Lanes
+
+Each circuit has a **main Sky Lane**, a long flight section that replaces a stretch of road. A catapult at the lip launches your kart into a Sky Stream, and you race the same kart through a corridor in the air. Speed is automatic, and it is much faster than the ground: flight starts at 1.6× ground cruise and climbs to 2.2× (about 435 km/h). The top ground boost is 1.4×.
+
+| Circuit | Main lane | Sky Gate (from lap 2) |
+| --- | --- | --- |
+| Test Track 01 | Banked Dish to the Drafting Straight, about 1.9 km | Brake Basin over the Switch Bridge, about 1.1 km, right-hand catapult |
+| Crestline Ridge | Summit Approach to the Twin Rollers, about 1.5 km | Long Descent, about 0.8 km, left-hand catapult |
+| Switchyard GP | Container Esses and Transfer Siding, about 1.3 km | Return Hairpin, about 0.6 km, right-hand catapult |
+
+Every lane ends on straight road. The corridor funnels down onto the landing deck, so the kart touches down between the rails at flight speed and eases back to ground speed over about 1.5 s.
+
+- **Boost is something you grab.** Fly into a Boost Cell for +0.35 s of boost and +1 chain. A chain of 3, 6 and 10 raises your speed tier to 1.8×, 2.0× and 2.2×. Gold Mega Cells sit in the most dangerous spots and give +1.5 s and +2 chain. With no grab for 2.5 s you drop one tier, never all the way to zero. Nothing else in the air gives boost.
+- **Obstacles** cost speed and tiers but never give boost. Clipping one costs 15% of your speed and a tier. Flying into one costs 45% and two tiers, and tumbles you. The course includes pylon forests, sweeping beams, rotating fan gates, shutters that open and close, drifting debris, and squeeze gaps. An orange frame marks each cluster about 1.2 s ahead.
+- **Laps change.** Lap 1 teaches the line. Lap 2 adds sweepers and shutters, and splits the lane into a high Cell trail and a low line with Mega Cells. Lap 3 is the storm: every obstacle type, with faster cycles.
+- **Floating item boxes** hang in rows of three in the open stretches between obstacle clusters, about one row per 300 m, with an extra row on laps 2 and 3. They draw from the same item roulette as the road. Each kart can take one from each row, and the boxes you have taken disappear only for you.
+- **The Sky Gate** is a side catapult that opens from lap 2. It flies above the road, cuts the corner, and has its own obstacles.
+- **Moves:** carve for tight turns, barrel-roll to dodge any item hit or ram a kart alongside, and draft in a rival's wake for a +15% tow, still capped at 2.2×. Pitch down onto the landing deck to keep your speed; a flat landing scrubs it to 85%. Traps dropped in the air fall away harmlessly. A tumble only drops you out of the lane if you were already skimming its floor.
+
+| | Keyboard | Gamepad |
+| --- | --- | --- |
+| Dive / climb | W / S | Left stick up / down (can be inverted in Controller setup) |
+| Carve | Hold Q | Hold Drift |
+| Barrel roll | Tap Q with A or D held | Tap Drift while steering |
+
+Rivals chase Cells, steer for a box when their item slot is empty, read the obstacles ahead, ram and dodge. Some take the Sky Gate.
+
+## Ramp tricks
+
+Hop just before a ramp lip to start a trick: a flip, or a spin toward your steering. On a long jump each fresh Drift press after a trick adds another, up to three. A clean landing pays +0.5 s per trick on top of the air boost. Landing mid-trick is sloppy: no boost, 80% speed and a wobble.
+
+`node --import ./tests/register-sdk-hook.js qa/sky-lanes.mjs` prints per-lane tuning numbers from an all-rival race. `npm test` covers flight, Cells, obstacles, combat, laps, rivals, tricks and determinism in `tests/sky-lanes.test.js`.
+
+Item boxes start about 42 m from the line on every circuit. Each row has two or three boxes across five possible positions. The open lanes change with each row. Test Track 01 has 52 rows per lap, Crestline Ridge has 74, and Switchyard GP has 85. The road under each main Sky Lane has none. In Quick Race, crossing a box with an empty slot starts the item roulette. In Test Drive, you can practice taking the same pickup lines while keeping your selected unlimited item.
 
 ## Modes
 
 - **Quick Race** runs three laps against five AI karts with item pickups.
-- **Time Trial** records the fastest completed three-lap run. On this browser the ghost is saved with it. Signed in to the hub, the time follows that account to other devices; the ghost stays on the browser that set it. A subsequent run shows the saved ghost when this browser still has it.
+- **Time Trial** records the fastest completed three-lap run. On this browser the ghost is saved with it. Signed in to the hub, the time follows that account to other devices; the ghost stays on the browser that set it. A subsequent run shows the saved ghost when this browser still has it. Records carry the circuit layout they were set on. Sky Lanes started layout 2, so earlier times and ghosts are no longer shown and the first run on the new layout sets the record. To reset them again after a layout change, bump `TRIAL_LAYOUT` in `src/hub/config.js`.
 - **Test Drive** offers all twenty items with unlimited supply. Select a section, entry speed, rivals, and lap state before driving. Test tools can reload those conditions during play. Choose a full pack to try area attacks or one rival ahead to practice aimed shots.
 
 ## Garage

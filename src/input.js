@@ -64,7 +64,9 @@ function settingsFromDisk() {
   return {
     bindings,scheme,
     deadzone: Number.isFinite(saved.deadzone) ? Math.max(0, Math.min(0.4, saved.deadzone)) : 0.14,
-    invert: saved.invert === true
+    invert: saved.invert === true,
+    invertPitch: saved.invertPitch === true,
+    reduceSpeedLines: saved.reduceSpeedLines === true
   };
 }
 
@@ -142,6 +144,8 @@ export function createInput() {
       settings.bindings = {...PRESETS[settings.scheme]};
       settings.deadzone = 0.14;
       settings.invert = false;
+      settings.invertPitch = false;
+      settings.reduceSpeedLines = false;
       api.save();
     },
     block(value) {
@@ -183,8 +187,14 @@ export function createInput() {
       const steer=fromKeys||(settings.invert?-raw:raw);
       const driftReleased=released.drift||keyDriftReleased;
       keyDriftReleased=false;
+      // Sky Lane pitch: W / Up dives and S / Down climbs; on a pad the left stick
+      // pushes up to dive. Speed is automatic in the air, so these keys are free.
+      const keyPitch=(keyBindings.throttle.some(k=>keys.has(k))?1:0)-(keyBindings.brake.some(k=>keys.has(k))?1:0);
+      const stickY=pad?.axes?.[1]??0;
+      const padPitch=Math.abs(stickY)>settings.deadzone?-stickY*(settings.invertPitch?-1:1):0;
+      const pitch=blocked?0:(keyPitch||padPitch);
       return {
-        throttle: values.throttle, brake: values.brake, reverse:values.reverse, mapPressed:pressed.map, steer,
+        throttle: values.throttle, brake: values.brake, reverse:values.reverse, mapPressed:pressed.map, steer, pitch,
         driftHeld:!!previous.drift,driftPressed:pressed.drift,driftReleased,driftBoostPressed:pressed.driftBoost,
         distancePressed:pressed.distance,lookBack:!!previous.lookBack,
         blasters:!!previous.blasters,blastersPressed:pressed.blasters,

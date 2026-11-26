@@ -20,11 +20,13 @@ import {
   HALF_KART_WIDTH,
   HALF_KART_LENGTH,
   KART_CONTACT_HEIGHT,
+  settleInSky,
 } from '../driving.js';
 import { createBoost, stepBoost, grantBoost, updateRevs, gradeLaunch } from '../boost.js';
 import { atan2, mod } from './math.js';
 import { createRng } from './rng.js';
 import { CIRCUITS, courseById, createTrackCore, createTrackSample, gridSlot } from './track-core.js';
+import { grabSkyBox } from './sky.js';
 import { createGameplayCore } from './gameplay-core.js';
 import { intentFrameToControls } from './intent.js';
 
@@ -260,6 +262,11 @@ export function createSimWorld(options = {}) {
     }
 
     state.player = state.actors[0] || null;
+    // A Test Drive sector inside a main Sky Lane starts in flight: its road is gone.
+    if (test) {
+      const road = { sky: track.sky, length: track.length, heightAt };
+      for (let i = 0; i < state.actors.length; i++) settleInSky(state.actors[i].kart, road);
+    }
     if (test && state.player) {
       state.player.inventoryCharges = ITEMS.map((it) => it.charges ?? 1);
       state.player.held = mod(settings.item, ITEMS.length);
@@ -317,6 +324,13 @@ export function createSimWorld(options = {}) {
         grantBoost(a.boost, p.tier === 2 ? 2.2 : 1.35, p.tier);
       }
     }
+    // Floating item boxes in a Sky Lane draw from the same seeded roulette.
+    if (k.flying && state.mode !== 'trial' && a.finish == null && !a.roulette && (a.held == null || a.unlimited)) {
+      if (grabSkyBox(track.sky, track.length, k)) {
+        if (!a.unlimited) startPickup(a, state.actors, state.elapsed, rng.nextFloat);
+        state.events.push({ type: 'skyBox', seat: a.id });
+      }
+    }
     if (state.mode !== 'trial' && a.finish == null && !a.roulette && (a.held == null || a.unlimited)) {
       const pickups = track.pickups || [];
       for (let i = 0; i < pickups.length; i++) {
@@ -350,6 +364,7 @@ export function createSimWorld(options = {}) {
       road.grade = rise / ((front + rear) * Math.max(0.55, 1 - k.x * road.curvature));
     }
     road.crossedRamp = crossedRamp;
+    road.sky = track.sky;
     stepKart(k, controls, road, a.boost, dt);
     if (k.fall && !wasFalling) {
       Object.assign(a.boost, createBoost());

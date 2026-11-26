@@ -27,6 +27,56 @@ function mesh(group,g,c,p,rotation,style){
 function box(group,c,p,s,r=.035,angle=0,style){
   return mesh(group,new RoundedBoxGeometry(...s,r>=.095?2:1,Math.min(r,Math.min(...s)*.45)),c,p,angle?[angle,0,0]:null,style);
 }
+// A small ring-lathe utility for sculpted, tapering chassis and hollow braced beds.
+// Closed horizontal profiles keep deliberate bevel breaks but smooth the rounded corners.
+function rectRing(x,y,z,hw,hd,rx=.10,rz=rx) {
+  const out=[];
+  for(const [sx,sz,start] of [[1,1,0],[-1,1,Math.PI*.5],[-1,-1,Math.PI],[1,-1,Math.PI*1.5]]){
+    for(let n=0;n<3;n++){
+      const a=start+n*Math.PI*.25;
+      out.push([x+sx*(hw-rx)+rx*Math.cos(a),y,z+sz*(hd-rz)+rz*Math.sin(a)]);
+    }
+  }
+  return out;
+}
+function profileSkin(g,rows,c,style='paint',closeBottom=false,closeTop=false){
+  const rings=rows.map(row=>rectRing(...row)),n=rings[0].length,vertices=rings.flat(2),uv=[],idx=[];
+  for(let i=0;i<rows.length;i++)for(let j=0;j<n;j++)uv.push(j/n,i/(rows.length-1));
+  for(let i=0;i<rows.length-1;i++)for(let j=0;j<n;j++){
+    const a=i*n+j,b=i*n+(j+1)%n;
+    idx.push(a,a+n,b,b,a+n,b+n);
+  }
+  for(const [enable,layer,invert] of [[closeBottom,0,false],[closeTop,rows.length-1,true]]){
+    if(!enable)continue;
+    const k=layer*n;
+    for(let i=1;i<n-1;i++){
+      if(invert)idx.push(k,k+i+1,k+i);else idx.push(k,k+i,k+i+1);
+    }
+  }
+  const geo=new T.BufferGeometry();
+  geo.setAttribute('position',new T.Float32BufferAttribute(vertices,3));
+  geo.setAttribute('uv',new T.Float32BufferAttribute(uv,2));
+  geo.setIndex(idx);geo.computeVertexNormals();
+  return mesh(g,geo,c,[0,0,0],null,style);
+}
+function sculptedHood(g,{x=0,y,z,w,h,d,c,lip=c}){
+  profileSkin(g,[
+    [x,y-h*.48,z+.030,w*.46,d*.48,.090,.085],
+    [x,y-h*.32,z-.011,w*.501,d*.505,.138,.122],
+    [x,y+h*.21,z+.011,w*.485,d*.473,.132,.092],
+    [x,y+h*.46,z+.039,w*.426,d*.376,.102,.071],
+    [x,y+h*.50,z+.055,w*.387,d*.336,.091,.067],
+  ],c,'paint',true,true);
+  if(lip!==c)box(g,lip,[x,y+h*.491,z+.014],[w*.70,.022,d*.541],.011);
+}
+function lens(g,x,y,z,w,h,rgb=0xffe19d) {
+  // Slight outward glass bulge over a metallic bezel rather than a flat glowing block.
+  const dome=new T.SphereGeometry(1,14,6,0,Math.PI*2,0,Math.PI*.34);
+  dome.rotateX(-Math.PI*.5);
+  dome.scale(w*.51,h*.51,.065);
+  mesh(g,dome,rgb,[x,y,z+.035],null,'light');
+  mesh(g,new T.BoxGeometry(w*.29,.023,.016),0xfff4c2,[x-w*.11,y+h*.14,z-.029],null,"light");
+}
 function cylinder(group,c,p,a,b,h,angle=0,style,segments=20){
   return mesh(group,new T.CylinderGeometry(a,b,h,segments),c,p,angle?[angle,0,0]:null,style);
 }
@@ -53,7 +103,7 @@ function frontLights(g,z,y,x=.58,w=.26,h=.23){
     box(g,C.ink,[s*x,y,z],[w+.082,h+.079,.107],.047);
     box(g,0x6c6862,[s*x,y,z-.051],[w+.038,h+.036,.034],.043,0,'steel');
     box(g,0xf5bf65,[s*x,y,z-.068],[w,h,.04],.043);
-    box(g,C.light,[s*x,y+.008,z-.091],[w*.81,h*.73,.015],.028,0,'light');
+    lens(g,s*x,y+.008,z-.073,w*.86,h*.79,C.light);
   }
 }
 function rearLights(g,z,y,x,w=.26){
@@ -126,17 +176,25 @@ function windowPane(g,p,w,h,rotation){
   }
   return pane;
 }
-function cab(g,{x=0,z=-.76,y=1.0,w=1.78,d=1.20,roof=2.54,c=C.yellow,trim=c,open=false,panel=true}){
+function cab(g,{x=0,z=-.76,y=1.0,w=1.78,d=1.20,roof=2.54,c=C.yellow,trim=c,open=false,panel=true,rake=.22,dome=true}){
   const front=z-d*.5,back=z+d*.5,wend=x-w*.5,wplus=x+w*.5;
   box(g,c,[x,y-.12,z],[w,.27,d],.10);
-  box(g,trim,[x,roof,z+.045],[w+.075,.16,d+.045],.082);
+  if(dome)profileSkin(g,[
+    [x,roof-.074,z+.045,w*.448,d*.433,.12,.107],
+    [x,roof-.043,z+.047,w*.508,d*.495,.135,.115],
+    [x,roof+.021,z+.056,w*.507,d*.491,.133,.113],
+    [x,roof+.072,z+.074,w*.456,d*.464,.109,.089],
+    [x,roof+.088,z+.096,w*.392,d*.405,.096,.076],
+  ],trim,'paint',true,true);
+  else box(g,trim,[x,roof,z+.045],[w+.075,.16,d+.045],.082);
   // Painted visor lip and nested roof insert read as two pieces, but are one rigid assembly.
-  box(g,trim,[x,roof+.088,z+.07],[w*.87,.060,d*.86],.028);
+  box(g,trim,[x,roof-.035,front+rake-.065],[w*.865,.041,.132],.019);
+  box(g,0x384044,[x,roof-.062,front+rake-.105],[w*.74,.027,.030],.012,0,'matte');
   for(const v of [wend+.09,wplus-.09]){
     const s=Math.sign(v-x);
     box(g,c,[v+s*.041,y+.170,z+.085],[.040,.25,d*.72],.026);
     box(g,0x4f4b48,[v+s*.070,y+.328,z+.29],[.040,.051,.161],.017,0,'steel');
-    beam(g,c,[v,y+.10,front],[v,roof,front+.14],.14,.13,.042);
+    beam(g,c,[v,y+.10,front],[v,roof,front+rake],.154,.148,.053);
     beam(g,c,[v,y+.08,back],[v,roof,back+.05],.12,.13,.036);
     box(g,trim,[v,y+.12,z+.01],[.14,.19,d],.049);
     if(!open){
@@ -147,10 +205,10 @@ function cab(g,{x=0,z=-.76,y=1.0,w=1.78,d=1.20,roof=2.54,c=C.yellow,trim=c,open=
     }
   }
   box(g,c,[x,y+.23,front+.017],[w,.19,.12],.057);
-  box(g,C.ink,[x,roof-.14,front+.10],[w-.12,.075,.10],.035);
+  box(g,C.ink,[x,roof-.14,front+rake-.024],[w-.12,.075,.10],.035);
   if(!open){
-    const angle=Math.atan2(.14,roof-y-.23);
-    windowPane(g,[x,(roof+y+.23)*.5,front+.076],w-.23,roof-y-.33,[angle,Math.PI,0]);
+    const angle=Math.atan2(rake,roof-y-.23);
+    windowPane(g,[x,(roof+y+.23)*.5,front+rake*.5-.013],w-.23,roof-y-.33,[angle,Math.PI,0]);
     box(g,0x27383e,[x,y+.285,front+.083],[w-.20,.058,.16],.025);
     for(const s of [-1,1])beam(g,C.ink,[x+s*.24,y+.295,front+.033],[x+s*.43,y+.49,front+.051],.027,.027,.012);
   }
@@ -170,7 +228,7 @@ function dump(g){
   const y=C.yellow, black=C.ink;
   frame(g,0,.61,0,1.48,3.52);
   cab(g,{z:-.95,y:1.00,w:1.83,d:1.05,roof:2.49,c:y});
-  box(g,y,[0,.97,-1.58],[1.81,.61,.51],.10);
+  sculptedHood(g,{y:.968,z:-1.572,w:1.85,h:.645,d:.493,c:y,lip:0xffd143});
   box(g,black,[0,.61,-1.91],[1.97,.28,.28],.08);
   for(let k=-2;k<=2;k++){
     const stripe=box(g,y,[k*.36,.61,-2.060],[.142,.233,.019],.008);
@@ -186,19 +244,29 @@ function dump(g){
   rearGuard(g,{z:1.694,y:.685,w:1.78});
   frontLights(g,-1.862,1.03,.67,.25,.25);
   for(const x of [-.44,0,.44])box(g,C.amber,[x,2.541,-1.435],[.19,.09,.18],.034,0,'light');
-  // Deep open bed: floor, flared sides and individually visible reinforcing ribs.
+  // Deep flared bed with an actual continuous interior and a boxed rim.
   box(g,0x4a4440,[0,1.29,.71],[1.38,.274,1.64],.082,0,'steel');
   for(const side of I)beam(g,0xa18d6c,[side*.46,.725,.21],[side*.46,1.178,.79],.160,.194,.055,'steel');
-  box(g,0xd69000,[0,1.57,.73],[1.75,.15,1.79],.05);
+  profileSkin(g,[
+    [0,1.504,.745,.741,.764,.074,.071],
+    [0,1.581,.723,.807,.832,.093,.091],
+    [0,1.705,.715,.871,.899,.104,.108],
+    [0,2.294,.711,1.022,.995,.139,.117],
+    [0,2.407,.711,1.094,1.054,.132,.113],
+    [0,2.497,.711,1.081,1.034,.112,.108],
+    [0,2.496,.705,.937,.910,.094,.090],
+    [0,2.396,.708,.930,.908,.087,.087],
+    [0,1.699,.724,.740,.713,.078,.073],
+    [0,1.621,.728,.682,.678,.066,.061],
+  ],y,'paint',true,true);
+  box(g,0xcc8909,[0,1.618,.727],[1.345,.021,1.35],.011);
   for(const side of I){
-    const wall=box(g,y,[side*.93,1.96,.72],[.095,.90,1.90],.035);
-    wall.rotation.z=-side*.14;
-    box(g,0xffcb26,[side*1.01,2.41,.72],[.20,.15,2.08],.062);
-    for(let k=0;k<4;k++)beam(g,0xe49f0c,[side*.981,1.64,.02+k*.44],[side*1.05,2.33,.08+k*.44],.078,.115,.016);
-  }
-  for(const z of [-.18,1.68]){
-    const wall=box(g,y,[0,1.98,z],[1.9,.91,.13],.041);wall.rotation.x=z<0?-.20:.27;
-    box(g,0xffd140,[0,2.424,z],[2.15,.17,.20],.061);
+    for(let k=0;k<4;k++){
+      const z=.044+k*.434;
+      beam(g,0xf2ab0b,[side*.859,1.686,z+.075],[side*.996,2.302,z-.050],.085,.141,.022);
+      box(g,0xfbc439,[side*.995,2.251,z-.039],[.071,.083,.156],.030);
+    }
+    beam(g,0xe09805,[side*.850,1.704,-.083],[side*.863,1.704,1.425],.098,.091,.029);
   }
   // Upper gate seam and its hinges stay clear of the pipe apertures below the bed.
   box(g,0xc48412,[0,1.712,1.704],[1.68,.107,.094],.044);
@@ -213,9 +281,22 @@ function dump(g){
 function loader(g){
   const red=C.red,y=C.yellow;
   frame(g,0,.57,.17,1.54,3.23);
-  box(g,red,[0,.88,.37],[1.65,.55,2.72],.13);
-  box(g,red,[0,1.40,1.18],[1.66,.85,.99],.17);
-  box(g,0xd4462d,[0,1.838,1.18],[1.23,.123,.727],.051);
+  profileSkin(g,[
+    [0,.635,.372,.749,1.199,.115,.104],
+    [0,.706,.364,.819,1.322,.144,.126],
+    [0,.972,.382,.817,1.345,.157,.111],
+    [0,1.126,.454,.723,1.214,.150,.127],
+    [0,1.160,.492,.659,1.120,.137,.126],
+  ],red,'paint',true,true);
+  profileSkin(g,[
+    [0,1.007,1.193,.704,.445,.126,.088],
+    [0,1.115,1.181,.825,.482,.126,.110],
+    [0,1.469,1.188,.831,.490,.128,.113],
+    [0,1.674,1.178,.789,.460,.143,.118],
+    [0,1.818,1.160,.701,.399,.148,.109],
+    [0,1.866,1.155,.597,.343,.126,.100],
+  ],red,'paint',true,true);
+  box(g,0xe34d35,[0,1.864,1.175],[1.101,.040,.630],.018);
   box(g,0x363134,[0,1.471,1.675],[1.202,.39,.072],.043,0,'matte');
   for(let k=0;k<4;k++)box(g,0x756d67,[0,1.334+k*.084,1.711],[1.016,.027,.026],.010,0,'steel');
   rearGuard(g,{z:1.676,y:.927,w:1.72,c:0x70504c,a:.41});
@@ -236,7 +317,12 @@ function loader(g){
     box(g,0x393237,[s*.83,1.03,.31],[.19,.094,.38],.031,0,'matte');
     beam(g,0xd34c32,[s*.68,.92,-.36],[s*.88,1.16,-.91],.104,.089,.043);
   }
-  box(g,red,[0,2.62,.19],[1.79,.17,1.30],.087);
+  profileSkin(g,[
+    [0,2.552,.198,.786,.569,.090,.081],
+    [0,2.588,.192,.895,.638,.134,.115],
+    [0,2.648,.202,.867,.615,.128,.107],
+    [0,2.707,.224,.754,.529,.112,.096],
+  ],red,'paint',true,true);
   beacon(g,0,2.74,.22);
   frontLights(g,-.487,2.60,.48,.26,.16);
   frontLights(g,-.91,1.03,.83,.22,.15);
@@ -278,8 +364,13 @@ function mixer(g){
   const b=C.blue, c=C.cream;
   frame(g,0,.55,0,1.48,3.72,b);
   cab(g,{z:-.99,y:.98,w:1.91,d:1.12,roof:2.48,c,trim:c});
-  box(g,c,[0,.96,-1.64],[1.89,.59,.57],.095);
-  box(g,b,[0,.62,-1.972],[1.99,.27,.26],.08);
+  sculptedHood(g,{y:.952,z:-1.618,w:1.875,h:.617,d:.553,c,lip:0xfff1dd});
+  profileSkin(g,[
+    [0,.476,-1.952,.867,.105,.101,.038],
+    [0,.546,-1.972,.993,.129,.130,.055],
+    [0,.689,-1.967,.997,.132,.137,.056],
+    [0,.753,-1.921,.930,.125,.126,.056],
+  ],b,'paint',true,true);
   grille(g,-1.947,1.030,.70,.37);
   frontLights(g,-1.946,1.028,.66,.23,.24);
   for(const x of [-.42,0,.42])box(g,C.amber,[x,2.528,-1.464],[.18,.080,.16],.037,0,'light');
@@ -332,8 +423,8 @@ function crane(g){
   const p=C.crane,y=C.yellow;
   frame(g,0,.54,.04,1.62,3.86,p);
   box(g,p,[0,.82,.09],[1.97,.43,3.59],.10);
-  cab(g,{z:-1.03,y:.91,w:1.78,d:1.06,roof:2.34,c:p,trim:0xb95284,open:true,panel:true});
-  box(g,p,[0,.87,-1.60],[1.94,.48,.48],.075);
+  cab(g,{z:-1.03,y:.91,w:1.78,d:1.06,roof:2.34,c:p,trim:0xb95284,open:true,panel:true,rake:.23});
+  sculptedHood(g,{y:.873,z:-1.599,w:1.93,h:.48,d:.47,c:p,lip:0xba4c7e});
   box(g,C.bright,[0,.63,-1.94],[2.02,.22,.32],.067,0,'steel');
   grille(g,-1.854,.859,.75,.23,3);
   frontLights(g,-1.862,.923,.70,.28,.23);
@@ -355,7 +446,14 @@ function crane(g){
   }
   box(g,p,[0,1.58,1.25],[.78,.61,.76],.10);
   for(const s of I)sidePin(g,s*.42,1.90,1.26,.153);
-  box(g,y,[0,2.55,.06],[.65,.37,3.51],.091,.025);
+  // Closed trapezoid boom shell, rigid in the stowed position.
+  profileSkin(g,[
+    [0,2.369,.050,.230,1.597,.068,.071],
+    [0,2.419,.059,.323,1.733,.086,.090],
+    [0,2.646,.063,.333,1.751,.085,.100],
+    [0,2.719,.071,.280,1.713,.073,.098],
+    [0,2.746,.073,.243,1.658,.064,.076],
+  ],y,'paint',true,true);
   box(g,0xfac93e,[0,2.57,-.77],[.47,.260,2.68],.055,.023);
   for(const z of [-1.48,-.89,-.30,.29,.88]){
     box(g,0xffd160,[0,2.751,z],[.58,.025,.050],.009);
@@ -370,6 +468,43 @@ function crane(g){
   }
   seat(g,0,1.00,-.87,.68);
 }
+function diggerCup(g,x){
+  // Cast back and scoop liner are separate curved surfaces. The cheeks close their real thickness.
+  const profile=[[1.065,-2.028],[1.037,-1.936],[1.044,-1.797],[1.090,-1.708],
+    [1.181,-1.660],[1.282,-1.652],[1.374,-1.679]];
+  for(const outer of [false,true]){
+    const vertices=[],uv=[],indices=[];
+    for(const [i,[y,z]] of profile.entries()){
+      const width=outer?.256:.239,dz=outer?.018:0,dy=outer?-.032:0;
+      vertices.push(x-width,y+dy,z+dz,x+width,y+dy,z+dz);
+      uv.push(0,i/6,1,i/6);
+      if(i){
+        const j=(i-1)*2;
+        if(outer)indices.push(j,j+1,j+2,j+1,j+3,j+2);
+        else indices.push(j,j+2,j+1,j+1,j+2,j+3);
+      }
+    }
+    const geo=new T.BufferGeometry();
+    geo.setAttribute('position',new T.Float32BufferAttribute(vertices,3));
+    geo.setAttribute('uv',new T.Float32BufferAttribute(uv,2));
+    geo.setIndex(indices);geo.computeVertexNormals();
+    mesh(g,geo,outer?0x45464a:0x646268,[0,0,0],null,'steel');
+  }
+  const cheek=new T.Shape();
+  cheek.moveTo(-2.051,1.040);cheek.lineTo(-1.994,1.184);
+  cheek.quadraticCurveTo(-1.923,1.337,-1.699,1.407);
+  cheek.quadraticCurveTo(-1.589,1.257,-1.641,1.128);
+  cheek.quadraticCurveTo(-1.749,.974,-1.961,1.010);
+  cheek.lineTo(-2.051,1.040);cheek.closePath();
+  for(const side of I){
+    const geo=new T.ExtrudeGeometry(cheek,{depth:.056,steps:1,curveSegments:6,
+      bevelEnabled:true,bevelSegments:2,bevelSize:.014,bevelThickness:.013});
+    mesh(g,geo,0x53535a,[x+side*.259+.027,0,0],[0,-Math.PI/2,0],'steel');
+    sidePin(g,x+side*.295,1.265,-1.751,.063,0xaaa198);
+  }
+  box(g,0x636167,[x,1.064,-2.013],[.528,.063,.084],.026,-.18,'steel');
+  for(const i of [-1,0,1])box(g,0x88847e,[x+i*.150,1.067,-2.068],[.094,.065,.111],.023,-.21,'steel');
+}
 function excavator(g){
   const q=C.mint;
   frame(g,0,.56,.12,1.50,3.16);
@@ -378,8 +513,15 @@ function excavator(g){
   box(g,0x72d9af,[0,1.902,1.183],[1.46,.096,.684],.043);
   rearGuard(g,{z:1.567,y:1.135,w:1.72,c:0x3b9e7b});
   box(g,q,[0,1.13,.17],[1.91,.36,2.76],.12);
-  box(g,q,[0,1.52,.95],[1.83,.76,1.39],.18);
-  cab(g,{x:.27,z:-.46,y:1.13,w:1.52,d:1.16,roof:2.64,c:C.cream,trim:q});
+  profileSkin(g,[
+    [0,1.184,.949,.812,.618,.176,.133],
+    [0,1.289,.949,.912,.704,.188,.191],
+    [0,1.651,.963,.916,.696,.186,.199],
+    [0,1.790,.942,.858,.665,.193,.195],
+    [0,1.895,.910,.736,.564,.170,.166],
+    [0,1.927,.917,.666,.504,.152,.152],
+  ],q,'paint',true,true);
+  cab(g,{x:.27,z:-.46,y:1.13,w:1.52,d:1.16,roof:2.64,c:C.cream,trim:q,rake:.151});
   box(g,q,[0,.84,-1.40],[1.63,.35,.43],.08);
   frontLights(g,-1.635,.87,.52,.28,.18);
   frontLights(g,-.99,2.65,.34,.23,.14);
@@ -403,16 +545,26 @@ function excavator(g){
   tube(g,0x324138,[x+.145,1.43,.21],[x+.13,2.55,-.418],.028,'rubber');
   tube(g,0x324138,[x+.13,2.55,-.418],[x+.116,2.658,-.70],.028,'rubber');
   tube(g,0x324138,[x+.116,2.658,-.70],[x+.086,1.43,-1.68],.028,'rubber');
-  for(const sign of I)box(g,0x6d6c63,[x+sign*.238,1.184,-1.8],[.045,.177,.37],.032,-.40,'steel');
-  box(g,0x454044,[x,1.18,-1.80],[.47,.26,.48],.09,-.40);
-  for(let k=-1;k<=1;k++)box(g,C.metal,[x+k*.14,1.08,-2.02],[.095,.10,.17],.027,-.37,'steel');
+  diggerCup(g,x);
   seat(g,.27,1.22,-.28,.66);
 }
 function forklift(g){
   const b=C.cobalt;
   frame(g,0,.55,.12,1.45,2.82,b);
-  box(g,b,[0,.83,.12],[1.66,.44,2.52],.10);
-  box(g,C.lime,[0,1.23,1.145],[1.65,.86,.73],.17);
+  profileSkin(g,[
+    [0,.61,.124,.732,1.172,.129,.123],
+    [0,.706,.128,.823,1.254,.115,.136],
+    [0,.966,.118,.829,1.185,.135,.141],
+    [0,1.038,.127,.759,1.113,.123,.128],
+  ],b,'paint',true,true);
+  profileSkin(g,[
+    [0,.830,1.129,.730,.338,.160,.084],
+    [0,.937,1.141,.823,.359,.150,.090],
+    [0,1.303,1.144,.827,.364,.163,.104],
+    [0,1.530,1.138,.774,.363,.167,.120],
+    [0,1.636,1.106,.657,.329,.134,.103],
+    [0,1.672,1.088,.589,.311,.120,.100],
+  ],C.lime,'paint',true,true);
   box(g,0xc7d94c,[0,1.664,1.153],[1.210,.076,.498],.031);
   box(g,0x3a3b3d,[0,1.240,1.514],[1.122,.284,.055],.054,0,'matte');
   for(let k=0;k<3;k++)box(g,0x6b6b64,[0,1.166+k*.062,1.525],[.944,.022,.029],.012,0,'steel');
@@ -424,7 +576,12 @@ function forklift(g){
   }
   box(g,C.ink,[0,2.49,-.29],[1.51,.13,.14],.059);
   box(g,C.ink,[0,2.49,.91],[1.51,.13,.14],.059);
-  for(let k=-2;k<=2;k++)box(g,C.ink,[k*.30,2.49,.31],[.075,.11,1.29],.033);
+  for(const side of I){
+    box(g,0x4e5257,[side*.754,2.509,.312],[.092,.087,1.244],.043,0,'steel');
+    box(g,0x333941,[side*.673,2.464,.289],[.082,.088,1.229],.037);
+  }
+  for(let k=-2;k<=2;k++)box(g,C.ink,[k*.30,2.527,.31],[.084,.082,1.26],.031);
+  box(g,0x505159,[0,2.518,-.356],[1.385,.044,.061],.016,0,'steel');
   frontLights(g,-.366,2.49,.40,.23,.14);
   for(const s of I){
     box(g,0x4a4d53,[s*.40,1.50,-1.15],[.18,2.02,.23],.060);

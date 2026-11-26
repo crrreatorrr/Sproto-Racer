@@ -1,3 +1,4 @@
+import {attachConceptDriver} from './concept-driver.js';
 import {attachConcept,conceptFor,styleConceptShadow} from './concept-art.js';
 import {animateExhausts,mountExhausts} from './kart-exhaust.js';
 import {attachSkipper} from './skipper.js';
@@ -224,7 +225,8 @@ export function makeKart(id=0,car=CARS[0],person=DRIVERS[0],ghost=false) {
   const mount=concept?concept.mount:cart?cartDriver:skipper?skipperDriver:saucer?saucerDriver:manta?mantaDriver:crestline?crestlineDriver:ironhide?ironhideDriver:geep?geepDriver:barrage?barrageDriver:hexshift?hexshiftDriver:{x:0,y:.80,z:.12,scale:1};
   const driver=new THREE.Group();
   driver.position.set(mount.x,mount.y,mount.z);driver.scale.setScalar(mount.scale);
-  body.add(driver);buildDriver(driver,person);
+  body.add(driver);
+  if(concept)attachConceptDriver(driver,person);else buildDriver(driver,person);
   if(concept?.controls!==false){
   const wheelY=mount.y+.33*mount.scale,wheelZ=mount.z-.55*mount.scale;
   rod(body,metal,[mount.x,wheelY-.47*mount.scale,wheelZ-.09*mount.scale],[mount.x,wheelY,wheelZ],.045*mount.scale);
@@ -249,7 +251,8 @@ export function makeKart(id=0,car=CARS[0],person=DRIVERS[0],ghost=false) {
     else piece(body,box,timingLamp,x,plateY+.02,plateZ+.072,.18,.08,.035);
   }
   for(const w of wheels)batchParts(w);
-  batchParts(driver);batchParts(body);
+  if(!concept)batchParts(driver);
+  batchParts(body);
   if(concept)attachConcept(body,wheels,concept);
   if(skipper)attachSkipper(body,wheels,shadow);
   if(cart)attachShoppingCart(body,wheels);

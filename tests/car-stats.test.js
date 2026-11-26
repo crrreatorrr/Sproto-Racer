@@ -9,6 +9,8 @@ import { createSimWorld } from '../src/sim/world.js';
 import { captureSnapshot, applySnapshot } from '../src/sim/snapshot.js';
 import { ITEMS, pickupWeights } from '../src/items.js';
 import { stateHash } from '../src/sim/hash.js';
+import { rivalDriftAim } from '../src/sim/gameplay-core.js';
+import { statRows } from '../src/garage.js';
 
 const near = (actual, expected, label) => assert.ok(Math.abs(actual - expected) < 1e-9, `${label}: ${actual} ≈ ${expected}`);
 const RIVAL_IDS = ['apex', 'needle', 'pogo', 'gecko', 'relay', 'geep', 'hexshift', 'barrage', 'ironhide', 'crestline', 'manta', 'saucer', 'shopping-cart', 'skipper'];
@@ -180,5 +182,39 @@ describe('Race meter bands', () => {
     const booster = createKart(carById('relay'));
     near(meterBands(booster, false).good, carById('relay').goodAt, 'booster good band');
     near(meterBands(booster, false).perfect, carById('relay').perfectAt, 'booster perfect band');
+  });
+});
+
+describe('Rival drift timing', () => {
+  it('a PERFECT-seeking rival lands PERFECT on every slide, whatever its car, and never runs TOO LATE', () => {
+    for (const cls of Object.keys(CAR_CLASSES)) {
+      const tuning = classTuning(cls);
+      for (const id of [2, 5, 8]) {
+        for (let slide = 0; slide < 200; slide++) {
+          const aim = rivalDriftAim(id, slide, tuning);
+          assert.ok(aim >= tuning.perfectAt - 1e-9, `${cls} #${id} slide ${slide}: ${aim} reaches PERFECT`);
+          assert.ok(aim <= 0.97, `${cls} #${id} slide ${slide}: ${aim} releases before TOO LATE`);
+        }
+      }
+    }
+  });
+
+  it('GOOD-seeking rivals aim inside their own GOOD window', () => {
+    const tuning = classTuning('booster');
+    for (const id of [1, 3, 4, 6]) {
+      for (let slide = 0; slide < 200; slide++) {
+        const aim = rivalDriftAim(id, slide, tuning);
+        assert.ok(aim < tuning.perfectAt + 0.06 && aim > tuning.goodAt - 0.06, `#${id} slide ${slide}: ${aim}`);
+      }
+    }
+  });
+});
+
+describe('Garage stat rows', () => {
+  it('each bar is announced with its value to screen readers', () => {
+    const html = statRows(carById('manta'));
+    assert.match(html, /<i role="img" aria-label="Speed 6 of 10" style="--bars:6"><\/i>/);
+    assert.match(html, /<i role="img" aria-label="Luck 6 of 10" style="--bars:6"><\/i>/);
+    assert.doesNotMatch(html, /<span[^>]*aria-label/, 'no label on the display:contents row');
   });
 });

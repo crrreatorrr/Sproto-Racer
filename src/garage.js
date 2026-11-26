@@ -7,8 +7,9 @@ import {relicSummary} from './hub/relics.js';
 const key='sproto.racing.garage.v1';
 const descriptions=['Striped race cap','Rally goggles','Pointed ears and scarf','Horned helmet'];
 // Five stat rows of ten cells, filled to the car's bar count for its class.
-const statRows=car=>'<div class="garage-stats"><b class="garage-class">'+className(car).toUpperCase()+'</b>'+
-  statBars(car).map(({id,title,bars})=>'<span class="stat-row" data-stat="'+id+'" aria-label="'+title+' '+bars+' of 10"><small>'+title+'</small><i style="--bars:'+bars+'"></i></span>').join('')+'</div>';
+// Each bar is an image with its value as the label, so screen readers hear "Speed 6 of 10".
+export const statRows=car=>'<div class="garage-stats"><b class="garage-class">'+className(car).toUpperCase()+'</b>'+
+  statBars(car).map(({id,title,bars})=>'<span class="stat-row" data-stat="'+id+'"><small aria-hidden="true">'+title+'</small><i role="img" aria-label="'+title+' '+bars+' of 10" style="--bars:'+bars+'"></i></span>').join('')+'</div>';
 const EMPTY_RELICS={
   owned:()=>[],
   source:()=>'unknown',

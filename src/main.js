@@ -21,6 +21,7 @@ import {createRaceFX} from './race-fx.js';
 import {createSession,DEFAULT_TEST,timeText} from './session.js';
 import {createPerfMonitor} from './perf.js';
 import {lerpAngle} from './sim/math.js';
+import {laneCeiling,lapOf,nextCell} from './sim/sky.js';
 import {createTrackSample} from './sim/track-core.js';
 import {bootHub} from './hub/boot.js';
 import {chipFrom,paintAccount} from './hub/account.js';
@@ -106,7 +107,7 @@ let followKart=createChaseCamera(camera,track);
 let wideView=false,lookingBack=false;
 const lastPose=[],renderPoses=[];
 let cameraRescues=0;
-const poseFields=['s','x','y','yaw','pitch','roll','speed','travelYaw','steer','slipAngle','hopLift','suspension','stunRemaining'];
+const poseFields=['s','x','y','yaw','pitch','roll','speed','travelYaw','steer','slipAngle','hopLift','suspension','stunRemaining','rollTime','tumble','wobble','trickTime'];
 const placeSample=createTrackSample();
 function setText(id,value){if($(id).textContent!==String(value))$(id).textContent=value;}
 function selectMode(id){
@@ -360,7 +361,7 @@ function syncWorld(dt,alpha){
       for(let j=0;j<poseFields.length;j++){
         const key=poseFields[j];
         // A new hit starts upright. Interpolate only the countdown of the active roll.
-        if(key==='stunRemaining' && pose[key]>prev[key])continue;
+        if((key==='stunRemaining'||key==='rollTime'||key==='tumble'||key==='trickTime') && pose[key]>prev[key])continue;
         if(key==='yaw' || key==='travelYaw')pose[key]=lerpAngle(prev[key],pose[key],alpha);
         else pose[key]=THREE.MathUtils.lerp(prev[key],pose[key],alpha);
       }
@@ -372,7 +373,8 @@ function syncWorld(dt,alpha){
   if(ghostModel)ghostModel.visible=!!ghost;
   if(ghost)placeModel(ghostModel,ghost,{tier:0},dt);
 
-  followKart(k,k.rescues===cameraRescues?dt:0,wideView,lookingBack);
+  followKart(k,k.rescues===cameraRescues?dt:0,wideView,lookingBack,state.player.boost.skyTier||0);
+  track.setSkyCollected?.(state.player.kart.skyLane,play.skyGot(state.player));
   cameraRescues=k.rescues;
   updateRivalVisibility(camera,models,dt);
 }
@@ -399,6 +401,19 @@ function rebuildMap(){
     if(i)mapBgCtx.lineTo(x,y);else mapBgCtx.moveTo(x,y);
   }
   mapBgCtx.closePath();mapBgCtx.stroke();
+  // Sky Lanes: dashed over the route, cyan for the main lane, lime for a Sky Gate.
+  mapBgCtx.lineWidth=2;mapBgCtx.setLineDash([4,3]);
+  for(const lane of track.sky?.lanes??[]){
+    mapBgCtx.strokeStyle=lane.optional?'#ddff53':'#6ff6ff';
+    mapBgCtx.beginPath();
+    for(let s=lane.start,i=0;s<=lane.end;s+=20,i++){
+      track.mapXYAt(s,mapPtScratch);
+      const x=mapOriginX+(mapPtScratch.x-mapMinX)*mapScale,y=mapOriginZ+(mapPtScratch.z-mapMinZ)*mapScale;
+      if(i)mapBgCtx.lineTo(x,y);else mapBgCtx.moveTo(x,y);
+    }
+    mapBgCtx.stroke();
+  }
+  mapBgCtx.setLineDash([]);
 }
 rebuildMap();
 function timingHUD(){
@@ -417,6 +432,56 @@ function timingHUD(){
  $('reservefill').style.width=(100*b.reserve/Math.max(5,b.reservePeak))+'%';
  setText('reserve-time',b.reserve>0?(Math.ceil(b.reserve*10)/10).toFixed(1)+'s':'');
 }
+let finalLapAt=-1,flightStartedAt=-1,lastCue={flying:false,cells:0,tier:0,notice:'',lap:1,place:0,placeAt:-9};
+// Sounds and timed banners from what changed for the player since the last frame.
+function raceCues(){
+ const a=state.player,k=a.kart,b=a.boost;
+ if(state.elapsed<lastCue.at){
+   lastCue={flying:false,cells:0,tier:0,notice:'',lap:state.lap,place:0,placeAt:-9};
+   finalLapAt=-1;flightStartedAt=-1;
+ }
+ lastCue.at=state.elapsed;
+ if(k.flying&&!lastCue.flying){flightStartedAt=state.elapsed;fx.tone('launch');}
+ if(k.flying&&b.skyCells>lastCue.cells)fx.tone(b.feedback.startsWith('MEGA')?'mega':'cell',1+Math.min(10,b.skyChain)*.06);
+ if(k.flying&&b.skyTier>lastCue.tier)fx.tone('tier',1+b.skyTier*.18);
+ const fresh=a.noticeTime>1.2&&a.notice!==lastCue.notice;
+ if(fresh&&(a.notice==='CRASH'||a.notice==='RAMMED'))fx.tone('crash');
+ if(state.lap===3&&lastCue.lap<3&&state.mode!=='test'){finalLapAt=state.elapsed;fx.tone('final');
+   const plate=document.querySelector('.clockplate');plate.classList.remove('pulse');void plate.offsetWidth;plate.classList.add('pulse');}
+ if(state.mode==='race'&&state.countdown===0){
+   const place=session.position();
+   if(lastCue.place&&place!==lastCue.place){
+     const pop=$('position-pop');pop.textContent=(place<lastCue.place?'▲ P':'▼ P')+place;
+     pop.className='show '+(place<lastCue.place?'up':'down');lastCue.placeAt=state.elapsed;
+   }
+   lastCue.place=place;
+ }
+ if(state.elapsed-lastCue.placeAt>1.4)$('position-pop').classList.remove('show');
+ Object.assign(lastCue,{flying:k.flying,cells:k.flying?b.skyCells:0,tier:k.flying?b.skyTier:0,notice:a.notice,lap:state.lap});
+}
+function skyHUD(){
+ const a=state.player,k=a.kart,b=a.boost,panel=$('sky-hud');
+ panel.hidden=!k.flying;
+ if(!k.flying)return;
+ const lane=track.sky.lanes[k.skyLane];
+ panel.dataset.tier=String(b.skyTier);
+ setText('sky-chain','×'+b.skyChain);
+ setText('sky-tier','TIER '+b.skyTier+' · '+[1.6,1.8,2,2.2][b.skyTier].toFixed(1)+'×');
+ $('sky-timer-fill').style.width=(100*Math.max(0,b.skyTimer)/2.5)+'%';
+ const layout=lane.layouts[lapOf(k.s,track.length)-1];
+ const local=k.s-Math.floor(k.s/track.length)*track.length;
+ const cell=nextCell(layout,play.skyGot(a),local,160);
+ const arrow=$('sky-arrow');
+ arrow.toggleAttribute('data-none',!cell);
+ arrow.toggleAttribute('data-mega',!!cell?.mega);
+ if(cell){
+   const dx=cell.x-k.x,dy=cell.y-k.skyY;
+   const angle=Math.hypot(dx,dy)<1.5?0:Math.atan2(dx,dy);
+   arrow.firstElementChild.style.transform='rotate('+angle.toFixed(3)+'rad)';
+ }
+ const top=laneCeiling(lane,k.s,track.length);
+ $('sky-alt-tick').style.bottom=(100*Math.min(1,Math.max(0,(k.skyY-lane.floor)/Math.max(1,top-lane.floor))))+'%';
+}
 function hud(){
  const a=state.player,k=a.kart,b=a.boost;
  const binding=input.settings.bindings.driftBoost;
@@ -429,9 +494,13 @@ function hud(){
  setText('incoming-warning',incoming);$('incoming-warning').hidden=!incoming;
  const notice=a.noticeTime>0&&!a.notice.endsWith(' INCOMING')?a.notice:'';
  const grade=b.feedbackTime>0?b.feedback:'';
- const feedback=k.fall?['OFF TRACK']:[notice,k.stunRemaining>0?'STUNNED':grade].filter(Boolean);
+ // The first seconds of each flight teach the Sky Lane controls.
+ const skyTip=k.flying&&state.elapsed-flightStartedAt<2.6&&!notice&&!grade?(input.deviceName==='Keyboard'?'W DIVE · S CLIMB · Q CARVE · Q+A/D ROLL':'STICK PITCH · DRIFT CARVE · DRIFT+STEER ROLL'):'';
+ const feedback=k.fall?['OFF TRACK']:[notice,k.stunRemaining>0?'STUNNED':k.tumble>0?'TUMBLE':grade,skyTip].filter(Boolean);
  setText('feedback',feedback.join('\n')||(state.splitUntil>state.elapsed?state.split:''));
- setText('announce',state.countdown?Math.ceil(state.countdown):state.elapsed<.7&&state.mode!=='test'?'GO!':'');
+ const finalLap=state.mode!=='test'&&finalLapAt>=0&&state.elapsed-finalLapAt<2.4&&!state.done;
+ $('announce').classList.toggle('final-lap',finalLap);
+ setText('announce',state.countdown?Math.ceil(state.countdown):state.elapsed<.7&&state.mode!=='test'?'GO!':finalLap?'FINAL LAP':'');
  const shownItem=a.roulette?pickupPreview(a.roulette,state.elapsed):a.held;
  const itemButton=$('item-hud');
  itemButton.disabled=shownItem==null || !!a.roulette;
@@ -508,7 +577,7 @@ function frame(now){
      for(let i=0;i<edgeFlags.length;i++)pendingEdges[edgeFlags[i]]=false;
      pendingSlot=null;accumulator-=1/60;
    }
-   fx.update(dt,state.actors,true,state.countdown>0);syncWorld(dt,Math.min(1,accumulator*60));timingHUD();
+   fx.update(dt,state.actors,true,state.countdown>0);syncWorld(dt,Math.min(1,accumulator*60));timingHUD();raceCues();skyHUD();
    if(now-lastHUD>45){hud();lastHUD=now;}
    renderer.render(world,camera);
    perf.recordFrame(rawDt*1000,renderer,now);

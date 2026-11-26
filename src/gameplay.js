@@ -157,6 +157,7 @@ export function createGameplay(scene, track) {
     update: core.update,
     decide: core.decide,
     hitHazard: core.hitHazard,
+    skyGot: core.skyGot,
     syncFromCore,
   };
 }

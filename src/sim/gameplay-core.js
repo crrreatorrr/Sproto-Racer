@@ -10,11 +10,11 @@ import { lapOf, laneCeiling, sweepCells, sweepObstacles, SKY_KART_RADIUS } from 
 
 // Per-rival Sky Lane temperament, by rival id 1-5.
 const RIVAL_SKY = [
-  { skill: 0.92, bold: 0.8, aggression: 0.3 },
-  { skill: 0.74, bold: 0.3, aggression: 0.75 },
-  { skill: 0.62, bold: 0.6, aggression: 0.2 },
-  { skill: 0.84, bold: 0.45, aggression: 0.9 },
-  { skill: 0.68, bold: 0.9, aggression: 0.5 },
+  { skill: 0.92, bold: 0.8, aggression: 0.3, gate: true, tricks: 0.7 },
+  { skill: 0.74, bold: 0.3, aggression: 0.75, gate: false, tricks: 0.35 },
+  { skill: 0.62, bold: 0.6, aggression: 0.2, gate: true, tricks: 0.5 },
+  { skill: 0.84, bold: 0.45, aggression: 0.9, gate: false, tricks: 0.6 },
+  { skill: 0.68, bold: 0.9, aggression: 0.5, gate: true, tricks: 0.85 },
 ];
 import { ITEMS } from '../items.js';
 import { contactTime, shapedItemContactTime } from '../projectile-contact.js';
@@ -77,6 +77,7 @@ function defaultActorState(id = 0) {
     skyKey: -1,
     skyGot: 0,
     skyHitCool: 0,
+    rollRammed: false,
   };
 }
 
@@ -198,6 +199,8 @@ export function createGameplayCore(track, hooks = {}) {
       visible: true,
       ...extra,
     };
+    // A trap dropped from a flying kart falls away into the lane below, harmlessly.
+    if (TRAP_TYPES.has(type) && actor?.kart?.flying) object.life = Math.min(object.life, 0.35);
     objects.push(object);
     hooks.onSpawn?.(object, elapsed);
     return object;
@@ -277,7 +280,8 @@ export function createGameplayCore(track, hooks = {}) {
       v: dir * speed,
       vx: dir * sin(k.yaw) * 17,
       height: shotHeight(k, spawnS, 0.83),
-      vy: k.grounded ? null : k.vy,
+      // Shots from a flying kart travel level through the Sky Lane corridor.
+      vy: k.grounded || k.flying ? null : k.vy,
       remainingBounces: 0,
       ...extra,
     });
@@ -593,6 +597,9 @@ export function createGameplayCore(track, hooks = {}) {
       s.aiGoalX = target.x;
     }
     if (nearestFeature < 65) lane = mix(lane, s.aiGoalX, 1 - nearestFeature / 80);
+    // From lap 2 some rivals line up on the Sky Gate catapult; the rest stay low.
+    const gate = RIVAL_SKY[(id - 1) % RIVAL_SKY.length].gate ? gateAhead(k, 140) : null;
+    if (gate) lane = (gate.entry[0] + gate.entry[1]) / 2;
     const trackHazards = track.hazards || [];
     for (let i = 0; i < trackHazards.length; i++) {
       const h = trackHazards[i];
@@ -640,6 +647,23 @@ export function createGameplayCore(track, hooks = {}) {
     }
     if (s.aiDirection) {
       input.driftHeld = !(k.sliding && !b.chainClosed && b.meter >= 0.77 + (id % 3) * 0.066);
+    }
+    // Rivals hop at some ramp lips for a trick, set by id, lap and ramp.
+    const trickRate = RIVAL_SKY[(id - 1) % RIVAL_SKY.length].tricks;
+    if (k.grounded && !k.sliding && !s.aiDirection && k.speed > 18) {
+      const ramps = track.ramps || [];
+      const lap = lapOf(k.s, track.length);
+      for (let i = 0; i < ramps.length; i++) {
+        const r = ramps[i];
+        if (!(r.power > 0) || Math.abs(k.x - r.x) > r.width / 2 - 0.5) continue;
+        const d = deltaS(k.s, r.s);
+        if (d < 1.5 || d > k.speed * 0.1) continue;
+        if (((id * 31 + i * 17 + lap * 7) % 100) / 100 < trickRate) {
+          input.driftPressed = true;
+          input.driftHeld = false;
+        }
+        break;
+      }
     }
     if (s.box > 0 && k.grounded && !s.wasJumpRequested) {
       input.driftPressed = true;
@@ -734,6 +758,19 @@ export function createGameplayCore(track, hooks = {}) {
     }
   }
 
+  function gateAhead(k, range) {
+    const lanes = track.sky?.lanes;
+    if (!lanes) return null;
+    const lap = lapOf(k.s, track.length);
+    for (let i = 0; i < lanes.length; i++) {
+      const lane = lanes[i];
+      if (!lane.optional || lap < lane.openLap) continue;
+      const d = mod(lane.start - k.s, track.length);
+      if (d > 0 && d < range) return lane;
+    }
+    return null;
+  }
+
   function aiItems(a, k, s, id, input) {
     const defend = a.incoming && (a.held === 15 || (!a.shield && (a.held === 2 || a.held === 19)));
     if (a.held != null && (s.itemCooldown <= 0 || defend)) {
@@ -806,6 +843,33 @@ export function createGameplayCore(track, hooks = {}) {
         hooks.onSkyHit?.(a, h.head);
       }
     }
+    // A barrel roll that meets a kart alongside rams it: the victim wobbles, loses
+    // a tier and is shoved aside, maybe into an obstacle. One ram per roll.
+    if (k.rollTime > 0 && !s.rollRammed) {
+      for (let i = 0; i < pack.length; i++) {
+        const o = pack[i];
+        if (o === a || !o.kart.flying || o.kart.rollTime > 0) continue;
+        const ok = o.kart;
+        const dx = ok.x - k.x;
+        if (Math.abs(deltaS(k.s, ok.s)) > 2.6 || Math.abs(dx) > 2.8 || Math.abs(ok.skyY - k.skyY) > 2.2) continue;
+        if (Math.sign(dx || k.rollDir) !== k.rollDir) continue;
+        s.rollRammed = true;
+        const os = state(o);
+        if (os.shield > 0) {
+          dropShield(o);
+          notify(o, 'SHIELD BLOCK');
+          break;
+        }
+        ok.wobble = 0.6;
+        ok.skyVX = k.rollDir * 22;
+        dropSkyTier(o.boost, 1);
+        notify(o, 'RAMMED');
+        notify(a, 'RAM!');
+        hooks.onSkyHit?.(o, false);
+        break;
+      }
+    }
+    if (!k.rollTime) s.rollRammed = false;
     stepSkyChain(a.boost, k, dt);
   }
 
@@ -1253,6 +1317,13 @@ export function createGameplayCore(track, hooks = {}) {
     get track() { return track; },
     get elapsed() { return elapsed; },
     objects,
+    /** Bitmask of Boost Cells this kart has grabbed in its current Sky Lane lap. */
+    skyGot(a) {
+      const s = state(a);
+      const k = a.kart;
+      if (!k.flying || !track.sky) return 0;
+      return s.skyKey === k.skyLane * 4 + lapOf(k.s, track.length) ? s.skyGot : 0;
+    },
     setTrack,
     reset,
     withdraw,

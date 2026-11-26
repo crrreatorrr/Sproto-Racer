@@ -38,6 +38,12 @@ export function createChaseCamera(camera, track) {
   const pace = new Spring();
   const rushPace = new Spring();
   const boom = new Spring();
+  // Sky Lane flight: a tighter, lower chase that widens its view with speed tier.
+  const flight = new Spring();
+  const lean = new Spring();
+  let kick = 0;
+  let lastTier = 0;
+  let wasFlying = false;
 
   const roadS = createTrackSample();
   const nearS = createTrackSample();
@@ -51,12 +57,20 @@ export function createChaseCamera(camera, track) {
     return Object.assign(out, track.sample(s, x));
   }
 
-  return function followKart(k, dt, wide = false, lookBack = false) {
+  return function followKart(k, dt, wide = false, lookBack = false, skyTier = 0) {
     const road = sampleTrack(k.s, k.x, roadS);
     const speed = pace.follow(clamp(k.speed / 50, 0, 1), 5, dt);
     // Subtle high-speed overdrive above 50 m/s (180 -> 313 km/h) so Turbo & Super Turbo read viscerally.
     const rush = rushPace.follow(clamp((k.speed - 50) / 37, 0, 1), 5.5, dt);
-    const arm = boom.follow((wide ? 10.7 : 8.5) + speed + 0.65 * rush, 7, dt);
+    const flying = !!k.flying;
+    const fly = flight.follow(flying ? 1 : 0, flying ? 6 : 3, dt);
+    // Launches and every tier-up punch the view outward for a moment.
+    if (flying && (!wasFlying || skyTier > lastTier)) kick = 1;
+    wasFlying = flying;
+    lastTier = flying ? skyTier : 0;
+    kick = Math.max(0, kick - dt * 2.6);
+    const skyRush = fly * clamp((k.speed - 88) / 33, 0, 1);
+    const arm = boom.follow((wide ? 10.7 : 8.5) + speed + 0.65 * rush - 1.6 * fly + 1.2 * kick, 7, dt);
     const distance = lookBack ? -arm : arm;
     const near = sampleTrack(k.s - 4, k.x, nearS);
     const far = sampleTrack(k.s + 8 + speed * 4, k.x, farS);
@@ -88,7 +102,8 @@ export function createChaseCamera(camera, track) {
     const offset =
       (camera.position.x - rear.position.x) * rear.right.x +
       (camera.position.z - rear.position.z) * rear.right.z;
-    const limit = rear.width / 2 - 1.0;
+    const skyLane = flying ? track.sky?.lanes[k.skyLane] : null;
+    const limit = (skyLane ? skyLane.width : rear.width) / 2 - 1.0;
     const rearLane = clamp(offset, -limit, limit);
     camera.position.x += rear.right.x * (rearLane - offset);
     camera.position.z += rear.right.z * (rearLane - offset);
@@ -100,18 +115,19 @@ export function createChaseCamera(camera, track) {
     const slope = incline.follow(clamp(grade, -0.30, 0.30), 7.5, dt);
     const worldHeight = road.position.y + k.y;
     const height = elevation.follow(
-      worldHeight - 0.12 * Math.max(0, worldHeight - road.deckY) - 0.62 * (k.hopLift || 0),
-      16,
+      worldHeight - (1 - fly) * 0.12 * Math.max(0, worldHeight - road.deckY) - 0.62 * (k.hopLift || 0),
+      flying ? 22 : 16,
       dt,
     );
     camera.position.y = Math.max(
       floor.position.y + 1.25,
-      height + 3.75 + (arm - 8.5 - speed - 0.65 * rush) * 0.23 - distance * Math.tan(slope),
+      height + 3.75 - 1.1 * fly + (arm - 8.5 - speed - 0.65 * rush) * 0.23 - distance * Math.tan(slope),
     );
     const aimYaw = Math.atan2(anchor.position.x - camera.position.x, camera.position.z - anchor.position.z);
     const pitch = -radians(6.8) + (lookBack ? -1 : 1) * slope * 0.87 - (k.fall ? clamp(-k.y * 0.055, 0, 0.52) : 0);
-    camera.rotation.set(pitch, -aimYaw, 0, 'YXZ');
-    const fov = 61 + 3.5 * speed + 2.2 * rush;
+    const bank = lean.follow(fly * clamp((k.roll || 0) * 0.45, -0.22, 0.22), 6, dt);
+    camera.rotation.set(pitch + fly * clamp((k.pitch || 0) * 0.35, -0.12, 0.12), -aimYaw, bank, 'YXZ');
+    const fov = 61 + 3.5 * speed + 2.2 * rush + fly * (6 + 12 * skyRush) + 5 * kick;
     if (Math.abs(camera.fov - fov) > 0.001) {
       camera.fov = fov;
       camera.updateProjectionMatrix();

@@ -90,6 +90,13 @@ export function stateHash(world) {
     hash.int(a.charges);
     hash.int(a.roulette ? a.roulette.item : -1);
     hash.int(a.finishUs == null ? -1 : a.finishUs);
+    hash.int(k.flying ? k.skyLane : -1);
+    hash.q(k.skyY || 0, 1000);
+    hash.q(k.tumble || 0, 1000);
+    hash.q(k.rollTime || 0, 1000);
+    hash.int(b.skyChain || 0);
+    hash.int(b.skyTier || 0);
+    hash.int(k.trickCount || 0);
   }
 
   const objects = play.objects || [];

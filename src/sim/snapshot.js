@@ -218,6 +218,12 @@ export function encodeWireSnapshot(world, ackBySeat = {}) {
         sh: Math.round((a.shield || 0) * 1000),
         in: a.incoming || '',
         fn: a.finishUs,
+        // Sky Lane flight: lane, height, lateral and vertical speed, roll, tumble, chain.
+        sk: k.flying
+          ? [k.skyLane, Math.round(k.skyY * MM), Math.round(k.skyVX * MM), Math.round(k.skyVY * MM),
+            Math.round(k.rollTime * 1000), Math.round(k.tumble * 1000), b.skyChain, b.skyTier, Math.round(b.skyTimer * 1000)]
+          : null,
+        tk: k.trickCount ? [k.trickCount, k.trickKind, Math.round(k.trickTime * 1000)] : null,
       };
     }),
     o: (play.objects || []).map((o) => ({
@@ -270,5 +276,18 @@ export function decodeWireKart(w) {
     incoming: w.in || '',
     finishUs: w.fn ?? null,
     finish: w.fn != null ? w.fn / 1e6 : null,
+    flying: !!w.sk,
+    skyLane: w.sk ? w.sk[0] : -1,
+    skyY: w.sk ? w.sk[1] / MM : 0,
+    skyVX: w.sk ? w.sk[2] / MM : 0,
+    skyVY: w.sk ? w.sk[3] / MM : 0,
+    rollTime: w.sk ? w.sk[4] / 1000 : 0,
+    tumble: w.sk ? w.sk[5] / 1000 : 0,
+    skyChain: w.sk ? w.sk[6] : 0,
+    skyTier: w.sk ? w.sk[7] : 0,
+    skyTimer: w.sk ? w.sk[8] / 1000 : 0,
+    trickCount: w.tk ? w.tk[0] : 0,
+    trickKind: w.tk ? w.tk[1] : 0,
+    trickTime: w.tk ? w.tk[2] / 1000 : 0,
   };
 }

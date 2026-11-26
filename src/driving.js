@@ -34,6 +34,9 @@ const SKY_ROLL_DASH = 15;
 const SKY_ROLL_COOLDOWN = 1.5;
 const SKY_DIVE_WINDOW = 80;
 const SKY_CARRY_SECONDS = 1.5;
+// Ground ramp tricks.
+export const TRICK_SECONDS = 0.45;
+export const MAX_TRICKS = 3;
 
 export function driftBoostReady(boost) {
   return !boost.chainClosed && boost.meter + 1e-9 >= 0.70;
@@ -64,7 +67,8 @@ export function createKart(tuning = {speed:1, accel:1, turn:1}) {
     wallCooldown: 0, rampContact: false, driftWasHeld: false, regripTime: 0, boostRelease: false,
     flying:false, skyLane:-1, skyY:0, skyVX:0, skyVY:0, skyScrape:0, skyScraped:false,
     skyPrevS:0, skyPrevX:0, skyPrevY:0, skyCarve:false, rollTime:0, rollDir:0, rollCool:0,
-    tumble:0, tumbleFall:false, towing:0, skyCarry:0, skyDive:false, skyExit:false, skyLaunch:0,
+    trickTime:0, trickCount:0, trickKind:0, trickLanded:0, trickSloppy:false,
+    tumble:0, tumbleFall:false, wobble:0, towing:0, skyCarry:0, skyDive:false, skyExit:false, skyLaunch:0,
   };
 }
 
@@ -149,6 +153,12 @@ export function launchFromRamp(kart,ramp,input,steer) {
     const lipBonus = !kart.grounded && kart.vy > 0 ? Math.min(1.65, kart.vy * 0.60) : 0;
     kart.hopping=false;
     takeOff(kart, ramp + lipBonus);
+    // A hop timed at the lip starts a trick: a flip, or a spin toward the steer.
+    if(lipBonus>0 && !kart.trickCount){
+      kart.trickCount=1;
+      kart.trickTime=TRICK_SECONDS;
+      kart.trickKind=steer>.3?3:steer<-.3?2:1;
+    }
   }
 }
 
@@ -422,13 +432,14 @@ export function stepFlight(kart,input,road,boost,dt){
   kart.rollTime=Math.max(0,kart.rollTime-dt);
   kart.tumble=Math.max(0,kart.tumble-dt);
   kart.skyLaunch=Math.max(0,kart.skyLaunch-dt*2);
-  const control=kart.stunRemaining>0||kart.tumble>0?{}:input;
+  kart.wobble=Math.max(0,kart.wobble-dt);
+  const control=kart.stunRemaining>0||kart.tumble>0||kart.wobble>0?{}:input;
   const steer=clamp(control.steer||0,-1,1);
   const pitch=clamp(control.pitch||0,-1,1);
   const tier=clamp(Math.trunc(boost.skyTier||0),0,3);
   const tuning=kart.tuning.speed;
   let target=CRUISE_SPEED*tuning*(SKY_TIER_SPEED[tier]+(boost.reserve>0?SKY_BOOST_SPEED:0))*(1+SKY_TOW*(kart.towing||0));
-  target=Math.min(target,CRUISE_SPEED*tuning*SKY_MAX_SPEED);
+  target=Math.min(target,CRUISE_SPEED*SKY_MAX_SPEED);
   if(kart.tumble>0)target*=0.7;
   if(kart.speed<target)kart.speed=Math.min(target,kart.speed+95*dt);
   else kart.speed=approach(kart.speed,target,1.4,dt);
@@ -557,10 +568,30 @@ export function stepKart(kart, input = {}, road = {}, boost = {}, dt = 1 / 60) {
   const ramp=road.ramp||0;
   if(ramp&&!kart.rampContact)launchFromRamp(kart,ramp,input,steer);
   kart.rampContact=ramp>0;
+  kart.wobble=Math.max(0,kart.wobble-duration);
+  if(kart.trickCount && !kart.grounded){
+    kart.trickTime=Math.max(0,kart.trickTime-duration);
+    // On a long jump each fresh Drift press after a trick lands another, up to three.
+    if(pressed && !kart.trickTime && kart.trickCount<MAX_TRICKS){
+      kart.trickCount++;
+      kart.trickTime=TRICK_SECONDS;
+      kart.trickKind=Math.abs(steer)>.3?(steer>0?3:2):1;
+    }
+  }
   const slices = Math.ceil(duration * 120);
   for (let i = 0; i < slices; i++) {
     driveFrame(kart, input, road, boost, steer, throttle, brake, duration / slices);
     if(kart.fall)break;
+  }
+  if(kart.landed && kart.trickCount){
+    if(kart.trickTime>0){
+      // Landing mid-trick: no trick boost, scrubbed speed and a short wobble.
+      kart.trickSloppy=true;
+      kart.speed*=0.8;
+      kart.wobble=0.45;
+    }else kart.trickLanded=kart.trickCount;
+    kart.trickCount=0;
+    kart.trickTime=0;
   }
   if(kart.landed && kart.skyExit){
     // A dive onto the deck keeps flight speed; a flat or late landing scrubs it.

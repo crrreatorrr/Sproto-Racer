@@ -3,6 +3,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { CIRCUITS } from './circuits.js';
 import { itemModel } from './item-art.js';
 import { createTrackCore, createTrackSample } from './sim/track-core.js';
+import { createSkyVisuals } from './sky-visuals.js';
 
 const TAU = Math.PI * 2;
 const mix = THREE.MathUtils.lerp;
@@ -85,6 +86,10 @@ export function createTrack(scene, course = CIRCUITS[0], options = {}) {
   let visualsMounted = false;
   let lastTime = 0;
   let extraDisposables = [];
+  let skyVisuals = null;
+  let lastLap = 1;
+  // Road, paint and roadside props stop where a main Sky Lane replaces the road.
+  const roadGone = (s) => core.sky.inMainLane(s);
   let syncFixtureVisuals = () => {};
   let pickupMesh = null;
   let pickupPositions = null;
@@ -179,6 +184,7 @@ export function createTrack(scene, course = CIRCUITS[0], options = {}) {
       instances.get(key).parts.push([new THREE.Matrix4().compose(p, q, scale.set(w, h, d)), color]);
     }
     function trackShape(kind, s, x, h, w, height, d, color, relativeYaw = 0) {
+      if (roadGone(s)) return;
       const f = frame(s);
       const p = surface(f, x);
       p.y += h;
@@ -189,6 +195,7 @@ export function createTrack(scene, course = CIRCUITS[0], options = {}) {
     }
     const positiveHeight = (p) => p.y + 6.4;
     function post(s, x, width = 0.76, topOffset = -0.25, color = C.steel) {
+      if (roadGone(s)) return;
       const f = frame(s);
       const p = surface(f, x);
       const h = positiveHeight(p) + topOffset;
@@ -220,6 +227,7 @@ export function createTrack(scene, course = CIRCUITS[0], options = {}) {
       return p;
     }
     function strip(a, b, x1, x2, x3, x4, color, offset = 0.09) {
+      if (roadGone(a.distance) && roadGone(b.distance)) return;
       quad(lp(a, x1, offset), lp(a, x2, offset), lp(b, x4, offset), lp(b, x3, offset), color);
     }
     function mark(s1, s2, x1, x2, color, offset = 0.103) {
@@ -267,6 +275,10 @@ export function createTrack(scene, course = CIRCUITS[0], options = {}) {
         );
       }
       const curbColor = Math.floor(n / 2) % 2 === 0 ? C.milk : C.orange;
+      if (roadGone(a.distance) && roadGone(b.distance)) {
+        a = b;
+        continue;
+      }
       for (const sign of [-1, 1]) {
         const open = core.dropAt((n + 0.5) * segmentLength, sign);
         const edgeColor = open ? (n % 2 ? 0xffca33 : C.ink) : curbColor;
@@ -364,6 +376,7 @@ export function createTrack(scene, course = CIRCUITS[0], options = {}) {
     // Collect all track signs and bake into 1 shelf-packed CanvasTexture + 1 merged Mesh.
     const signSpecs = [];
     function textPanel(s, x, h, w, ht, headline, kicker, bg = C.dark, fg = C.milk, frontOffset = 0) {
+      if (roadGone(s)) return;
       const f = frame(s);
       const p = surface(f, x);
       p.y += h;
@@ -865,15 +878,24 @@ export function createTrack(scene, course = CIRCUITS[0], options = {}) {
     pickupUniforms.uTime.value = lastTime;
     syncFixtureVisuals(lastTime);
     syncPickups(false);
+    skyVisuals = createSkyVisuals(trackGroup, core);
+    skyVisuals.update(lastTime, lastLap);
   }
 
   function update(time = 0, dt = 0, playerS = 0, lap = 1) {
     lastTime = time;
+    lastLap = lap;
     core.update(time, dt, playerS, lap);
     if (!visualsMounted) return;
     pickupUniforms.uTime.value = time;
     syncFixtureVisuals(time);
     syncPickups(false);
+    skyVisuals?.update(time, lap);
+  }
+
+  /** Hides the Boost Cells the player has grabbed in a lane this lap. */
+  function setSkyCollected(laneIndex, mask) {
+    skyVisuals?.setCollected(laneIndex, mask);
   }
 
   function reset() {
@@ -883,12 +905,16 @@ export function createTrack(scene, course = CIRCUITS[0], options = {}) {
     pickupUniforms.uTime.value = 0;
     syncFixtureVisuals(0);
     syncPickups(false);
+    skyVisuals?.setCollected(-1, 0);
+    skyVisuals?.update(0, 1);
   }
 
   if (!deferVisuals) mountVisuals();
   reset();
 
   function dispose() {
+    skyVisuals?.dispose();
+    skyVisuals = null;
     const geometries = new Set();
     const materials = new Set();
     for (const item of extraDisposables) {
@@ -932,6 +958,7 @@ export function createTrack(scene, course = CIRCUITS[0], options = {}) {
     hazards,
     switchTrigger,
     sky: core.sky,
+    setSkyCollected,
     triggerSwitch: core.triggerSwitch,
     getFixtureState: core.getFixtureState,
     setFixtureState: core.setFixtureState,

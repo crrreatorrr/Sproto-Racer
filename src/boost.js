@@ -18,6 +18,7 @@ export function createBoost() {
 // Sky Lane chain. Boost Cells are the only boost source in the air: each one adds
 // boost time and chain, and chain thresholds set the flight speed tier. A tier
 // drop falls back one step, never to zero.
+export const TRICK_SECONDS_BOOST = 0.5;
 export const SKY_TIER_CHAIN = [0, 3, 6, 10];
 export const SKY_CHAIN_SECONDS = 2.5;
 export const CELL_SECONDS = 0.35;
@@ -136,9 +137,22 @@ export function stepBoost(boost, kart, input, dt) {
     return;
   }
   // Sky Lanes give boost only through Boost Cells, so their landing earns none.
-  if (kart.landed && kart.lastAirTime > 0.43 && !(kart.skyCarry > 0)) {
-    grantBoost(boost, Math.min(1.35, (kart.lastAirTime - 0.24) * 0.85));
-    report(boost, 'AIR BOOST');
+  if (kart.trickSloppy) {
+    // Landing mid-trick forfeits both the trick and the air boost.
+    report(boost, 'SLOPPY LANDING');
+    kart.trickSloppy = false;
+  } else {
+    if (kart.landed && kart.lastAirTime > 0.43 && !(kart.skyCarry > 0)) {
+      grantBoost(boost, Math.min(1.35, (kart.lastAirTime - 0.24) * 0.85));
+      report(boost, 'AIR BOOST');
+    }
+    // Ramp tricks pay out on a clean landing, on top of any air boost.
+    if (kart.trickLanded > 0) {
+      const n = kart.trickLanded;
+      grantBoost(boost, TRICK_SECONDS_BOOST * n);
+      report(boost, `TRICK${n > 1 ? ' ×' + n : ''} +${(TRICK_SECONDS_BOOST * n).toFixed(1)}s`);
+      kart.trickLanded = 0;
+    }
   }
   if(slide===null || boost.chainClosed)return;
   const pressed=input.driftHeld && input.driftBoostPressed;

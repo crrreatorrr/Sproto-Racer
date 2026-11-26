@@ -6,11 +6,11 @@ export const STAT_BUDGET = 26;
 
 export const CAR_CLASSES = Object.freeze({
   allrounder: { name: 'All-rounder', bars: { speed: 5, accel: 6, turn: 5, boost: 5, luck: 5 } },
-  speedster: { name: 'Speedster', bars: { speed: 7, accel: 3, turn: 5, boost: 6, luck: 5 } },
+  speedster: { name: 'Speedster', bars: { speed: 7, accel: 2, turn: 5, boost: 6, luck: 6 } },
   sprinter: { name: 'Sprinter', bars: { speed: 4, accel: 9, turn: 6, boost: 4, luck: 3 } },
   drifter: { name: 'Drifter', bars: { speed: 5, accel: 4, turn: 9, boost: 5, luck: 3 } },
   booster: { name: 'Booster', bars: { speed: 5, accel: 5, turn: 3, boost: 9, luck: 4 } },
-  lucky: { name: 'Lucky', bars: { speed: 5, accel: 6, turn: 5, boost: 3, luck: 7 } },
+  lucky: { name: 'Lucky', bars: { speed: 6, accel: 6, turn: 5, boost: 3, luck: 6 } },
 });
 
 // What one stat step is worth, per unit of t = (bars - 5) / 5 (bar 10 is t = 1, bar 1 is t = -0.8).

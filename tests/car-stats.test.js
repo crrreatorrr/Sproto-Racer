@@ -33,7 +33,7 @@ describe('car classes', () => {
     near(classTuning('sprinter').accel, 1.24, 'sprinter accel');
     near(classTuning('booster').goodAt, 0.636, 'booster goodAt');
     near(classTuning('booster').perfectAt, 0.868, 'booster perfectAt');
-    near(classTuning('lucky').luckShift, 0.12, 'lucky luckShift');
+    near(classTuning('lucky').luckShift, 0.06, 'lucky luckShift');
     const base = classTuning({ speed: 5, accel: 5, turn: 5, boost: 5, luck: 5 });
     for (const [field, value] of Object.entries({ speed: 1, accel: 1, turn: 1, goodAt: 0.70, perfectAt: 0.90, boostGain: 1, luckShift: 0 })) {
       near(base[field], value, `base ${field}`);
@@ -151,10 +151,10 @@ describe('Showing the stats', () => {
   it('garage rows show five stats', () => {
     assert.deepEqual(statBars(carById('manta')), [
       { id: 'speed', title: 'Speed', bars: 7 },
-      { id: 'accel', title: 'Acceleration', bars: 3 },
+      { id: 'accel', title: 'Acceleration', bars: 2 },
       { id: 'turn', title: 'Turning', bars: 5 },
       { id: 'boost', title: 'Boost', bars: 6 },
-      { id: 'luck', title: 'Luck', bars: 5 },
+      { id: 'luck', title: 'Luck', bars: 6 },
     ]);
     assert.equal(className(carById('manta')), 'Speedster');
   });

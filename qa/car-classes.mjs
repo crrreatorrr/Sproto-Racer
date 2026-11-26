@@ -16,8 +16,10 @@ const CAR_FOR = { allrounder: 'apex', speedster: 'needle', sprinter: 'pogo', dri
 import { ITEMS } from '../src/items.js';
 
 const CLASSES = Object.keys(CAR_CLASSES);
-const SAME_SEEDS = [1, 2, 3, 4];
-const MIXED_SEEDS = [11, 12, 13, 14, 15, 16];
+// QA_SEED_OFFSET shifts every seed, to check the tuning holds on seeds it was not tuned on.
+const OFFSET = Number(process.env.QA_SEED_OFFSET || 0);
+const SAME_SEEDS = [1, 2, 3, 4].map((s) => s + OFFSET);
+const MIXED_SEEDS = [11, 12, 13, 14, 15, 16].map((s) => s + OFFSET);
 const strength = ITEMS.map(({ weights: [first, last] }) => last / Math.max(1e-9, first + last));
 
 const stats = Object.fromEntries(CLASSES.map((c) => [c, {

@@ -118,7 +118,7 @@ export function createGarage(paddock,launch,relics=EMPTY_RELICS,table){
     let i=controls.indexOf(document.activeElement);
     const target=controls[(i+controls.length+direction)%controls.length];
     target.focus({preventScroll:true});
-    if(target.closest('.garage-car-choices'))target.scrollIntoView({block:'nearest'});
+    target.scrollIntoView({block:'nearest'});
   }
   turn.onclick=()=>{paddock.turn();turn.textContent=turn.textContent==='Rear view'?'Front view':'Rear view';};
   coerce();

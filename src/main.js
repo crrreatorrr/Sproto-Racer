@@ -66,7 +66,7 @@ function ensureTrackVisuals(){
 scheduleTrackMount(track);
 
 const motion=window.matchMedia('(prefers-reduced-motion: reduce)');
-let impactUntil=0,shownItemToken='';
+let impactUntil=0,shownItemToken='',shownReserveToken='',shownSlotOrder='';
 const itemFx=createItemFx(world,track,{reduced:motion.matches,onSignal:paintItemSignal});
 const play=createGameplay(world,track,{onVisualCue:itemFx.cue}),fx=createRaceFX(world,track);
 const hub=bootHub();
@@ -130,7 +130,7 @@ $('controls').onclick=controller;
 function showPanel(name,html){
   const pad=input.rawPad();
   navPrev=pad?padEdges(pad):[];
-  pendingEdges={};pendingSlot=null;modal=name;$('overlay').hidden=false;$('overlay').firstElementChild.innerHTML=html;
+  pendingEdges={};pendingSlot=null;itemHold=-1;hudItemDown=false;modal=name;$('overlay').hidden=false;$('overlay').firstElementChild.innerHTML=html;
   $('overlay').querySelector('.primary,button,select')?.focus({preventScroll:true});fx.pause();
 }
 function closePanel(){modal='';$('overlay').hidden=true;accumulator=0;previous=performance.now();document.activeElement?.blur();}
@@ -181,9 +181,9 @@ const feedbackHandle=installRaceFeedback({
 function begin(mode=selected,options=config){
   ensureTrackVisuals();
   closePanel();fx.unlock();fx.mute(muted);lastCrumb=null;
-  pendingEdges={};pendingSlot=null;screen='game';$('lobby').hidden=true;$('game').hidden=false;document.querySelector('.topbar').hidden=true;
+  pendingEdges={};pendingSlot=null;itemHold=-1;hudItemDown=false;screen='game';$('lobby').hidden=true;$('game').hidden=false;document.querySelector('.topbar').hidden=true;
   $('race-canvas').append(renderer.domElement);w=0;h=0;accumulator=0;previous=performance.now();
-  itemFx.reset();impactUntil=0;shownItemToken='';$('item-impact').hidden=true;
+  itemFx.reset();impactUntil=0;shownItemToken='';shownReserveToken='';shownSlotOrder='';$('item-impact').hidden=true;
   session.start(mode,{...options,...garage.selection()});
   for(const actor of state.actors){
     const model=models[actor.id]=syncModel(models[actor.id],actor.id,actor);
@@ -261,9 +261,37 @@ $('game').addEventListener('keydown',e=>{
   if(e.code==='Space'&&!modal)e.preventDefault();
 });
 $('pause').onclick=pause;$('test-tools').onclick=()=>testTools();
-$('item-hud').onclick=()=>{
-  if(screen==='game'&&!modal&&!controllerOpen&&!state.countdown)pendingEdges.itemPressed=true;
+// The item button: a tap uses the front item; with two items, holding it swaps them.
+const ITEM_HOLD_SWAP=.3;
+let itemHold=-1,hudItemDown=false,hudItemPressed=false;
+const itemHudLive=()=>screen==='game'&&!modal&&!controllerOpen&&!state.countdown;
+const itemHud=$('item-hud');
+itemHud.onpointerdown=event=>{
+  if(event.button!==0||!event.isPrimary||!itemHudLive())return;
+  event.preventDefault();
+  itemHud.setPointerCapture?.(event.pointerId);
+  hudItemDown=true;hudItemPressed=true;
 };
+itemHud.onpointerup=itemHud.onpointercancel=itemHud.onlostpointercapture=()=>{hudItemDown=false;};
+itemHud.onclick=event=>{if(event.detail===0&&itemHudLive())hudItemPressed=true;};
+function itemGesture(c,dt){
+  const pressed=c.itemPressed||hudItemPressed,down=c.item||hudItemDown;
+  c.itemPressed=false;hudItemPressed=false;
+  const a=state.player;
+  if(pressed&&itemHold<0){
+    // One item fires on the press itself; two wait to tell a tap from a hold.
+    if(a&&!a.unlimited&&a.held!=null&&a.reserve!=null)itemHold=0;
+    else pendingEdges.itemPressed=true;
+  }
+  if(itemHold<0)return;
+  if(!down){
+    if(itemHold<ITEM_HOLD_SWAP)pendingEdges.itemPressed=true;
+    itemHold=-1;
+  }else if((itemHold+=dt)>=ITEM_HOLD_SWAP){
+    pendingEdges.itemSwapPressed=true;
+    itemHold=-1;
+  }
+}
 const boostButton=$('drift-boost');
 function requestDriftBoost(){
   if(screen==='game' && !modal && !controllerOpen && !boostButton.disabled)pendingEdges.driftBoostPressed=true;
@@ -298,6 +326,30 @@ function paintItemSignal(signal,color){
   setText('item-impact-label',label);
   impactUntil=state.elapsed+.78;
   el.hidden=false;
+}
+function paintReserve(a,rolling){
+ const button=$('reserve-hud');
+ // Test Drive's unlimited inventory and Time Trial carry no second slot.
+ button.hidden=state.mode==='trial'||!!a.unlimited;
+ if(button.hidden)return;
+ const shown=rolling??a.reserve;
+ const slot=rolling!=null?'drawing':shown==null?'empty':'ready';
+ setText('reserve-key',slot==='empty'?'2ND':slot==='drawing'?'…':'HOLD ⇄');
+ button.setAttribute('aria-label',slot==='drawing'?'Drawing a second item':shown==null?'Second item slot':'Second item: '+ITEMS[shown].name+(shown===8?' ('+a.reserveCharges+' charges)':'')+'. Hold the item button to swap.');
+ const token=slot+':'+(shown??'');
+ if(token!==shownReserveToken){
+   shownReserveToken=token;button.dataset.slot=slot;
+   if(shown!=null){
+     $('reserve-picture').style.backgroundPosition=itemImagePosition(shown);
+     button.style.setProperty('--slot-accent',ITEMS[shown].color);
+   }
+ }
+ // A swap exchanges the two items in place: replay the nudge on the second slot.
+ const order=a.held!=null&&a.reserve!=null?a.held+'/'+a.reserve:'';
+ if(order&&order!==shownSlotOrder&&order===shownSlotOrder.split('/').reverse().join('/')){
+   button.classList.remove('swapped');void button.offsetWidth;button.classList.add('swapped');
+ }
+ shownSlotOrder=order;
 }
 function itemImagePosition(index){return (index%5)*25+'% '+(Math.floor(index/5)*100/3)+'%';}
 const inventory=$('test-inventory');
@@ -544,13 +596,16 @@ function hud(){
  const finalLap=state.mode!=='test'&&finalLapAt>=0&&state.elapsed-finalLapAt<2.4&&!state.done;
  $('announce').classList.toggle('final-lap',finalLap);
  setText('announce',state.countdown?Math.ceil(state.countdown):state.elapsed<.7&&state.mode!=='test'?'GO!':finalLap?'FINAL LAP':'');
- const shownItem=a.roulette?pickupPreview(a.roulette,state.elapsed):a.held;
+ // The roulette fills the front slot when it is empty, otherwise the second slot.
+ const rolling=a.roulette?pickupPreview(a.roulette,state.elapsed):null;
+ const frontRolling=!!a.roulette&&a.held==null;
+ const shownItem=frontRolling?rolling:a.held;
  const itemButton=$('item-hud');
- itemButton.disabled=shownItem==null || !!a.roulette;
- itemButton.title=a.roulette?'Drawing an item':a.held==null?'Empty item slot':'Use '+ITEMS[a.held].name;
- setText('item-name',a.roulette?'Drawing…':a.held!=null?ITEMS[a.held].name:'EMPTY');
+ itemButton.disabled=a.held==null;
+ itemButton.title=frontRolling?'Drawing an item':a.held==null?'Empty item slot':'Use '+ITEMS[a.held].name+(a.reserve!=null&&!a.unlimited?' · hold to swap':'');
+ setText('item-name',frontRolling?'Drawing…':a.held!=null?ITEMS[a.held].name:'EMPTY');
  const art=$('held-picture');art.hidden=shownItem==null;
- const slotState=a.roulette?'drawing':shownItem==null?'empty':'ready';
+ const slotState=frontRolling?'drawing':shownItem==null?'empty':'ready';
  const token=slotState+':'+(shownItem??'');
  if(token!==shownItemToken){
    shownItemToken=token;itemButton.dataset.slot=slotState;
@@ -561,7 +616,8 @@ function hud(){
  }
  if(!a.noticeTime&&itemButton.dataset.using)delete itemButton.dataset.using;
  $('item-impact').hidden=state.elapsed>=impactUntil;
- setText('item-key',a.roulette?'ITEM ROULETTE':state.mode==='test'?'UNLIMITED  ∞':'ITEM');
+ paintReserve(a,a.roulette&&!frontRolling?rolling:null);
+ setText('item-key',frontRolling?'ITEM ROULETTE':state.mode==='test'?'UNLIMITED  ∞':'ITEM');
  if(state.mode==='test'){
    for(let i=0;i<inventory.children.length;i++)inventory.children[i].setAttribute('aria-pressed',String(i===a.held));
    const switchKey=input.deviceName==='Keyboard'?'X / I':bindingName(input.settings.bindings.next);
@@ -577,7 +633,7 @@ function hud(){
    ctx.beginPath();ctx.fillStyle=actor.isPlayer?'#d5ee7a':'#ff7853';ctx.arc(x,y,actor.isPlayer?4.8:2.7,0,Math.PI*2);ctx.fill();
  }
 }
-const edgeFlags=['driftPressed','driftReleased','driftBoostPressed','itemPressed','blastersPressed','prevPressed','nextPressed'];
+const edgeFlags=['driftPressed','driftReleased','driftBoostPressed','itemPressed','itemSwapPressed','blastersPressed','prevPressed','nextPressed'];
 const tickInputScratch={};
 let pendingEdges={},pendingSlot=null;
 function frame(now){
@@ -610,6 +666,7 @@ function frame(now){
    if(c.distancePressed)wideView=!wideView;
    if(c.mapPressed)$('minimap').hidden=!$('minimap').hidden;
    lookingBack=c.lookBack;
+   itemGesture(c,dt);
    // Preserve button edges between render frames, including on high-refresh screens.
    for(let i=0;i<edgeFlags.length;i++){const key=edgeFlags[i];if(c[key])pendingEdges[key]=true;}
    if(c.slot!=null)pendingSlot=c.slot;

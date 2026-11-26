@@ -74,7 +74,7 @@ Every lane ends on straight road. The corridor funnels down onto the landing dec
 | Carve | Hold Q | Hold Drift |
 | Barrel roll | Tap Q with A or D held | Tap Drift while steering |
 
-Rivals chase Cells, steer for a box when their item slot is empty, read the obstacles ahead, ram and dodge. Some take the Sky Gate.
+Rivals chase Cells, steer for a box while they have a free item slot (karts carry two items), read the obstacles ahead, ram and dodge. Some take the Sky Gate.
 
 Equipped karts unfold side wings on launch: a short mount slide clears the chassis, then the panels swing out and settle. On exit the assemblies reverse the move and disappear into the stock silhouette. Wings are visual only: handling, hitboxes, and boost are unchanged. The 48 non-saucer karts use vehicle-specific wing assemblies, including the revised Ironhide tilt-fans, Crestline Eight crown wings, and Golden Switchback split foils. Silver Saucer and Violet Orbit use their native flying silhouettes. A Test Drive checkpoint already inside a lane starts with wings deployed. With reduced motion enabled, wings switch directly between poses. New local Time Trial ghosts record flight mode; older ghosts still play normally without opening wings.
 
@@ -102,11 +102,11 @@ Every car belongs to one of six classes, and the class sets its five stats. Each
 
 | Class | Speed | Accel | Turning | Boost | Luck | Cars |
 | --- | --- | --- | --- | --- | --- | --- |
-| All-rounder | 5 | 6 | 5 | 5 | 5 | Apex, Crestline Eight, Mud Marauder, Amber Beetle, Quarry Dumper, Sky Mixer |
-| Speedster | 7 | 2 | 5 | 6 | 6 | Needle, Ironhide, Manta Speedster, Pepper Seed, Glass Dart, Windskiff, Rail Ghost, Market Dragster |
-| Sprinter | 4 | 9 | 6 | 4 | 3 | Pogo, Geep, Shopping Cart, Ringrunner, Tarmac Press, Ramp Tug, Bumper Bolt, Vermilion Loader, Forklift Rat |
+| All-rounder | 5 | 5 | 5 | 5 | 6 | Apex, Crestline Eight, Mud Marauder, Amber Beetle, Quarry Dumper, Sky Mixer |
+| Speedster | 6 | 3 | 5 | 6 | 6 | Needle, Ironhide, Manta Speedster, Pepper Seed, Glass Dart, Windskiff, Rail Ghost, Market Dragster |
+| Sprinter | 5 | 9 | 6 | 3 | 3 | Pogo, Geep, Shopping Cart, Ringrunner, Tarmac Press, Ramp Tug, Bumper Bolt, Vermilion Loader, Forklift Rat |
 | Drifter | 5 | 4 | 9 | 5 | 3 | Gecko, Skipper, Golden Switchback, Violet Drift, Arctic Skip, Twin Current, Groove Racer, Reed Skimmer, Mint Digger |
-| Booster | 5 | 5 | 3 | 9 | 4 | Relay, Barrage, Whitewall Wasp, Twin-Plug, Volt Fork, Solar Cushion, Steam Sprint, Bone Wyrm |
+| Booster | 5 | 5 | 4 | 9 | 3 | Relay, Barrage, Whitewall Wasp, Twin-Plug, Volt Fork, Solar Cushion, Steam Sprint, Bone Wyrm |
 | Lucky | 6 | 6 | 5 | 3 | 6 | Hexshift, Silver Saucer, Bamboo Trike, Violet Orbit, Sunny Sidecar, Tiki Barrel, Ice-Cream Van, Bronze Bell, Violet Marble, Boom Crane |
 
 - **Speed:** top speed on the ground and in the Sky Lanes, from −2.4% at 1 bar to +3% at 10. A Speed bar is worth the most lap time, so it moves the least.
@@ -115,7 +115,7 @@ Every car belongs to one of six classes, and the class sets its five stats. Each
 - **Boost:** the drift meter's GOOD and PERFECT windows open earlier, and every boost lasts longer: drift, launch, air, tricks, pads, boost items and Boost Cells, from −12% to +15%. At 10 bars the GOOD window is 0.38 s and PERFECT is 0.14 s (stock: 0.20 s and 0.10 s). The race meter shows your car's own drift windows; the launch revs in the countdown use the same windows for every car.
 - **Luck:** item boxes roll as if you were further back in the pack, by up to 30% of the field at 10 bars, so you see stronger items more often. Below 5 bars, rolls come out slightly as if you were further ahead.
 
-The numbers live in `src/car-classes.js`. `qa/car-classes.mjs` races AI-only packs of each class on every circuit, plus mixed packs with one kart of each class in every grid order. It checks that every class's pace is within 1.5% of the average, that no class wins more than 30% of mixed races or averages more than 0.4 places from 3.5th, and that no class is fastest on every circuit. Set `QA_SEED_OFFSET` to run it on other seeds. Tuned on three seed sets pooled (offsets 0, 100, 200) plus a run with rivals' drift timing error widened to ±0.15 to mimic a person: average places 3.42–3.65, wins 14–19%, pace within 0.32%. Rivals drive the 14 original cars, which cover all six classes, and they time their drifts to their own car's windows. All four drivers can race any car. Character choice is cosmetic. The D-pad moves focus, A / Cross selects, Menu / Options advances, and B / Circle goes back.
+The numbers live in `src/car-classes.js`. `qa/car-classes.mjs` races AI-only packs of each class on every circuit, plus mixed packs with one kart of each class in every grid order. It checks that every class's pace is within 1.5% of the average, that no class wins more than 30% of mixed races or averages more than 0.4 places from 3.5th, and that no class is fastest on every circuit. Set `QA_SEED_OFFSET` to run it on other seeds. Tuned on three seed sets pooled (offsets 0, 100, 200) plus a run with rivals' drift timing error widened to ±0.15 to mimic a person: average places 3.41–3.67, wins 14–21%, pace within 0.1% (retuned after the two-item slots landed). Rivals drive the 14 original cars, which cover all six classes, and they time their drifts to their own car's windows. All four drivers can race any car. Character choice is cosmetic. The D-pad moves focus, A / Cross selects, Menu / Options advances, and B / Circle goes back.
 
 ## Controls
 
@@ -126,7 +126,7 @@ The numbers live in `src/car-classes.js`. `qa/car-classes.mjs` races AI-only pac
 | Hop / drift | Q | RB / R1 | LB / L1 |
 | Activate drift boost | E | Left stick click / L3 | RB / R1 |
 | Reverse at low speed | Hold S / Down | Pull the left stick back | Pull the left stick back |
-| Use item | Space | B / Circle | A / Cross |
+| Use item (tap) · swap your two items (hold) | Space | B / Circle | A / Cross |
 | Fire Barrage blasters (hold, Quick Race or Test Drive) | F | D-pad up | D-pad up |
 | Previous / next test item | Z / X (or I for next) | LB / View (L1 / Share) | D-pad left / right |
 | Select test item directly | 1–0 for slots 1–10, Shift + 1–0 for slots 11–20 | — | — |

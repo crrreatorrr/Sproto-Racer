@@ -49,11 +49,11 @@ single-player and multiplayer loops cannot drift apart.
 
 | Class | Speed | Accel | Turning | Boost | Luck | Plays like |
 |---|---|---|---|---|---|---|
-| All-rounder | 5 | 6 | 5 | 5 | 5 | Today's handling, nothing to learn |
-| Speedster | 7 | 2 | 5 | 6 | 6 | Wins on straights, punished by hits and tight sectors |
-| Sprinter | 4 | 9 | 6 | 4 | 3 | Recovers instantly from hits and slow corners |
+| All-rounder | 5 | 5 | 5 | 5 | 6 | Today's handling, nothing to learn |
+| Speedster | 6 | 3 | 5 | 6 | 6 | Wins on straights, punished by hits and tight sectors |
+| Sprinter | 5 | 9 | 6 | 3 | 3 | Recovers instantly from hits and slow corners |
 | Drifter | 5 | 4 | 9 | 5 | 3 | Tightest lines and longest drift chains |
-| Booster | 5 | 5 | 3 | 9 | 4 | Easy PERFECTs, longer boosts everywhere, wide in corners |
+| Booster | 5 | 5 | 4 | 9 | 3 | Easy PERFECTs, longer boosts everywhere, wide in corners |
 | Lucky | 6 | 6 | 5 | 3 | 6 | Better item rolls in any position, slower on its own |
 
 The bar values are a starting point. Balance testing (below) can move a bar, but each class's total

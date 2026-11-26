@@ -29,7 +29,7 @@ describe('car classes', () => {
   });
 
   it('tuning follows the bar formulas', () => {
-    near(classTuning('speedster').speed, 1.012, 'speedster speed');
+    near(classTuning('speedster').speed, 1.006, 'speedster speed');
     near(classTuning('sprinter').accel, 1.24, 'sprinter accel');
     near(classTuning('booster').goodAt, 0.636, 'booster goodAt');
     near(classTuning('booster').perfectAt, 0.868, 'booster perfectAt');
@@ -150,8 +150,8 @@ describe('Luck stat', () => {
 describe('Showing the stats', () => {
   it('garage rows show five stats', () => {
     assert.deepEqual(statBars(carById('manta')), [
-      { id: 'speed', title: 'Speed', bars: 7 },
-      { id: 'accel', title: 'Acceleration', bars: 2 },
+      { id: 'speed', title: 'Speed', bars: 6 },
+      { id: 'accel', title: 'Acceleration', bars: 3 },
       { id: 'turn', title: 'Turning', bars: 5 },
       { id: 'boost', title: 'Boost', bars: 6 },
       { id: 'luck', title: 'Luck', bars: 6 },

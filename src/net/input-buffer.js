@@ -3,6 +3,7 @@
 // held-last fallback frames and clearing held buttons cleanly on disconnect.
 
 import {
+  BUTTONS_MASK,
   EDGE_BUTTON_MASK,
   HELD_BUTTON_MASK,
   neutralIntentFrame,
@@ -42,7 +43,7 @@ export function createSeatInputBuffer(options = {}) {
         throttle: frame.throttle & 0xff,
         brake: frame.brake & 0xff,
         reverse: frame.reverse & 0xff,
-        buttons: frame.buttons & 0xffff,
+        buttons: frame.buttons & BUTTONS_MASK,
         edgesConsumed: false,
       });
     }

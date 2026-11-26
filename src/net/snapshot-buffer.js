@@ -42,6 +42,8 @@ function normalizeSnapshotEntry(raw) {
         boostPips: a.boost?.pips ?? 0,
         held: a.held,
         charges: a.charges,
+        reserve: a.reserve ?? null,
+        reserveCharges: a.reserveCharges ?? 0,
         shield: a.shield ?? 0,
         incoming: a.incoming ?? '',
         finishUs: a.finishUs ?? null,

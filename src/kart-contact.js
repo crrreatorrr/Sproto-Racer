@@ -10,7 +10,7 @@ const diameter = 5.4;
 function applyImpulse(kart, along, across) {
   const oldSpeed = kart.speed - kart.reverseSpeed;
   const c=cos(kart.travelYaw),s=sin(kart.travelYaw);
-  // A bump never shoves a flying kart past its own flight ceiling.
+  // A bump never shoves a flying kart past its own flight ceiling (scaled by its Speed stat).
   const ceiling=kart.flying?Math.max(oldSpeed,flightCeiling(kart)):140;
   const speed=clamp(oldSpeed+along*c+across*s,kart.grounded?-8:0,ceiling);
   kart.speed=Math.max(0,speed);

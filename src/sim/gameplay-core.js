@@ -16,7 +16,7 @@ const RIVAL_SKY = [
   { skill: 0.84, bold: 0.45, aggression: 0.9, gate: false, tricks: 0.6 },
   { skill: 0.68, bold: 0.9, aggression: 0.5, gate: true, tricks: 0.85 },
 ];
-import { ITEMS } from '../items.js';
+import { ITEMS, hasItemRoom, promoteReserve } from '../items.js';
 import { contactTime, shapedItemContactTime } from '../projectile-contact.js';
 import { atan2, clamp, cos, damp, hypot3, mix, mod, sin } from './math.js';
 import { createTrackSample } from './track-core.js';
@@ -30,6 +30,7 @@ const blankInput = () => ({
   driftHeld: false,
   driftPressed: false,
   itemPressed: false,
+  itemSwapPressed: false,
 });
 
 export const FLYING_TYPES = new Set(['ball', 'disc', 'bolt', 'lightbolt', 'lob', 'ring', 'cursor', 'rocket']);
@@ -577,6 +578,7 @@ export function createGameplayCore(track, hooks = {}) {
     if (!a.unlimited && (index !== 8 || a.charges === 0)) {
       a.held = null;
       a.charges = 0;
+      promoteReserve(a);
     } else if (index === 8 && a.unlimited && a.charges === 0) {
       a.charges = 3;
     }
@@ -603,7 +605,7 @@ export function createGameplayCore(track, hooks = {}) {
     const id = a.id || 1;
     let lane = clamp(sin(k.s / 128 + id * 2.1) * 2.2 + (id - 3) * 1.3, -7, 7);
     let nearestFeature = 65;
-    const targets = a.held == null && !a.roulette ? rewards : track.pads;
+    const targets = hasItemRoom(a) && !a.roulette ? rewards : track.pads;
     for (let i = 0; i < targets.length; i++) {
       const target = targets[i];
       if (target.hidden) continue;
@@ -719,8 +721,8 @@ export function createGameplayCore(track, hooks = {}) {
     let tx = 0;
     let ty = mid;
     let aimed = false;
-    // With an empty item slot, the nearest floating box ahead comes first.
-    if (a.held == null && !a.roulette) {
+    // With a free item slot, the nearest floating box ahead comes first.
+    if (hasItemRoom(a) && !a.roulette) {
       const taken = k.skyBoxKey === lane.index * 4 + lap ? k.skyBoxGot : 0;
       let best = null;
       for (let i = 0; i < layout.boxes.length; i++) {
@@ -811,10 +813,18 @@ export function createGameplayCore(track, hooks = {}) {
   }
 
   function aiItems(a, k, s, id, input) {
-    const defend = a.incoming && (a.held === 15 || (!a.shield && (a.held === 2 || a.held === 19)));
-    if (a.held != null && (s.itemCooldown <= 0 || defend)) {
+    const guards = (item) => item === 15 || (!a.shield && (item === 2 || item === 19));
+    let item = a.held;
+    let defend = a.incoming && guards(item);
+    // A defensive second item is swapped to the front when a hit is coming.
+    if (a.incoming && !defend && item != null && a.reserve != null && guards(a.reserve)) {
+      input.itemSwapPressed = true;
+      item = a.reserve;
+      defend = true;
+    }
+    if (item != null && (s.itemCooldown <= 0 || defend)) {
       input.itemPressed = true;
-      if ([1, 10, 11].includes(a.held)) {
+      if ([1, 10, 11].includes(item)) {
         const front = nearestAhead(a, actors, 60);
         input.itemBackward = actors.some(
           (other) =>

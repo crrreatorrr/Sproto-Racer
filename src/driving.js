@@ -545,8 +545,10 @@ export function stepFlight(kart,input,road,boost,dt){
   if(kart.skyY<floor){
     kart.skyY=floor;
     if(kart.skyVY<0)kart.skyVY=0;
-    // Knocked out of the bottom of a main lane: drop into the void and respawn.
-    if(kart.tumble>0 && kart.tumbleFall && !lane.optional){
+    // Knocked out of the bottom of a main lane: drop into the void and respawn. Once the floor
+    // tapers down onto the landing deck there is deck below, so the kart rides it in instead.
+    const runIn=floor<lane.floor-1e-6;
+    if(kart.tumble>0 && kart.tumbleFall && !lane.optional && !runIn){
       const exitS=kart.s;
       kart.flying=false;
       kart.skyLane=-1;

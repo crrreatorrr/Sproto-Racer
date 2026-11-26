@@ -7,10 +7,10 @@ import { captureSnapshot, applySnapshot } from '../src/sim/snapshot.js';
 import { stateHash } from '../src/sim/hash.js';
 import { controlsToIntentFrame, intentFrameToControls } from '../src/sim/intent.js';
 import {
-  CRUISE_SPEED, SKY_MAX_SPEED, SKY_TIER_SPEED, createKart, startFlight, stepKart,
+  CRUISE_SPEED, SKY_MAX_SPEED, SKY_TIER_SPEED, createKart, startFlight, stepKart, tumbleKart,
 } from '../src/driving.js';
 import { createBoost, grantCell, stepBoost, stepSkyChain, SKY_TIER_CHAIN } from '../src/boost.js';
-import { catapultCrossed, partPose, sweepCells, sweepObstacles } from '../src/sim/sky.js';
+import { catapultCrossed, laneFloor, partPose, sweepCells, sweepObstacles } from '../src/sim/sky.js';
 
 const DT = 1 / 60;
 
@@ -271,7 +271,7 @@ describe('Boost Cells', () => {
 });
 
 describe('Floating item boxes', () => {
-  function boxRun(mode, held) {
+  function boxRun(mode, held, reserve = null) {
     const world = createSimWorld({ course: CIRCUITS[1], mode, settings: { sector: 1, speed: 'cruise', lap: 1, rivals: 'solo' }, seats: [{ kind: 'local' }] });
     const index = mainLane(world.track);
     const layout = world.track.sky.lanes[index].layouts[0];
@@ -279,6 +279,7 @@ describe('Floating item boxes', () => {
     const box = layout.boxes[1];
     const a = world.state.player;
     a.held = held;
+    a.reserve = reserve;
     a.unlimited = false;
     fly(world, a, index, box.s - 1.2, box.x, box.y);
     world.state.countdown = 0;
@@ -304,8 +305,14 @@ describe('Floating item boxes', () => {
     assert.notEqual(k.skyBoxGot, 0);
   });
 
-  it('a full slot or a Time Trial leaves the box alone', () => {
-    const full = boxRun('race', 0);
+  it('one held item still leaves room for a box in the second slot', () => {
+    const one = boxRun('race', 0);
+    assert.ok(one.a.roulette, 'the box starts the roulette for the second slot');
+    assert.equal(one.a.held, 0);
+  });
+
+  it('both slots full or a Time Trial leaves the box alone', () => {
+    const full = boxRun('race', 0, 2);
     assert.equal(full.a.roulette, null);
     assert.equal(full.k.skyBoxGot, 0);
     const trial = boxRun('trial', null);
@@ -395,6 +402,26 @@ describe('Sky Lane combat', () => {
         assert.equal(b.kart.fall, null, 'no respawn above the corridor floor');
       }
       assert.equal(tumbled, !rolling, rolling ? 'the roll dodges' : 'the shot connects');
+    }
+  });
+
+  it('a hit at the floor drops a kart out mid-lane, but lands it on the run-in to the deck', () => {
+    for (const [where, falls] of [['mid', true], ['run-in', false]]) {
+      const world = testWorld(CIRCUITS[0]);
+      const index = mainLane(world.track);
+      emptyLayouts(world.track, index);
+      const lane = world.track.sky.lanes[index];
+      const local = where === 'mid' ? (lane.start + lane.end) / 2 : lane.end - 25;
+      const a = world.state.player;
+      const floor = laneFloor(lane, local, world.track.length);
+      const k = fly(world, a, index, local, 0, floor + 0.05);
+      tumbleKart(k, 0.8, floor);
+      let fell = false;
+      for (let t = 0; t < 240 && !fell; t++) {
+        world.step({ 0: {} });
+        fell = !!k.fall;
+      }
+      assert.equal(fell, falls, `${where}: ${falls ? 'knocked out of the lane' : 'lands on the deck'}`);
     }
   });
 

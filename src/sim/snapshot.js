@@ -58,6 +58,8 @@ export function captureSnapshot(world, ackBySeat = null) {
       held: a.held,
       roulette: a.roulette ? { ...a.roulette } : null,
       charges: a.charges,
+      reserve: a.reserve ?? null,
+      reserveCharges: a.reserveCharges ?? 0,
       unlimited: a.unlimited,
       finish: a.finish,
       finishUs: a.finishUs,
@@ -142,6 +144,8 @@ export function applySnapshot(world, snap) {
       actor.held = raw.held;
       actor.roulette = raw.roulette ? { ...raw.roulette } : null;
       actor.charges = raw.charges;
+      actor.reserve = raw.reserve ?? null;
+      actor.reserveCharges = raw.reserveCharges ?? 0;
       actor.unlimited = raw.unlimited;
       actor.finish = raw.finish;
       actor.finishUs = raw.finishUs;
@@ -215,6 +219,8 @@ export function encodeWireSnapshot(world, ackBySeat = {}) {
         bp: b.pips,
         it: a.held ?? -1,
         ch: a.charges,
+        rv: a.reserve ?? -1,
+        rc: a.reserveCharges ?? 0,
         sh: Math.round((a.shield || 0) * 1000),
         in: a.incoming || '',
         fn: a.finishUs,
@@ -273,6 +279,8 @@ export function decodeWireKart(w) {
     boostPips: w.bp,
     held: w.it >= 0 ? w.it : null,
     charges: w.ch,
+    reserve: w.rv >= 0 ? w.rv : null,
+    reserveCharges: w.rc ?? 0,
     shield: w.sh / 1000,
     incoming: w.in || '',
     finishUs: w.fn ?? null,

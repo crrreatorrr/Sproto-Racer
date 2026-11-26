@@ -3,7 +3,7 @@ export const ACTIONS = [
   ['throttle', 'Accelerate'], ['brake', 'Brake / rotate'],
   ['drift', 'Hop / powerslide'], ['driftBoost', 'Activate drift boost'], ['reverse','Reverse / pull back'], ['map','Toggle minimap'],
   ['lookBack','Look back'], ['distance','Camera distance'],
-  ['item', 'Use item'], ['blasters','Fire Barrage blasters'], ['prev', 'Previous test item'], ['next', 'Switch test item'],
+  ['item', 'Use item (hold to swap)'], ['blasters','Fire Barrage blasters'], ['prev', 'Previous test item'], ['next', 'Switch test item'],
   ['pause', 'Pause'], ['reset', 'Restart section']
 ];
 

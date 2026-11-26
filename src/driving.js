@@ -174,6 +174,19 @@ function advanceKart(kart,road,signedSpeed,dt){
   kart.travelYaw-=curve*ds;
   kart.yaw-=curve*ds;
 
+  // A main Sky Lane has no road. Forward karts always launch at its catapult,
+  // so only a kart rolling back off the landing deck can get here: it drops
+  // into the void and is rescued onto the deck, facing the right way.
+  const missing=road.sky?missingRoad(road.sky,kart.s,road.length):null;
+  if(missing){
+    const base=Math.floor(kart.s/road.length)*road.length;
+    kart.fall={time:0,exitS:kart.s,respawnS:base+missing.end+10,along:ds/dt,across:0};
+    kart.grounded=false;kart.hopping=false;kart.pendingDrift=false;
+    if(kart.y<=0)kart.vy=0;
+    leaveSlide(kart);
+    return;
+  }
+
   const bounds=laneBounds(kart,road,HALF_KART_WIDTH);
   if(kart.x>=bounds.min && kart.x<=bounds.max){
     if(Math.abs(kart.x)>=(road.widthAt?.(kart.s)??road.width??16)/2){
@@ -354,6 +367,15 @@ function driveFrame(kart, input, road, boost, steer, throttle, brake, dt) {
   kart.pitch = approach(kart.pitch, pitchTarget, 7, dt);
 }
 
+function missingRoad(sky,s,length){
+  const d=((s%length)+length)%length;
+  for(let i=0;i<sky.lanes.length;i++){
+    const lane=sky.lanes[i];
+    if(!lane.optional && d>=lane.start+25 && d<lane.end-0.5)return lane;
+  }
+  return null;
+}
+
 function lapBase(kart,road){
   return Math.floor(kart.s/road.length)*road.length;
 }
@@ -366,10 +388,32 @@ function centreLift(kart,road){
   return road.heightAt(kart.s,0)-road.heightAt(kart.s,kart.x);
 }
 
+/**
+ * Puts a kart that is placed inside a main Sky Lane (a Test Drive start or a
+ * restart) straight into flight, mid-corridor, since the road there is gone.
+ */
+export function settleInSky(kart,road){
+  if(!road.sky || kart.flying || kart.fall)return false;
+  const index=road.sky.laneAt(kart.s);
+  const lane=index<0?null:road.sky.lanes[index];
+  if(!lane || lane.optional)return false;
+  startFlight(kart,road,index);
+  kart.skyY=(lane.floor+lane.ceiling)/2;
+  kart.skyPrevY=kart.skyY;
+  kart.skyVY=0;
+  kart.skyLaunch=0;
+  kart.y=kart.skyY+centreLift(kart,road);
+  kart.speed=Math.max(kart.speed,CRUISE_SPEED*kart.tuning.speed*SKY_TIER_SPEED[0]);
+  return true;
+}
+
 export function startFlight(kart,road,index){
   const lane=road.sky.lanes[index];
   kart.flying=true;
   kart.skyLane=index;
+  // A Sky Gate pad reaches past its corridor's edge; start inside the walls.
+  const half=lane.width/2-HALF_KART_WIDTH;
+  kart.x=clamp(kart.x,-half,half);
   kart.skyY=clamp(lane.floor+Math.max(2,kart.y),lane.floor,lane.ceiling-2);
   kart.skyVX=0;
   kart.skyVY=6;

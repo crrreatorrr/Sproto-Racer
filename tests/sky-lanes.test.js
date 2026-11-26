@@ -88,6 +88,44 @@ describe('Sky Lane flight', () => {
     }
   });
 
+  it('a Test Drive sector inside a main lane starts in flight, not on missing road', () => {
+    const course = CIRCUITS[0];
+    const probe = createTrackCore(course);
+    const lane = probe.sky.lanes[mainLane(probe)];
+    const sector = probe.sections.findIndex((s) => s.start > lane.start + 30 && s.start < lane.end - 30);
+    assert.ok(sector > 0, 'some sector starts inside the lane');
+    const world = createSimWorld({ course, mode: 'test', settings: { sector, speed: 'standstill', lap: 1, rivals: 'pack' } });
+    for (const a of world.state.actors) assert.ok(a.kart.flying, `#${a.id} starts flying`);
+    world.step({ 0: {} });
+    assert.ok(world.state.player.kart.speed > 1.5 * CRUISE_SPEED);
+  });
+
+  it('rolling back off a landing deck drops out and is rescued onto the deck', () => {
+    const world = testWorld(CIRCUITS[1]);
+    const lane = world.track.sky.lanes[mainLane(world.track)];
+    const k = world.state.player.kart;
+    Object.assign(k, { s: lane.end + 6, x: 0, speed: 0, grounded: true });
+    let fell = false;
+    for (let t = 0; t < 60 * 6; t++) {
+      world.step({ 0: { reverse: k.fall ? 0 : 1 } });
+      fell ||= !!k.fall;
+      if (k.grounded && !k.fall) assert.ok(k.s >= lane.end - 1, 'never drives on the missing road');
+    }
+    assert.ok(fell);
+    assert.equal(k.rescues, 1);
+    assert.ok(k.s > lane.end, 'rescued onto the deck');
+  });
+
+  it('a Sky Gate launch from the edge of its pad starts inside the corridor', () => {
+    const world = testWorld(CIRCUITS[0]);
+    const gateIndex = world.track.sky.lanes.findIndex((lane) => lane.optional);
+    const gate = world.track.sky.lanes[gateIndex];
+    const k = world.state.player.kart;
+    k.x = gate.entry[1] - 0.2;
+    startFlight(k, roadFor(world.track), gateIndex);
+    assert.ok(Math.abs(k.x) <= gate.width / 2);
+  });
+
   it('corridor walls clamp and scrape the kart', () => {
     const world = testWorld(CIRCUITS[0]);
     const index = mainLane(world.track);

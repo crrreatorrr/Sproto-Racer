@@ -1,6 +1,6 @@
 import { ITEMS, startPickup, settlePickup } from './items.js';
 import { racerSetup } from './roster.js';
-import { createKart, stepKart, launchFromRamp, CRUISE_SPEED } from './driving.js';
+import { createKart, stepKart, launchFromRamp, CRUISE_SPEED, settleInSky } from './driving.js';
 import { createBoost, stepBoost, grantBoost, updateRevs, gradeLaunch } from './boost.js';
 import { acceptTrial, noteTrial, pageRecords } from './hub/records.js';
 import { atan2, mod } from './sim/math.js';
@@ -87,6 +87,9 @@ export function createSession(track, play, fx, records = pageRecords) {
       (offsets[settings.rivals] ?? []).forEach(([d, x], i) => state.actors.push(make(i + 1, base + d, x, speed)));
     }
     if (test) {
+      // A sector inside a main Sky Lane starts in flight: its road is gone.
+      const road = { sky: track.sky, length: track.length, heightAt };
+      for (const a of state.actors) settleInSky(a.kart, road);
       state.player.inventoryCharges = ITEMS.map((item) => item.charges ?? 1);
       select(settings.item);
       for (const a of state.actors) {

@@ -19,6 +19,7 @@ import {
   HALF_KART_WIDTH,
   HALF_KART_LENGTH,
   KART_CONTACT_HEIGHT,
+  settleInSky,
 } from '../driving.js';
 import { createBoost, stepBoost, grantBoost, updateRevs, gradeLaunch } from '../boost.js';
 import { atan2, mod } from './math.js';
@@ -257,6 +258,11 @@ export function createSimWorld(options = {}) {
     }
 
     state.player = state.actors[0] || null;
+    // A Test Drive sector inside a main Sky Lane starts in flight: its road is gone.
+    if (test) {
+      const road = { sky: track.sky, length: track.length, heightAt };
+      for (let i = 0; i < state.actors.length; i++) settleInSky(state.actors[i].kart, road);
+    }
     if (test && state.player) {
       state.player.inventoryCharges = ITEMS.map((it) => it.charges ?? 1);
       state.player.held = mod(settings.item, ITEMS.length);

@@ -119,7 +119,7 @@ export function applySnapshot(world, snap) {
           tuning: car,
           fall: raw.kart.fall ? { ...raw.kart.fall } : null,
         }),
-        boost: Object.assign(createBoost(), raw.boost),
+        boost: Object.assign(createBoost(car.boostGain), raw.boost, { gain: car.boostGain }),
         roulette: raw.roulette ? { ...raw.roulette } : null,
       };
     });
@@ -138,7 +138,7 @@ export function applySnapshot(world, snap) {
         tuning: car,
         fall: raw.kart.fall ? { ...raw.kart.fall } : null,
       });
-      Object.assign(actor.boost, createBoost(), raw.boost);
+      Object.assign(actor.boost, createBoost(car.boostGain), raw.boost, { gain: car.boostGain });
       actor.held = raw.held;
       actor.roulette = raw.roulette ? { ...raw.roulette } : null;
       actor.charges = raw.charges;

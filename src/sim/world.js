@@ -190,7 +190,7 @@ export function createSimWorld(options = {}) {
       isPlayer: seatDef.id === 0,
       isHuman,
       kart: { ...createKart(car), s, x, speed: entrySpeed * car.speed },
-      boost: createBoost(),
+      boost: createBoost(car.boostGain),
       held: null,
       roulette: null,
       charges: 0,
@@ -273,7 +273,7 @@ export function createSimWorld(options = {}) {
       state.player.charges = state.player.inventoryCharges[state.player.held];
       if (['turbo', 'super'].includes(settings.speed)) {
         for (let i = 0; i < state.actors.length; i++) {
-          grantBoost(state.actors[i].boost, 5, settings.speed === 'super' ? 2 : 1);
+          grantBoost(state.actors[i].boost, 5, settings.speed === 'super' ? 2 : 1, false);
         }
       }
     }
@@ -367,7 +367,7 @@ export function createSimWorld(options = {}) {
     road.sky = track.sky;
     stepKart(k, controls, road, a.boost, dt);
     if (k.fall && !wasFalling) {
-      Object.assign(a.boost, createBoost());
+      Object.assign(a.boost, createBoost(a.boost.gain));
       play.withdraw(a);
     }
     if (wasFalling || k.fall) return { a, recovering: true };

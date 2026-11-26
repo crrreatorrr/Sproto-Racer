@@ -1,4 +1,4 @@
-import {HALF_KART_WIDTH} from './driving.js';
+import {HALF_KART_WIDTH,flightCeiling} from './driving.js';
 import {kartFootprint,footprintContact,laneBounds} from './kart-footprint.js';
 import {cos,sin} from './sim/math.js';
 import {createTrackSample} from './sim/track-core.js';
@@ -10,7 +10,9 @@ const diameter = 5.4;
 function applyImpulse(kart, along, across) {
   const oldSpeed = kart.speed - kart.reverseSpeed;
   const c=cos(kart.travelYaw),s=sin(kart.travelYaw);
-  const speed=clamp(oldSpeed+along*c+across*s,kart.grounded?-8:0,140);
+  // A bump never shoves a flying kart past its own flight ceiling.
+  const ceiling=kart.flying?Math.max(oldSpeed,flightCeiling(kart)):140;
+  const speed=clamp(oldSpeed+along*c+across*s,kart.grounded?-8:0,ceiling);
   kart.speed=Math.max(0,speed);
   kart.reverseSpeed=Math.max(0,-speed);
   // The part of the impulse across the driver's heading is tire slip. Both road

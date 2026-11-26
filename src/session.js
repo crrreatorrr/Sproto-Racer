@@ -55,7 +55,7 @@ export function createSession(track, play, fx, records = pageRecords, onVisualCu
       driver: driver.id,
       isPlayer: !id,
       kart: { ...createKart(car), s, x, speed: entrySpeed * car.speed },
-      boost: createBoost(),
+      boost: createBoost(car.boostGain),
       held: null,
       roulette: null,
       charges: 0,
@@ -95,7 +95,7 @@ export function createSession(track, play, fx, records = pageRecords, onVisualCu
       select(settings.item);
       for (const a of state.actors) {
         if (['turbo', 'super'].includes(settings.speed)) {
-          grantBoost(a.boost, 5, settings.speed === 'super' ? 2 : 1);
+          grantBoost(a.boost, 5, settings.speed === 'super' ? 2 : 1, false);
         }
       }
     }
@@ -203,7 +203,7 @@ export function createSession(track, play, fx, records = pageRecords, onVisualCu
     road.sky = track.sky;
     stepKart(k, controls, road, a.boost, dt);
     if (k.fall && !wasFalling) {
-      Object.assign(a.boost, createBoost());
+      Object.assign(a.boost, createBoost(a.boost.gain));
       play.withdraw(a);
     }
     if (wasFalling || k.fall) return { a, recovering: true };

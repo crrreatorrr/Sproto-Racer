@@ -4,7 +4,7 @@
 import { barrageMuzzle } from '../barrage-layout.js';
 import { hasShapedBody } from '../kart-footprint.js';
 import { resolveKartContacts } from '../kart-contact.js';
-import { GRAVITY, steerForTurn, stunKart, springJump, tumbleKart } from '../driving.js';
+import { GRAVITY, flightCeiling, steerForTurn, stunKart, springJump, tumbleKart } from '../driving.js';
 import { interruptBoost, grantBoost, grantCell, dropSkyTier, stepSkyChain, clearSky } from '../boost.js';
 import { lapOf, laneCeiling, sweepCells, sweepObstacles, SKY_KART_RADIUS } from './sky.js';
 
@@ -555,7 +555,7 @@ export function createGameplayCore(track, hooks = {}) {
         const stolen = Math.min(1.5, target.boost.reserve);
         target.boost.reserve -= stolen;
         if (target.boost.reserve <= 0) target.boost.tier = 0;
-        grantBoost(a.boost, stolen);
+        grantBoost(a.boost, stolen, 1, false); // stolen boost isn't scaled by the thief's Boost stat
         notify(target, 'SODA SIPHONED');
         cue('hit', 'siphon', target);
         break;
@@ -663,7 +663,12 @@ export function createGameplayCore(track, hooks = {}) {
       input.driftPressed = true;
     }
     if (s.aiDirection) {
-      input.driftHeld = !(k.sliding && !b.chainClosed && b.meter >= 0.77 + (id % 3) * 0.066);
+      // Each rival aims at its own car's windows (its Boost stat), with a fixed per-slide timing
+      // error, so a wider window really does turn more of its drifts into GOOD and PERFECT.
+      const goodAt = k.tuning?.goodAt ?? 0.70, perfectAt = k.tuning?.perfectAt ?? 0.90;
+      const aim = id % 3 === 2 ? perfectAt + 0.002 : goodAt + (id % 3 ? 0.68 : 0.35) * (perfectAt - goodAt);
+      const scatter = (((id * 7919 + (k.slideId || 0) * 104729) % 1000) / 1000 - 0.5) * 0.12;
+      input.driftHeld = !(k.sliding && !b.chainClosed && b.meter >= aim + scatter);
     }
     // Rivals hop at some ramp lips for a trick, set by id, lap and ramp.
     const trickRate = RIVAL_SKY[(id - 1) % RIVAL_SKY.length].tricks;
@@ -1094,6 +1099,7 @@ export function createGameplayCore(track, hooks = {}) {
           }
           grantBoost(o.owner.boost, dt * 1.3);
           k.speed += Math.min(4, Math.max(0, o.target.kart.speed + 3 - k.speed)) * dt;
+          if (k.flying) k.speed = Math.min(k.speed, Math.max(flightCeiling(k), k.speed - 4 * dt));
           break;
         case 'beam':
           break;

@@ -2,6 +2,11 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { CAR_CLASSES, CLASS_OF, classTuning } from '../src/car-classes.js';
 import { CARS, carById } from '../src/roster.js';
+import { createBoost, grantBoost, interruptBoost, stepBoost } from '../src/boost.js';
+import { createKart } from '../src/driving.js';
+import { CIRCUITS } from '../src/sim/track-core.js';
+import { createSimWorld } from '../src/sim/world.js';
+import { captureSnapshot, applySnapshot } from '../src/sim/snapshot.js';
 
 const near = (actual, expected, label) => assert.ok(Math.abs(actual - expected) < 1e-9, `${label}: ${actual} ≈ ${expected}`);
 const RIVAL_IDS = ['apex', 'needle', 'pogo', 'gecko', 'relay', 'geep', 'hexshift', 'barrage', 'ironhide', 'crestline', 'manta', 'saucer', 'shopping-cart', 'skipper'];
@@ -43,5 +48,64 @@ describe('car classes', () => {
   it('rival cars cover all six classes', () => {
     assert.equal(new Set(RIVAL_IDS.map((id) => carById(id).class)).size, 6);
     assert.equal(Object.keys(CAR_CLASSES).length, 6);
+  });
+});
+
+describe('Boost stat', () => {
+  const slidingKart = (carId) => {
+    const kart = createKart(carById(carId));
+    Object.assign(kart, { sliding: true, slideId: 1, grounded: true });
+    return kart;
+  };
+  const release = (carId, meter, gain = carById(carId).boostGain) => {
+    const kart = slidingKart(carId);
+    const boost = createBoost(gain);
+    Object.assign(boost, { activeSlide: 1, meter });
+    stepBoost(boost, kart, { driftHeld: true, driftBoostPressed: true }, 0);
+    return boost;
+  };
+
+  it("a Booster's GOOD window opens earlier", () => {
+    assert.equal(carById('relay').class, 'booster');
+    const early = release('apex', 0.65);
+    assert.equal(early.reserve, 0);
+    assert.equal(early.feedback, 'TOO EARLY');
+    const booster = release('relay', 0.65);
+    near(booster.reserve, 0.8 * carById('relay').boostGain, 'booster GOOD reserve');
+    assert.match(booster.feedback, /^GOOD/);
+  });
+
+  it('PERFECT follows the car', () => {
+    const base = release('apex', 0.88);
+    assert.match(base.feedback, /^GOOD/);
+    near(base.reserve, 0.8 * carById('apex').boostGain, 'base GOOD reserve');
+    const booster = release('relay', 0.88);
+    assert.match(booster.feedback, /^PERFECT/);
+    near(booster.reserve, 1.2 * carById('relay').boostGain, 'booster PERFECT reserve');
+  });
+
+  it('boost gain scales grants but not Siphon', () => {
+    const b = createBoost(1.12);
+    grantBoost(b, 1);
+    near(b.reserve, 1.12, 'scaled grant');
+    grantBoost(b, 1, 1, false);
+    near(b.reserve, 2.12, 'unscaled grant');
+  });
+
+  it('resets and restores keep the gain', () => {
+    const b = createBoost(1.12);
+    interruptBoost(b, createKart(carById('relay')), 'RAIL HIT');
+    near(b.gain, 1.12, 'gain after interrupt');
+
+    const seats = [{ kind: 'ai', gridIndex: 0, car: 'relay' }, { kind: 'ai', gridIndex: 1, car: 'needle' }];
+    const a = createSimWorld({ course: CIRCUITS[0], seed: 5, seats });
+    near(a.state.actors[0].boost.gain, carById('relay').boostGain, 'booster seat gain');
+    near(a.state.actors[1].boost.gain, carById('needle').boostGain, 'speedster seat gain');
+    for (let i = 0; i < 300; i++) a.step({});
+    const snap = captureSnapshot(a);
+    for (const actor of snap.actors) delete actor.boost.gain;
+    const b2 = createSimWorld({ course: CIRCUITS[0], seed: 1, seats: [{ kind: 'ai', gridIndex: 0, car: 'apex' }, { kind: 'ai', gridIndex: 1, car: 'apex' }] });
+    assert.equal(applySnapshot(b2, snap), true);
+    near(b2.state.actors[0].boost.gain, carById('relay').boostGain, 'restored gain');
   });
 });

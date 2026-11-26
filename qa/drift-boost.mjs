@@ -68,6 +68,8 @@ function race(options={}){
   const {player,actors}=session.start('test',{speed:'cruise',...options});
   for(const a of actors){
     Object.assign(a.kart,{s:100,speed:42});
+    // Stock boost math: car Boost stats (boost.gain) are covered in tests/car-stats.test.js.
+    a.boost.gain=1;
     grantBoost(a.boost,4,2);
     Object.assign(a.boost,{pips:1,comboLength:1,plume:1,meter:.9});
   }

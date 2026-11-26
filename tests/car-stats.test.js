@@ -7,6 +7,8 @@ import { createKart } from '../src/driving.js';
 import { CIRCUITS } from '../src/sim/track-core.js';
 import { createSimWorld } from '../src/sim/world.js';
 import { captureSnapshot, applySnapshot } from '../src/sim/snapshot.js';
+import { ITEMS, pickupWeights } from '../src/items.js';
+import { stateHash } from '../src/sim/hash.js';
 
 const near = (actual, expected, label) => assert.ok(Math.abs(actual - expected) < 1e-9, `${label}: ${actual} ≈ ${expected}`);
 const RIVAL_IDS = ['apex', 'needle', 'pogo', 'gecko', 'relay', 'geep', 'hexshift', 'barrage', 'ironhide', 'crestline', 'manta', 'saucer', 'shopping-cart', 'skipper'];
@@ -107,5 +109,40 @@ describe('Boost stat', () => {
     const b2 = createSimWorld({ course: CIRCUITS[0], seed: 1, seats: [{ kind: 'ai', gridIndex: 0, car: 'apex' }, { kind: 'ai', gridIndex: 1, car: 'apex' }] });
     assert.equal(applySnapshot(b2, snap), true);
     near(b2.state.actors[0].boost.gain, carById('relay').boostGain, 'restored gain');
+  });
+});
+
+describe('Luck stat', () => {
+  const comet = ITEMS.findIndex((it) => it.name === 'Comet Candy');
+  const soda = ITEMS.findIndex((it) => it.name === 'Soda Turbo');
+  // Six karts in a line; `place` 0 leads. luckShift is set straight on the tuning.
+  const pack = (place, luckShift) => {
+    const karts = Array.from({ length: 6 }, (_, i) => ({ kart: { s: 600 - i * 20, tuning: { luckShift: 0 } } }));
+    karts[place].kart.tuning = { luckShift };
+    return { actor: karts[place], karts };
+  };
+
+  it('luck shifts the leader toward better items', () => {
+    const base = pack(0, 0), lucky = pack(0, 0.3);
+    const w0 = pickupWeights(base.actor, base.karts), w1 = pickupWeights(lucky.actor, lucky.karts);
+    assert.equal(w0[comet], 0);
+    assert.ok(w1[comet] > 0, 'a lucky leader can roll Comet Candy');
+    assert.ok(w1[soda] < w0[soda], 'fewer Soda Turbos for a lucky leader');
+  });
+
+  it('luck stays within the table', () => {
+    const last = pack(5, 0.3);
+    assert.deepEqual(pickupWeights(last.actor, last.karts), ITEMS.map((it) => it.weights[1]));
+    const first = pack(0, -0.08);
+    assert.deepEqual(pickupWeights(first.actor, first.karts), ITEMS.map((it) => it.weights[0]));
+    for (const w of pickupWeights(last.actor, last.karts)) assert.ok(w >= 0);
+  });
+
+  it('a lucky roll is still deterministic', () => {
+    const seats = ['hexshift', 'saucer', 'apex', 'needle'].map((car, i) => ({ kind: 'ai', gridIndex: i, car }));
+    const a = createSimWorld({ course: CIRCUITS[0], seed: 21, seats });
+    const b = createSimWorld({ course: CIRCUITS[0], seed: 21, seats });
+    for (let i = 0; i < 3000; i++) { a.step({}); b.step({}); }
+    assert.equal(stateHash(a), stateHash(b));
   });
 });

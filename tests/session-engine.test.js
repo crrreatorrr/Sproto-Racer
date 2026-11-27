@@ -124,3 +124,42 @@ describe('single-player session on the shared engine', () => {
     assert.equal(saved.time, state.elapsed, 'a finished session kept running');
   });
 });
+
+// Rollback exactness: a world restored from a snapshot must continue exactly as the world
+// the snapshot was taken from, whenever the snapshot was taken.
+describe('snapshot restore is exact', () => {
+  it('a snapshot taken during the countdown restores into the same race', async () => {
+    const { captureSnapshot, applySnapshot } = await import('../src/sim/snapshot.js');
+    for (const takenAt of [1, 90, 179]) {
+      const live = createSimWorld({ courseId: 'track01', seed: 21 });
+      const restored = createSimWorld({ courseId: 'track01', seed: 21 });
+      for (let tick = 0; tick < takenAt; tick++) live.step({ 0: controlsToIntentFrame(tick, tickControls(tick)) });
+      applySnapshot(restored, JSON.parse(JSON.stringify(captureSnapshot(live))));
+      for (let tick = takenAt; tick < 600; tick++) {
+        const frame = controlsToIntentFrame(tick, tickControls(tick));
+        live.step({ 0: frame });
+        restored.step({ 0: frame });
+      }
+      assert.equal(stateHash(restored), stateHash(live), `snapshot at tick ${takenAt}`);
+      assert.deepEqual(
+        restored.state.actors.map((a) => a.kart.x),
+        live.state.actors.map((a) => a.kart.x),
+        `kart lanes differ after a snapshot at tick ${takenAt}`,
+      );
+    }
+  });
+
+  it('restoring a snapshot clears take-off values left by a mispredicted jump', async () => {
+    const { captureSnapshot, applySnapshot } = await import('../src/sim/snapshot.js');
+    const world = createSimWorld({ courseId: 'track01', seed: 2 });
+    for (let tick = 0; tick < 240; tick++) world.step({});
+    const snap = captureSnapshot(world);
+    const kart = world.state.actors[0].kart;
+    Object.assign(kart, { airFloorY: 3.5, takeoffPitch: 0.4, takeoffRoll: -0.3 });
+    applySnapshot(world, snap);
+    assert.equal(kart.airFloorY, snap.actors[0].kart.airFloorY);
+    assert.equal(kart.takeoffPitch, snap.actors[0].kart.takeoffPitch);
+    assert.equal(kart.takeoffRoll, snap.actors[0].kart.takeoffRoll);
+    assert.equal(kart.airFloorY, null);
+  });
+});

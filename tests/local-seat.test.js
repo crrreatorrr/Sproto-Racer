@@ -8,6 +8,7 @@ import { describe, it } from 'node:test';
 import { CIRCUITS, createTrackCore } from '../src/sim/track-core.js';
 import { createGameplayCore } from '../src/sim/gameplay-core.js';
 import { createSimWorld } from '../src/sim/world.js';
+import { stateHash } from '../src/sim/hash.js';
 import { createLocalRaceRunner } from '../src/race-runner.js';
 import { createSession, splitText, timeText } from '../src/session.js';
 import { cueEvent } from '../src/race-cues.js';
@@ -229,4 +230,31 @@ describe('item effects in an online race', () => {
     const takenBack = players.reduce((sum, p) => sum + p.cancelled.length, 0);
     assert.ok(takenBack > 0, 'nothing was ever cancelled, so cancelling was not tested');
   });
+});
+
+// The game draws a race with its own track object, which wraps the simulation's track and
+// passes on only some of its functions. The server uses the bare one. The AI must drive
+// the same on both, or an online race drifts as soon as a rival does something the two
+// sides decide differently (found with the in-page test race: the AI eased its steering
+// on ice and puddles only when the track object lacked `evalFrame`).
+describe('AI rivals drive the same on the game\'s track as on the server\'s', () => {
+  for (const course of CIRCUITS) {
+    it(`${course.name}: same race from the bare track and from one without evalFrame`, () => {
+      const worlds = [false, true].map((asInGame) => {
+        const core = createTrackCore(course);
+        const track = asInGame ? { ...core, evalFrame: undefined } : core;
+        const play = createGameplayCore(track);
+        return createSimWorld({ course, seed: 31, track, play, seats: Array.from({ length: 6 }, () => ({ kind: 'ai' })), finishRule: 'all_racers' });
+      });
+      for (let tick = 0; tick < 4800; tick++) {
+        for (const world of worlds) world.step({});
+        if (tick % 200 === 199 && stateHash(worlds[0]) !== stateHash(worlds[1])) {
+          assert.fail(`the two races differ by tick ${tick}`);
+        }
+      }
+      // The check means nothing on a circuit without low-grip road, so say so if that changes.
+      const core = worlds[0].track;
+      assert.ok((core.icePatches?.length ?? 0) + (core.wetPatches?.length ?? 0) > 0, `${course.id} has no ice or wet road`);
+    });
+  }
 });

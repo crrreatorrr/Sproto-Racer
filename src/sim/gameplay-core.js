@@ -130,6 +130,9 @@ export function createGameplayCore(track, hooks = {}) {
   let rewards = [...(track.pads || []), ...(track.pickups || [])];
   let rewardIndex = createRoadIndex(rewards, track.length);
   let padIndex = createRoadIndex(track.pads, track.length);
+  // Whether this circuit has any ice or wet road at all, so the AI only looks for it there.
+  const hasLowGrip = (t) => (t.icePatches?.length ?? 0) + (t.wetPatches?.length ?? 0) > 0;
+  let lowGripRoad = hasLowGrip(track);
   const sampleA = createTrackSample();
   const sampleB = createTrackSample();
   // Reused every tick, indexed by seat: each rival's controls, each kart's path through the
@@ -710,7 +713,11 @@ export function createGameplayCore(track, hooks = {}) {
       s.aiDirection = 0;
       s.aiRest = 0.24;
     }
-    input.steer = steerForTurn(k, (feed + steerCorrection) / (k.grounded ? Math.max(.6, here.grip ?? 1) : 1));
+    // Less steering on ice and puddles. The frame alone does not carry grip (it depends on
+    // where across the road the kart is), so on that path it is sampled: both paths must
+    // steer the same, or a race drawn with the game's track drifts from the server's.
+    const grip = !k.grounded ? 1 : framed ? (lowGripRoad ? sampleTrack(k.s, k.x, sampleB).grip ?? 1 : 1) : here.grip ?? 1;
+    input.steer = steerForTurn(k, (feed + steerCorrection) / Math.max(.6, grip));
     if (
       !s.aiDirection &&
       s.aiRest === 0 &&
@@ -1353,6 +1360,7 @@ export function createGameplayCore(track, hooks = {}) {
     rewards = [...(track.pads || []), ...(track.pickups || [])];
     rewardIndex = createRoadIndex(rewards, track.length);
     padIndex = createRoadIndex(track.pads, track.length);
+    lowGripRoad = hasLowGrip(track);
   }
 
   function captureState(allActors) {

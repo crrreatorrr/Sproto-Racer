@@ -163,6 +163,55 @@ for (const course of CIRCUITS) {
   }
 }
 
+// Single player runs on src/session.js, a second race loop over the same shared modules. It is
+// driven here the way the game drives it: a track without the multiplayer-only fast lookups
+// (the render track does not pass them on) and items drawn from Math.random, seeded for the run.
+{
+  const { createSession } = await load('src/session.js');
+  const { createTrackCore } = await load('src/sim/track-core.js');
+  const { createGameplayCore } = await load('src/sim/gameplay-core.js');
+  const { createRng } = await load('src/sim/rng.js');
+  const realRandom = Math.random;
+  const records = { get: () => null, set() {} };
+  const fx = { reset() {}, tone() {} };
+  function solo(name, course, seed, mode, options, ticks) {
+    const { evalFrame, edgesAt, ...track } = createTrackCore(course);
+    const play = createGameplayCore(track);
+    const session = createSession(track, play, fx, records);
+    Math.random = createRng(seed).nextFloat;
+    try {
+      session.start(mode, options);
+      const hashes = [];
+      for (let t = 0; t < ticks; t++) {
+        session.tick(human(0, t), 1 / 60);
+        if (t % EVERY === EVERY - 1 || t === ticks - 1) {
+          const { state } = session;
+          const h = crypto.createHash('sha256');
+          h.update(canon([state.elapsed, state.countdown, state.lap, state.sector, state.done]));
+          for (const a of state.actors) h.update(canon(a));
+          h.update(canon(play.objects));
+          h.update(canon(play.captureState(state.actors).actorStates));
+          hashes.push(h.digest('hex').slice(0, 16));
+        }
+      }
+      out.push([name, hashes]);
+    } finally {
+      Math.random = realRandom;
+    }
+  }
+  for (const course of CIRCUITS) {
+    for (const seed of SEEDS) {
+      for (const car of ['apex', 'manta', 'ironhide']) {
+        solo(`${course.id} single player race ${car} seed${seed}`, course, seed, 'race', { car }, quick ? 1800 : 7200);
+      }
+    }
+    for (let item = 0; item < ITEMS.length; item += 3) {
+      solo(`${course.id} single player test drive item${item}`, course, 40 + item, 'test',
+        { sector: item % 4, speed: 'cruise', rivals: 'pack', item, car: SHAPED[item % SHAPED.length] }, quick ? 900 : 2400);
+    }
+  }
+}
+
 const result = Object.fromEntries(out);
 const count = out.reduce((n, [, h]) => n + h.length, 0);
 const writeTo = flag('--write');

@@ -281,6 +281,9 @@ export function createSimWorld(options = {}) {
     }
 
     state.player = state.actors[0] || null;
+    // Build each car's collision outline now. The shape tables are made on first use, which
+    // takes tens of milliseconds on the server and would otherwise land on the first race tick.
+    for (let i = 0; i < state.actors.length; i++) kartFootprint(state.actors[i].kart);
     // A Test Drive sector inside a main Sky Lane starts in flight: its road is gone.
     if (test) {
       const road = { sky: track.sky, length: track.length, heightAt };

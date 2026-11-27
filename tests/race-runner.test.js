@@ -54,6 +54,22 @@ describe('local race runner', () => {
     assert.equal(runner.world.state.tick, 9);
   });
 
+  it('draws the final tick as it is once the race is over', () => {
+    const runner = createLocalRaceRunner({ courseId: 'track01', seed: 3, laps: 1, mode: 'trial' });
+    // A frame that ends mid-tick during the race interpolates part of the way...
+    for (let i = 0; i < 200; i++) runner.advance(1 / 60, () => ({ throttle: 1 }));
+    runner.advance(1 / 240, () => ({ throttle: 1 }));
+    assert.ok(runner.alpha > 0 && runner.alpha < 1);
+    // ...but when the race has ended no further tick will come: draw the last one, not the one before.
+    const kart = runner.localActor.kart;
+    Object.assign(kart, { s: runner.world.track.length - 0.05, x: 0, y: 0, speed: 38, grounded: true, fall: null });
+    runner.advance(1 / 60, () => ({ throttle: 1 }));
+    assert.equal(runner.phase, 'finished');
+    assert.equal(runner.alpha, 1);
+    runner.advance(1 / 60, () => ({ throttle: 1 }));
+    assert.equal(runner.alpha, 1);
+  });
+
   it('delivers each event once and tracks lap, sector, position and the finish', () => {
     const runner = createLocalRaceRunner({ courseId: 'track01', seed: 21, laps: 1 });
     const driver = createScriptedDriver();

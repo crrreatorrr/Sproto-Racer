@@ -229,10 +229,47 @@ Events and rollback: most revised events are `bump` (it fires on every tick of a
 
 Batch size: relaying every tick costs 13.6 KB/s down and the most rollback work, because a rollback then runs on every frame. Every 2 ticks is the default. Every 3 ticks saves another 1.7 KB/s and some CPU, but each correction is up to 33 ms staler, so remote karts jump further when corrected; it stays available through `inputBatchTicks`.
 
+## What the hub server needs
+
+The match host is part of `build/racer-sim.js`, so the server side of an online race is this repo's code end to end. What is left for `metaverse-hub` is a Nakama match handler that passes calls through. It has not been written or run against a real Nakama; the outline below is what the host's interface requires.
+
+**In the bundle** (all on the `RacerSim` global, created lazily so nothing is frozen at start-up):
+
+- `RacerSim.createMatchHost(options)`: one per match. `options.send(playerId, opCode, data)` is required; `data` is a `Uint8Array` for the frequent binary messages and a string for the rare JSON ones. Other options: `courseId`, `seed`, `laps`, `seatCount` (6 today, up to 12), and the limits in `HOST_DEFAULTS` (`src/net/match-host.js`).
+- `RacerSim.netInfo()`: `{ netVersion, simVersion, tickRate: 60, op }`, the versions a client must match and the op codes.
+
+**The handler, call for call:**
+
+| Nakama hook | What it does |
+| --- | --- |
+| `matchInit` | Pick the circuit and a seed (from the match parameters; the seed can be any 32-bit number, e.g. from `nk.uuidv4()`), create the host with a `send` that calls `dispatcher.broadcastMessage(opCode, payload, [presence], null, true)`, where `payload` is the string as given or, for a `Uint8Array`, its bytes as an `ArrayBuffer` (`data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength)`), and return `tickRate: 60` with a label such as `{ kind: 'sproto_racer', open: true, simVersion, netVersion }` (the client's `src/net/hub-lobby.js` searches for `+label.kind:sproto_racer +label.open:T`). |
+| `matchJoinAttempt` | Accept while the room has a free human seat or the user already owns a seat (a rejoin). |
+| `matchJoin` | `host.join(userId, { name })` for each presence. Keep a map from user id to presence for `send`. |
+| `matchLeave` | `host.leave(userId)`. The seat goes to the AI and comes back if the player rejoins. |
+| `matchLoop` | For each message: `host.receive(message.sender.userId, message.opCode, new Uint8Array(message.data))`. The host decodes JSON messages from bytes itself. Then `host.tick()` exactly once. When `host.phase` is `'finished'`, write results from `host.results` and end the match after a short grace period. Update the label to `open: false` when `host.phase` leaves `'lobby'` unless late joins are wanted. |
+| `matchTerminate` | Nothing to save; the host holds no resources. |
+
+Things the handler must respect:
+
+- **One `host.tick()` per loop, no catch-up.** The clients pace themselves from the tick numbers the host sends. If the server falls behind, the race slows for everyone rather than skipping.
+- **`host.receive` never throws**, and drops and counts malformed input (`host.stats`). The handler does not need to validate payloads, only pass them on.
+- **Message size.** The largest message is a keyframe chunk: 4,096 bytes, 5.6 KB on the socket after base64 and the envelope, under the 8,192-byte limit. Nothing needs raising.
+- **Car and driver ownership.** By default the host accepts any car and driver in the roster. To enforce unlocks, pass `validateHello(playerId, { car, driver })` returning `{ ok: true, value: { car, driver } }` or `{ ok: false, error }`.
+- **Versions.** A client whose `simVersion` differs from the bundle's is refused at hello with `sim_version_mismatch`. The game client and the server bundle therefore have to be deployed together; the bundle's version changes whenever anything under `src/sim` or the match host changes.
+
+**Measured in Goja** (the engine Nakama runs match handlers in), on an Apple M5 Pro, by replaying a recorded match: `scripts/bench/host-transcript.mjs` records every join, leave, message and tick of a simulated race (three connection qualities, one player dropping for three seconds and rejoining), and `gojabench -host` feeds the same calls to the bundled host.
+
+| Room | Ticks | Host tick in Goja: mean / p95 / p99 / max | All message handling |
+| --- | --- | --- | --- |
+| 6 karts, 3 humans, Crestline Ridge | 24,031 | 1.36 / 1.80 / 2.39 / 6.1 ms | 1.3 s in total over the match |
+HOST12ROW
+
+The budget is 16.7 ms a tick. In both engines the replay ends in the same race, with the same count and checksum of every byte sent (36,609 messages, 1.67 MB for the 6-kart match), so a browser client and the Goja server agree. `tests/server-bundle-host.test.js` repeats the Node half of this in `npm test`.
+
 ## Not covered yet
 
-- No Nakama match handler, no UI, nothing in `src/main.js`. `build/racer-sim.js` does not include the match host; `src/sim/server-entry.js` needs to export `createMatchHost` when the handler is written.
-- Not measured on a real network, a real server, or in Goja. Bandwidth figures count the JSON envelope, base64 and the WebSocket frame header; they do not count TCP/IP headers or TLS framing.
+- No Nakama match handler, no UI, nothing in `src/main.js`. The match host is in `build/racer-sim.js` and runs in Goja (next section); the handler that calls it lives in the `metaverse-hub` repo and is not written.
+- Not measured on a real network or a real server. Bandwidth figures count the JSON envelope, base64 and the WebSocket frame header; they do not count TCP/IP headers or TLS framing.
 - Rendering during rollback: `applySnapshot` removes and re-creates every projectile through the gameplay hooks, so a rollback would rebuild projectile meshes each time. The UI wiring needs a cheaper path (reuse meshes by object id).
 - Remote karts are predicted by holding their last input. With an analog stick that is wrong on most ticks (hence a rollback on nearly every frame); it is cheap and correct, but smarter prediction would cut visible corrections at high latency.
 - A player whose connection stays up but who stops sending input is not replaced by the AI; their kart coasts. Only a leave hands the seat over.
@@ -242,7 +279,7 @@ Batch size: relaying every tick costs 13.6 KB/s down and the most rollback work,
 
 ## Defects found in existing code
 
-Worked around in new files; nothing under `src/sim` was edited.
+Worked around in new files; nothing under `src/sim` was edited. Both were later fixed in the simulation itself (`createKart` lists the take-off fields; `applyState` leaves the kart list empty before the first racing tick), so `restoreSnapshot` is now a second line of defence.
 
 1. **`applySnapshot` leaves stale kart fields.** The driving code adds `airFloorY`, `takeoffPitch` and `takeoffRoll` to a kart the first time it leaves the ground. Restoring a snapshot from before that leaves the old values in place, so a rolled-back world drifted from the host within seconds of the start. `restoreSnapshot` blanks any kart or boost field the snapshot lacks.
 2. **The gameplay core's private list of karts in play** is empty in a fresh world until the first racing tick, but `applyState` fills it. The AI reads it when picking a lane, so a rollback during the countdown changed the AI's first move. `restoreSnapshot` resets the gameplay core when the snapshot is from before the first racing tick.

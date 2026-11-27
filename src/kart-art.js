@@ -14,6 +14,7 @@ import {crestlineAxles,crestlineHalfTrack,crestlineDriver} from './crestline-lay
 import {attachIronhide,ironhideShadow} from './ironhide.js';
 import {ironhideAxles,ironhideHalfTrack,ironhideDriver,ironhideTail} from './ironhide-layout.js';
 import {fullLockCurvature,frontWheelAngle} from './steering.js';
+import {lerpAngle} from './sim/math.js';
 import * as THREE from 'three';
 import {attachHexshift,hexshiftDriver,styleHexshiftShadow,makeLunarWake,animateLunarWake} from './hexshift.js';
 import {attachBarrage} from './barrage.js';
@@ -466,7 +467,22 @@ export function kartRenderStats(g) {
 export function resetKartWingPose(g,flying=false) {
   setKartWingsDeployed(g?.userData.wings,!!flying);
 }
-export function animateKart(g,k,b,time,renderDt=0,reduceMotion=false) {
+// Project rendered movement onto the kart's heading. This also works for
+// recorded ghosts, which have positions but no recorded speed.
+function wheelTravel(a,k,reset){
+  const s=k.s??0,x=k.x??0,yaw=k.yaw??0;
+  const prev=a.wheelPose??={s,x,yaw,rescues:k.rescues};
+  let distance=0;
+  if(!reset && prev.rescues===k.rescues){
+    const heading=lerpAngle(prev.yaw,yaw,.5);
+    // An offset lane covers a different distance through a bend than the centerline.
+    const laneScale=THREE.MathUtils.clamp(1-(prev.x+x)*.5*(k.roadCurvature??0),.55,1.65);
+    distance=(s-prev.s)*laneScale*Math.cos(heading)+(x-prev.x)*Math.sin(heading);
+  }
+  prev.s=s;prev.x=x;prev.yaw=yaw;prev.rescues=k.rescues;
+  return distance;
+}
+export function animateKart(g,k,b,time,renderDt,reduceMotion=false) {
   const a=g.userData;
   const lift=k.y||0, hop=THREE.MathUtils.clamp((k.hopLift||0)/.57,0,1);
   const suspension=k.suspension||0, slip=k.slipAngle||0;
@@ -497,10 +513,11 @@ export function animateKart(g,k,b,time,renderDt=0,reduceMotion=false) {
   a.timingLamp.color.setHex(lampColor);
   a.driver.position.y=a.driverHeight+driverMotion*(Math.sin(time*17)*Math.min(k.speed/850,.035)+suspension*.42);
   const rack=(k.steer||0)*fullLockCurvature(k);
+  const travel=a.wheels.length?wheelTravel(a,k,renderDt===0):0;
   for(const w of a.wheels){
     w.position.y=w.userData.rideHeight-(suspension+hop*.10)/a.body.scale.y;
-    const spin=a.concept?1/w.userData.rideHeight:(a.car==='shopping-cart'||a.car==='skipper'||a.car==='manta'||a.car==='crestline'||a.car==='barrage'||a.car==='ironhide')?1/w.userData.rideHeight:a.car==='geep'?1/(w.userData.rideHeight*geepScale):2.2;
-    w.rotation[w.userData.spinAxis??'x']=-(k.s||0)*spin;
+    const radius=w.userData.rideHeight*a.body.scale.y;
+    w.rotation[w.userData.spinAxis??'x']-=travel/radius;
     w.rotation.y=(a.concept?w.userData.steer:w.position.z<0)?-frontWheelAngle(a.car,rack,Math.sign(w.position.x)):0;
     const fork=w.userData.fork;
     if(fork){fork.position.y=w.position.y;fork.rotation.y=w.rotation.y;}

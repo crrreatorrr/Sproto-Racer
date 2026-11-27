@@ -619,6 +619,7 @@ function placeModel(model,k,b,dt){
   model.rotation.y=Math.atan2(-f.forward.x,-f.forward.z)-(k.yaw||0);
   model.rotation.x=k.pitch??Math.atan(f.grade);
   model.rotation.z=k.roll??f.bank;
+  k.roadCurvature=f.curvature;
   animateKart(model,k,b,animation,dt,motion.matches);
 }
 function syncWorld(dt){

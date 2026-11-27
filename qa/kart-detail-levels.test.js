@@ -13,18 +13,18 @@ HTMLCanvasElement.prototype.getContext=function(){
 };
 
 // Triangles of each car as the player gets it in a race (flight wings attached, every
-// mesh counted whether shown or not). Recorded from `main` at a4cd91f; the one change is
-// the Manta, +2 for the painted headlight pool that replaced its two spotlights.
+// mesh counted whether shown or not). Recorded from `main` at a4cd91f and updated
+// for the Manta's painted headlight pool and the seams on plain cylindrical wheels.
 // A car's art changing on purpose means updating its line here.
 const FULL_TRIANGLES={
   apex:8934,needle:9230,pogo:9950,gecko:9294,relay:8982,geep:58950,hexshift:109022,barrage:31736,
   ironhide:48988,crestline:88576,manta:86158,saucer:51324,'shopping-cart':34554,skipper:64872,
   'track-formula':26322,'track-rally':29728,'track-prototype':31446,'track-hot-rod':29894,
   'track-drift':30928,'track-electric':30454,ringrunner:26236,windskiff:23108,'arctic-skip':17932,
-  'bamboo-trike':25816,'mud-marauder':27324,'tarmac-press':21536,'violet-orbit':28352,'volt-fork':20968,
+  'bamboo-trike':25816,'mud-marauder':27324,'tarmac-press':21540,'violet-orbit':28352,'volt-fork':20968,
   'twin-current':31980,'rail-ghost':20432,'solar-cushion':27212,'sunny-sidecar':19840,
-  'market-dragster':29492,'ramp-tug':24284,'tiki-barrel':30528,'ice-cream-van':24484,
-  'groove-racer':25720,'bumper-bolt':20888,'bronze-bell':22580,'reed-skimmer':19928,
+  'market-dragster':29492,'ramp-tug':24284,'tiki-barrel':30544,'ice-cream-van':24484,
+  'groove-racer':25736,'bumper-bolt':20888,'bronze-bell':22580,'reed-skimmer':19928,
   'steam-sprint':32712,'amber-beetle':28988,'violet-marble':20700,'bone-wyrm':27484,
   'quarry-dumper':30518,'vermilion-loader':26516,'sky-mixer':32146,'boom-crane':29440,
   'mint-digger':27082,'forklift-rat':24724,
@@ -99,6 +99,29 @@ describe('kart detail levels',()=>{
     }
     expect(triangles/CARS.length).toBeLessThanOrEqual(FLEET_MEAN_TRIANGLES);
     expect(drawCalls/CARS.length).toBeLessThanOrEqual(FLEET_MEAN_DRAW_CALLS);
+  });
+
+  it('rolls each wheel by its own circumference and holds its angle through stops and rescues',()=>{
+    for(const car of CARS){
+      const kart=makeKart(0,car,DRIVERS[0]);
+      const {body,wheels}=kart.userData;
+      // Drive across the track at a right angle, then back up along the same line.
+      const pose={s:100,x:0,yaw:Math.PI/2,speed:0,rescues:0};
+      const check=(distance)=>{
+        animateKart(kart,pose,{},0,1/60);
+        for(const wheel of wheels){
+          const radius=wheel.userData.rideHeight*body.scale.y;
+          expect(wheel.rotation[wheel.userData.spinAxis??'x'],car.id).toBeCloseTo(-distance/radius,7);
+        }
+      };
+      check(0);
+      pose.x=2; check(2);
+      pose.steer=.7; check(2);
+      pose.x=.5; check(.5);
+      pose.rescues++;pose.s=250;pose.x=0;pose.yaw=0; check(.5);
+      pose.s++; check(1.5);
+      disposeKart(kart);
+    }
   });
 
   it('switches by camera distance with a gap between the two thresholds',()=>{

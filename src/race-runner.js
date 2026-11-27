@@ -183,7 +183,9 @@ export function createLocalRaceRunner(options = {}) {
       if (world.state.done) return 'finished';
       return world.state.countdown > 0 ? 'countdown' : 'racing';
     },
-    get alpha() { return Math.min(1, accumulator / SIM_DT); },
+    // Once the race is over no further tick will come, so the last one is drawn as it is
+    // rather than one tick back.
+    get alpha() { return world.state.done ? 1 : Math.min(1, accumulator / SIM_DT); },
     get resimulating() { return false; },
     net: null,
     tick,

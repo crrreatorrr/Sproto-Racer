@@ -122,8 +122,9 @@ const onlineDev=import.meta.env.DEV?onlineSwitch(location.search,true):null;
 const keepItemMeshes=!onlineDev||onlineDev.reuseItemMeshes;
 // Written so a production build drops the import, and with it the in-page match.
 const loadOnlineDev=import.meta.env.DEV?()=>import('./online-dev.js'):null;
-// Test hook, ?perf=1 only: lets the measuring harness find the race and the player's kart.
-if(perf.enabled)window.__sprotoRace={get runner(){return runner;},get online(){return online;},get play(){return play;}};
+// Test hook for the measuring harness: the development server with ?perf=1 only. A production
+// build drops it, so the live race is not reachable from the console where records are saved.
+if(import.meta.env.DEV&&perf.enabled)window.__sprotoRace={get runner(){return runner;},get online(){return online;},get play(){return play;}};
 function showAccount(){
   const chip=chipFrom(hub.link,hub.records);
   document.querySelectorAll('[data-hub-account]').forEach(el=>paintAccount(el,chip));

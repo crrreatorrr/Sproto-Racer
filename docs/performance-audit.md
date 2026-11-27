@@ -120,7 +120,7 @@ Fix: compile everything before the countdown. Build one of each item model, effe
 
 **R9. Model caches never shrink.** Browsing cars in the garage keeps every car's geometry and materials for the session (`src/concept-art.js:12`, `src/kart-wings.js:181`, `src/item-art.js:19`). Low priority; it matters only on memory-constrained phones.
 
-> **Note, 27 November 2026.** Measured: looking at all 50 cars in the garage left 669 models (about 107 MB of vertex data) and 27 textures on the graphics card for the rest of the session. `src/kart-art.js` now remembers what each car's karts were drawn with, and once more than eight cars are remembered, the ones with no kart alive and used longest ago release their graphics memory; a car that comes back is sent to the card again when it is next drawn. After the same walk through the garage: 163 models and 8 textures. The JavaScript copies of the models are still kept, so the page's own memory use is unchanged.
+> **Note, 27 November 2026.** Measured: looking at all 50 cars in the garage left 669 models (about 107 MB of vertex data) and 27 textures on the graphics card for the rest of the session. `src/kart-art.js` now remembers what each car's karts were drawn with, and once more than eight cars with no kart alive are remembered, the ones used longest ago release their graphics memory; a car that comes back is sent to the card again when it is next drawn. After the same walk through the garage: 183 models and 8 textures. The JavaScript copies of the models are still kept, so the page's own memory use is unchanged.
 
 ## 3. Frame loop and simulation
 

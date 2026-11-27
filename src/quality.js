@@ -17,7 +17,8 @@ export const TIER_IDS = ['auto', 'high', 'medium', 'low'];
  * shadows        whether the circuit's sunlight shadow map is drawn. Also set up once, when the
  *                page loads.
  * maxTextureSize optional longest side for car textures in pixels (src/texture-budget.js).
- *                Applies to textures loaded after the choice is made.
+ *                Read once, when the first car texture loads, so like the two above a change
+ *                takes effect on the next page load.
  *
  * Medium's floor is below 1 so that it still differs from High on a screen whose own ratio is 1:
  * there both start at 1, and only Medium may lower it.

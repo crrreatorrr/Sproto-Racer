@@ -249,8 +249,8 @@ export function makeKart(id=0,car=CARS[0],person=DRIVERS[0],ghost=false,{flightW
 // models per car and 22 MB for each of the large liveries, for the rest of the session,
 // for every car the player so much as looked at in the garage.
 //
-// Every car remembers what its karts were drawn with. When more than KEPT_CARS cars are
-// remembered, the ones with no kart alive and used longest ago let go of their graphics
+// Every car remembers what its karts were drawn with. When more than KEPT_CARS cars with
+// no kart alive are remembered, the ones used longest ago let go of their graphics
 // memory. Nothing is thrown away on the JavaScript side, so a car that comes back is
 // simply sent to the card again the next time it is drawn. Anything a remaining car also
 // uses (shared wheels, drivers, reflections) is left alone.
@@ -276,10 +276,12 @@ function noteKartMemory(kart,carId) {
   trimCarMemory();
 }
 function trimCarMemory() {
-  let over=carMemory.size-KEPT_CARS;
+  // Only cars with no kart alive count against the limit, so a full grid of different
+  // cars does not push out the ones the player was just looking at.
+  const resting=[...carMemory].filter(([,record])=>record.live===0);
+  const over=resting.length-KEPT_CARS;
   if(over<=0)return;
-  const idle=[...carMemory].filter(([,record])=>record.live===0).sort((a,b)=>a[1].used-b[1].used).slice(0,over);
-  if(!idle.length)return;
+  const idle=resting.sort((a,b)=>a[1].used-b[1].used).slice(0,over);
   for(const [carId] of idle)carMemory.delete(carId);
   const inUse=new Set();
   for(const record of carMemory.values())for(const asset of record.assets)inUse.add(asset);
@@ -533,7 +535,11 @@ export function disposeKart(kart) {
     if(!sharedMaterials.has(mesh.material))materials.add(mesh.material);
   });
   for(const g of geometries)g.dispose();
+  // Geometry that belonged to this kart alone is gone for good: forget it.
+  if(memory)for(const g of geometries)memory.assets.delete(g);
   materials.add(kart.userData.timingLamp);
   for(const m of materials)m.dispose();
   kart.removeFromParent();
+  // This kart's car may have just become one car too many with nothing alive.
+  if(memory)trimCarMemory();
 }

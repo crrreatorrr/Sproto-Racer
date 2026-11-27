@@ -7,7 +7,7 @@ import { captureSnapshot, applySnapshot } from '../src/sim/snapshot.js';
 import { stateHash } from '../src/sim/hash.js';
 import { controlsToIntentFrame, intentFrameToControls } from '../src/sim/intent.js';
 import {
-  CRUISE_SPEED, SKY_MAX_SPEED, SKY_TIER_SPEED, createKart, startFlight, stepKart, tumbleKart,
+  CRUISE_SPEED, SKY_CLIP, SKY_CRASH, SKY_MAX_SPEED, SKY_TIER_SPEED, createKart, slowFlight, startFlight, stepKart, tumbleKart,
 } from '../src/driving.js';
 import { createBoost, grantCell, stepBoost, stepSkyChain, SKY_TIER_CHAIN } from '../src/boost.js';
 import { catapultCrossed, laneFloor, partPose, sweepCells, sweepObstacles } from '../src/sim/sky.js';
@@ -347,33 +347,167 @@ describe('Sky Lane obstacles', () => {
     }
   });
 
-  it('a head-on hit costs 45% speed, two tiers and a tumble; a clip costs 15% and one tier', () => {
-    for (const head of [true, false]) {
-      const world = testWorld(CIRCUITS[0]);
-      const index = mainLane(world.track);
-      const layout = world.track.sky.lanes[index].layouts[0];
-      layout.cells.length = 0;
-      const pylons = layout.obstacles.find((ob) => ob.type === 'pylons');
-      const part = pylons.parts[0];
-      layout.obstacles = [{ ...pylons, parts: [part] }];
-      const a = world.state.player;
-      const x = head ? part.x : part.x + part.hx + 0.7;
-      const k = fly(world, a, index, part.s - part.hs - 2.5, x, 12, 1, 90);
-      a.boost.skyTier = 3;
-      a.boost.skyChain = 10;
-      a.boost.skyTimer = 2.5;
-      const before = k.speed;
-      for (let t = 0; t < 6 && a.boost.skyTier === 3; t++) world.step({ 0: {} });
-      if (head) {
-        assert.equal(a.boost.skyTier, 1);
-        assert.ok(k.tumble > 0, 'tumbles');
-        assert.ok(k.speed < before * 0.6);
-      } else {
-        assert.equal(a.boost.skyTier, 2);
-        assert.equal(k.tumble, 0);
-        assert.ok(k.speed < before * 0.9 && k.speed > before * 0.75);
+  // Flies one kart at a single pylon (or past where it stood) and records its speed each tick.
+  function hitRun(kind, tier) {
+    const world = testWorld(CIRCUITS[0]);
+    const index = mainLane(world.track);
+    const layout = world.track.sky.lanes[index].layouts[0];
+    layout.cells.length = 0;
+    const pylons = layout.obstacles.find((ob) => ob.type === 'pylons');
+    const part = pylons.parts[0];
+    layout.obstacles = kind === 'clean' ? [] : [{ ...pylons, parts: [part] }];
+    const a = world.state.player;
+    const x = kind === 'clip' ? part.x + part.hx + 0.7 : part.x;
+    const k = fly(world, a, index, part.s - part.hs - 2.5, x, 12, 1, SKY_TIER_SPEED[tier] * CRUISE_SPEED);
+    a.boost.skyTier = tier;
+    a.boost.skyChain = SKY_TIER_CHAIN[tier];
+    a.boost.skyTimer = 2.5;
+    const start = k.s;
+    const speeds = [];
+    const travelled = [];
+    let tumbled = false;
+    for (let t = 0; t < 60 * 3.5; t++) {
+      world.step({ 0: {} });
+      // Past the pylon, hold the middle of the lane so no wall scrape muddies the speed trace.
+      if (k.s - start > 12) k.x = 0;
+      speeds.push(k.speed);
+      travelled.push(k.s - start);
+      tumbled ||= k.tumble > 0;
+    }
+    return { a, k, speeds, travelled, tumbled };
+  }
+
+  it('a hit slows the kart and takes tiers, then it climbs back to the speed of the tier it has left', () => {
+    for (const tier of [0, 3]) {
+      const full = SKY_TIER_SPEED[tier] * CRUISE_SPEED;
+      for (const [kind, tiersLost, keep, seconds] of [['head', 2, ...SKY_CRASH], ['clip', 1, ...SKY_CLIP]]) {
+        const { a, speeds, tumbled } = hitRun(kind, tier);
+        const label = `tier ${tier} ${kind}`;
+        const left = Math.max(0, tier - tiersLost);
+        const back = SKY_TIER_SPEED[left] * CRUISE_SPEED;
+        const lowest = Math.min(...speeds);
+        const hitTick = speeds.findIndex((v) => v < full * 0.95);
+        assert.ok(hitTick >= 0 && hitTick < 6, `${label}: the hit lands`);
+        assert.ok(Math.abs(lowest - full * keep) < full * 0.03, `${label}: keeps ${keep * 100}% of its speed, got ${(lowest / full).toFixed(2)}`);
+        assert.equal(tumbled, kind === 'head', `${label}: only a head-on hit tumbles`);
+        // Still well short of full speed halfway through the climb: the hit costs real time.
+        const halfway = speeds[hitTick + Math.round((seconds / 2 + (tumbled ? 0.6 : 0)) * 60)];
+        assert.ok(halfway < back * 0.95 && halfway > lowest, `${label}: climbing back, at ${(halfway / back).toFixed(2)} of its new top speed`);
+        for (let i = hitTick + 1; i < speeds.length; i++) {
+          assert.ok(speeds[i] >= speeds[i - 1] - 1e-9, `${label}: speed never dips again while recovering`);
+        }
+        assert.ok(Math.abs(speeds.at(-1) / back - 1) < 0.005, `${label}: back at tier ${left} speed, got ${(speeds.at(-1) / back).toFixed(3)}`);
+        assert.equal(a.boost.skyTier, left, `${label}: costs ${tiersLost} tier(s) and no more`);
+        assert.equal(a.boost.reserve, 0, 'obstacles never give boost');
       }
-      assert.equal(a.boost.reserve, 0, 'obstacles never give boost');
+    }
+  });
+
+  it('a crash costs about 0.7 s and a clip about 0.1 s, and more with a chain to lose', () => {
+    const lost = (kind, tier) => {
+      const full = SKY_TIER_SPEED[tier] * CRUISE_SPEED;
+      return (hitRun('clean', tier).travelled.at(-1) - hitRun(kind, tier).travelled.at(-1)) / full;
+    };
+    const crash = lost('head', 0);
+    const clip = lost('clip', 0);
+    assert.ok(crash > 0.55 && crash < 0.9, `at basic speed a crash lost ${crash.toFixed(2)} s`);
+    assert.ok(clip > 0.05 && clip < 0.25, `at basic speed a clip lost ${clip.toFixed(2)} s`);
+    assert.ok(lost('head', 3) > crash + 0.2, 'a crash at tier 3 also costs the lost tiers');
+    assert.ok(lost('clip', 3) > clip + 0.05, 'a clip at tier 3 also costs the lost tier');
+  });
+
+  it('a second hit while recovering starts the climb again, but hits in a row cannot stop the kart', () => {
+    const kart = createKart();
+    const least = SKY_TIER_SPEED[0] * CRUISE_SPEED * SKY_CRASH[0];
+    kart.speed = 88;
+    slowFlight(kart, SKY_CLIP);
+    kart.skyHurt = 0.4;
+    const before = kart.speed;
+    slowFlight(kart, SKY_CRASH);
+    assert.ok(kart.speed < before);
+    assert.equal(kart.skyHurt, SKY_CRASH[1]);
+    for (let i = 0; i < 8; i++) slowFlight(kart, SKY_CRASH);
+    assert.ok(Math.abs(kart.speed - least) < 1e-9, 'never below what one crash leaves at basic flight speed');
+    kart.speed = 12;
+    slowFlight(kart, SKY_CLIP);
+    assert.equal(kart.speed, 12, 'and a hit never speeds a slow kart up');
+  });
+
+  it('a head-on crash into the thickest obstacle still gets through and back to full speed', () => {
+    for (const circuit of CIRCUITS) {
+      const world = testWorld(circuit);
+      for (const lane of world.track.sky.lanes) {
+        for (let lap = 1; lap <= lane.layouts.length; lap++) {
+          const layout = lane.layouts[lap - 1];
+          const squeeze = layout.obstacles.find((ob) => ob.type === 'squeeze');
+          if (!squeeze) continue;
+          layout.cells.length = 0;
+          layout.obstacles = [squeeze];
+          const part = squeeze.parts[0];
+          const a = world.state.player;
+          const full = SKY_TIER_SPEED[0] * CRUISE_SPEED;
+          const k = fly(world, a, lane.index, squeeze.s - 3, part.x, part.y, lap, full);
+          let crashes = 0;
+          let slowest = Infinity;
+          let wasTumbling = false;
+          for (let t = 0; t < 60 * 5 && k.flying; t++) {
+            world.step({ 0: {} });
+            if (k.tumble > 0 && !wasTumbling) crashes++;
+            wasTumbling = k.tumble > 0;
+            slowest = Math.min(slowest, k.speed);
+            if ((k.s % world.track.length) > squeeze.s + squeeze.depth + 4) k.x = 0;
+          }
+          const label = `${circuit.id} lane ${lane.index} lap ${lap}`;
+          assert.ok(crashes >= 1, `${label}: the kart crashes`);
+          assert.ok(slowest > full * SKY_CRASH[0] - 1, `${label}: never slower than one crash leaves it, got ${slowest.toFixed(1)}`);
+          assert.ok((k.s % world.track.length) > squeeze.s + squeeze.depth || !k.flying, `${label}: gets past the obstacle`);
+          assert.ok(!k.flying || k.speed > full * 0.99, `${label}: back at full speed, got ${k.speed.toFixed(1)}`);
+        }
+      }
+    }
+  });
+
+  it('drifting into the surface of a split plate midway is a clip, and never throws the kart back', () => {
+    let checked = 0;
+    for (const circuit of CIRCUITS) {
+      const world = testWorld(circuit);
+      const index = mainLane(world.track);
+      const lane = world.track.sky.lanes[index];
+      for (let lap = 1; lap <= lane.layouts.length; lap++) {
+        const layout = lane.layouts[lap - 1];
+        const split = layout.obstacles.find((ob) => ob.type === 'split');
+        if (!split) continue;
+        layout.cells.length = 0;
+        const plate = split.parts[0];
+        layout.obstacles = [{ ...split, parts: [plate] }];
+        const a = world.state.player;
+        // Start above the middle of the plate and dive straight into its top face.
+        const k = fly(world, a, index, plate.s, 0, plate.y + plate.hy + 3, lap);
+        let last = k.s;
+        const notices = new Set();
+        for (let t = 0; t < 60 && k.flying; t++) {
+          world.step({ 0: { pitch: 1 } });
+          assert.ok(k.s >= last, `${circuit.id} lap ${lap}: the kart keeps moving forward`);
+          last = k.s;
+          if (a.notice) notices.add(a.notice);
+        }
+        assert.ok(notices.has('CLIPPED'), `${circuit.id} lap ${lap}: the plate's surface clips`);
+        assert.ok(!notices.has('CRASH'), `${circuit.id} lap ${lap}: and is not a head-on crash`);
+        assert.equal(k.tumble, 0);
+        checked++;
+      }
+    }
+    assert.ok(checked > 0, 'some lane has a split plate');
+  });
+
+  it('the chain clock stands still while a kart tumbles or climbs back to speed', () => {
+    for (const state of [{ tumble: 0.5 }, { skyHurt: 1 }]) {
+      const boost = createBoost();
+      for (let i = 0; i < 10; i++) grantCell(boost);
+      const kart = { flying: true, skyScraped: false, ...state };
+      for (let t = 0; t < 60 * 5; t++) stepSkyChain(boost, kart, DT);
+      assert.equal(boost.skyTier, 3);
+      assert.equal(boost.skyTimer, 2.5);
     }
   });
 });
@@ -395,13 +529,20 @@ describe('Sky Lane combat', () => {
     for (const rolling of [false, true]) {
       const { world, a, b } = duel();
       let tumbled = false;
+      let slowed = false;
+      b.boost.skyTier = 2;
+      b.boost.skyChain = 6;
       for (let t = 0; t < 150; t++) {
         if (rolling) b.kart.rollTime = 0.4;
+        b.boost.skyTimer = 2.5;
         world.step({ 0: { itemPressed: t === 0 }, 1: {} });
         tumbled ||= b.kart.tumble > 0;
+        slowed ||= b.kart.skyHurt > 0;
         assert.equal(b.kart.fall, null, 'no respawn above the corridor floor');
       }
       assert.equal(tumbled, !rolling, rolling ? 'the roll dodges' : 'the shot connects');
+      assert.equal(slowed, !rolling, 'a shot that connects costs speed');
+      assert.equal(b.boost.skyTier, rolling ? 2 : 0, 'and two tiers');
     }
   });
 
@@ -425,7 +566,7 @@ describe('Sky Lane combat', () => {
     }
   });
 
-  it('a barrel roll into a kart alongside rams it out of a tier', () => {
+  it('a barrel roll into a kart alongside rams it: a wobble, lost speed and a lost tier', () => {
     const world = testWorld(CIRCUITS[1], { rivals: 'alongside', seats: [{ kind: 'local' }, { kind: 'local' }] });
     const index = mainLane(world.track);
     emptyLayouts(world.track, index);
@@ -437,11 +578,15 @@ describe('Sky Lane combat', () => {
     b.boost.skyChain = 6;
     b.boost.skyTimer = 2.5;
     let rammed = false;
+    let before = b.kart.speed;
     for (let t = 0; t < 30 && !rammed; t++) {
+      before = b.kart.speed;
       world.step({ 0: { steer: 1, driftPressed: t === 0, driftHeld: t === 0 }, 1: {} });
       rammed = b.kart.wobble > 0;
     }
     assert.ok(rammed, 'the victim wobbles');
+    assert.ok(b.kart.speed < before * 0.85, 'the victim slows');
+    assert.ok(b.kart.skyHurt > 0, 'and has to climb back to speed');
     assert.equal(b.boost.skyTier, 1);
   });
 });

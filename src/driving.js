@@ -31,6 +31,15 @@ export const SKY_MAX_SPEED = 2.2;
 /** The fastest a kart may fly: 2.2x cruise, scaled by its Speed stat. */
 export const flightCeiling = (kart) => CRUISE_SPEED * SKY_MAX_SPEED * (kart.tuning?.speed ?? 1);
 const SKY_BOOST_SPEED = 0.1;
+// What a hit in flight costs in time: [share of speed kept, seconds to climb back to
+// full speed]. Measured on a clean 4 s run at 1.6x: a crash or an item hit loses about
+// 0.7 s (a spin-out on the road loses about 1.2 s), a clip or a ram about 0.1 s. A
+// hit also takes speed tiers (two for a crash or an item, one for a clip or a ram), so
+// with a chain the kart climbs back to a lower top speed. Sized so that rivals, who hit
+// about 2.4 obstacles a flight, still fly at least 1.35x their road speed in every
+// lane over 18 races; heavier costs dropped the shortest Sky Gate below 1.3x.
+export const SKY_CRASH = [0.5, 1.8];
+export const SKY_CLIP = [0.8, 1.5];
 const SKY_TOW = 0.15;
 const SKY_LATERAL = 26;
 const SKY_CARVE_LATERAL = 40;
@@ -75,7 +84,7 @@ export function createKart(tuning = {speed:1, accel:1, turn:1}) {
     flying:false, skyLane:-1, skyY:0, skyVX:0, skyVY:0, skyScrape:0, skyScraped:false,
     skyPrevS:0, skyPrevX:0, skyPrevY:0, skyCarve:false, rollTime:0, rollDir:0, rollCool:0,
     trickTime:0, trickCount:0, trickKind:0, trickLanded:0, trickSloppy:false,
-    tumble:0, tumbleFall:false, wobble:0, towing:0, skyCarry:0, skyDive:false, skyLaunch:0,
+    tumble:0, tumbleFall:false, wobble:0, towing:0, skyCarry:0, skyDive:false, skyLaunch:0, skyHurt:0,
     skyBoxKey:-1, skyBoxGot:0,
     // Set at take-off and read while airborne. Listed here so restoring a snapshot clears them.
     airFloorY:null, takeoffPitch:0, takeoffRoll:0,
@@ -439,6 +448,7 @@ export function startFlight(kart,road,index){
   kart.skyVX=0;
   kart.skyVY=6;
   kart.skyLaunch=1;
+  kart.skyHurt=0;
   kart.skyPrevS=kart.s-lapBase(kart,road);
   kart.skyPrevX=kart.x;
   kart.skyPrevY=kart.skyY;
@@ -457,6 +467,7 @@ export function startFlight(kart,road,index){
 function leaveFlight(kart,road){
   kart.flying=false;
   kart.skyLane=-1;
+  kart.skyHurt=0;
   // The corridor has funnelled down onto the deck by now, so the kart touches
   // down at once and keeps following the road at flight speed.
   kart.grounded=true;
@@ -492,6 +503,19 @@ export function tumbleKart(kart,seconds,floor=0){
   kart.rollTime=0;
 }
 
+/**
+ * A hit in flight: the kart keeps `keep` of its speed, then climbs steadily back to
+ * full speed over `seconds`. A second hit while still recovering starts the climb again,
+ * but cannot slow the kart to a stop.
+ */
+export function slowFlight(kart,[keep,seconds]){
+  // Hits in a row never stack below what one crash leaves a kart flying at the basic
+  // 1.6x: enough speed to carry it through the thickest obstacle before it can be hit again.
+  const least=CRUISE_SPEED*(kart.tuning?.speed??1)*SKY_TIER_SPEED[0]*SKY_CRASH[0];
+  kart.speed=Math.min(kart.speed,Math.max(kart.speed*keep,least));
+  kart.skyHurt=Math.max(kart.skyHurt||0,seconds);
+}
+
 export function stepFlight(kart,input,road,boost,dt){
   const lane=road.sky.lanes[kart.skyLane];
   const local=kart.s-lapBase(kart,road);
@@ -512,9 +536,22 @@ export function stepFlight(kart,input,road,boost,dt){
   const tuning=kart.tuning.speed;
   let target=CRUISE_SPEED*tuning*(SKY_TIER_SPEED[tier]+(boost.reserve>0?SKY_BOOST_SPEED:0))*(1+SKY_TOW*(kart.towing||0));
   target=Math.min(target,flightCeiling(kart));
-  if(kart.tumble>0)target*=0.7;
-  if(kart.speed<target)kart.speed=Math.min(target,kart.speed+95*dt);
-  else kart.speed=approach(kart.speed,target,1.4,dt);
+  if(kart.tumble>0){
+    // Tumbling: no thrust, so the kart stays slow until it rights itself.
+    if(kart.speed>target*0.7)kart.speed=approach(kart.speed,target*0.7,1.4,dt);
+  }else if(kart.speed<target){
+    if(kart.skyHurt>dt){
+      // Recovering from a hit: a straight climb that reaches full speed as the timer runs out.
+      kart.speed+=(target-kart.speed)*dt/kart.skyHurt;
+      kart.skyHurt-=dt;
+    }else{
+      kart.speed=kart.skyHurt>0?target:Math.min(target,kart.speed+95*dt);
+      kart.skyHurt=0;
+    }
+  }else{
+    kart.skyHurt=0;
+    kart.speed=approach(kart.speed,target,1.4,dt);
+  }
 
   // A tap of Drift with a direction held barrel-rolls; holding Drift carves.
   const pressed=control.driftPressed;

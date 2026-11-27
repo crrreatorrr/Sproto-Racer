@@ -241,7 +241,7 @@ export function encodeWireSnapshot(world, ackBySeat = {}) {
         sk: k.flying
           ? [k.skyLane, Math.round(k.skyY * MM), Math.round(k.skyVX * MM), Math.round(k.skyVY * MM),
             Math.round(k.rollTime * 1000), Math.round(k.tumble * 1000), b.skyChain, b.skyTier, Math.round(b.skyTimer * 1000),
-            k.skyBoxKey, k.skyBoxGot]
+            k.skyBoxKey, k.skyBoxGot, Math.round((k.skyHurt || 0) * 1000)]
           : null,
         tk: k.trickCount ? [k.trickCount, k.trickKind, Math.round(k.trickTime * 1000)] : null,
       };
@@ -310,6 +310,7 @@ export function decodeWireKart(w) {
     skyTimer: w.sk ? w.sk[8] / 1000 : 0,
     skyBoxKey: w.sk ? w.sk[9] ?? -1 : -1,
     skyBoxGot: w.sk ? w.sk[10] ?? 0 : 0,
+    skyHurt: w.sk ? (w.sk[11] ?? 0) / 1000 : 0,
     trickCount: w.tk ? w.tk[0] : 0,
     trickKind: w.tk ? w.tk[1] : 0,
     trickTime: w.tk ? w.tk[2] / 1000 : 0,

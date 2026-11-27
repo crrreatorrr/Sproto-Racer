@@ -4,7 +4,7 @@
 import { barrageMuzzle } from '../barrage-layout.js';
 import { hasShapedBody } from '../kart-footprint.js';
 import { resolveKartContacts } from '../kart-contact.js';
-import { GRAVITY, flightCeiling, steerForTurn, stunKart, springJump, tumbleKart } from '../driving.js';
+import { GRAVITY, SKY_CLIP, SKY_CRASH, flightCeiling, slowFlight, steerForTurn, stunKart, springJump, tumbleKart } from '../driving.js';
 import { interruptBoost, grantBoost, grantCell, dropSkyTier, stepSkyChain, clearSky } from '../boost.js';
 import { lapOf, laneCeiling, sweepCells, sweepObstacles, SKY_KART_RADIUS } from './sky.js';
 
@@ -412,9 +412,10 @@ export function createGameplayCore(track, hooks = {}) {
       // Traps fall away under a flying kart, and a barrel roll slips every hit.
       if (effect === 'slip' || effect === 'box' || effect === 'puck' || k.rollTime > 0) return false;
       const lane = track.sky?.lanes[k.skyLane];
+      // An item hit costs time and two tiers: a tumble, then a climb back to speed.
       tumbleKart(k, 0.8, lane ? lane.floor : 0);
+      slowFlight(k, SKY_CRASH);
       dropSkyTier(a.boost, 2);
-      k.speed *= 0.75;
       s.invincible = 1.1;
       s.draft = a.draft = 0;
       notify(a, hitLabels[effect] ?? 'ITEM HIT');
@@ -942,18 +943,20 @@ export function createGameplayCore(track, hooks = {}) {
     if (!s.skyHitCool) {
       const h = sweepObstacles(layout, elapsed, k.skyPrevS, k.skyPrevX, k.skyPrevY, local, k.x, k.skyY, lane);
       if (h) {
-        s.skyHitCool = 0.45;
+        // No second obstacle hit until a tumble is over: the kart cannot steer out of one.
+        s.skyHitCool = h.head ? 0.6 : 0.45;
         if (h.head) tumbleKart(k, 0.6, lane.floor);
         if (h.nx) k.x += h.nx * h.push;
         if (h.ny) k.skyY = clamp(k.skyY + h.ny * h.push, lane.floor, lane.ceiling);
+        // A hit costs time and tiers: the kart slows, then climbs back to the speed
+        // of the tier it has left. A head-on crash takes two tiers, a clip one.
         if (h.head) {
-          // Flew into it: lose most of the speed and two tiers.
-          k.speed *= 0.55;
+          slowFlight(k, SKY_CRASH);
           dropSkyTier(a.boost, 2);
           k.s = Math.min(k.s, base + h.s - SKY_KART_RADIUS - 0.2);
           notify(a, 'CRASH');
         } else {
-          k.speed *= 0.85;
+          slowFlight(k, SKY_CLIP);
           dropSkyTier(a.boost, 1);
           notify(a, 'CLIPPED');
         }
@@ -962,8 +965,8 @@ export function createGameplayCore(track, hooks = {}) {
         hooks.onSkyHit?.(a, h.head);
       }
     }
-    // A barrel roll that meets a kart alongside rams it: the victim wobbles, loses
-    // a tier and is shoved aside, maybe into an obstacle. One ram per roll.
+    // A barrel roll that meets a kart alongside rams it: the victim wobbles, slows,
+    // loses a tier and is shoved aside, maybe into an obstacle. One ram per roll.
     if (k.rollTime > 0 && !s.rollRammed) {
       for (let i = 0; i < pack.length; i++) {
         const o = pack[i];
@@ -981,6 +984,7 @@ export function createGameplayCore(track, hooks = {}) {
         }
         ok.wobble = 0.6;
         ok.skyVX = k.rollDir * 22;
+        slowFlight(ok, SKY_CLIP);
         dropSkyTier(o.boost, 1);
         notify(o, 'RAMMED');
         notify(a, 'RAM!');

@@ -95,6 +95,7 @@ export function stateHash(world) {
     hash.int(k.flying ? k.skyLane : -1);
     hash.q(k.skyY || 0, 1000);
     hash.q(k.tumble || 0, 1000);
+    hash.q(k.skyHurt || 0, 1000);
     hash.q(k.rollTime || 0, 1000);
     hash.int(b.skyChain || 0);
     hash.int(b.skyTier || 0);

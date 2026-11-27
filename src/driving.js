@@ -19,6 +19,10 @@ const HOP_GRAVITY = 34;
 const NEUTRAL_SLIDE_TURN = .69;
 const INSIDE_STEER = 1.48;
 const OUTSIDE_STEER = .98;
+// Mid-slide easing for human hands: how fast the steering follows the stick or keys, and the
+// quickest the driven line may sweep from full inside lock to full outside lock.
+const SLIDE_RACK = 3;
+const SLIDE_SWING_SECONDS = .7;
 
 // Sky Lane flight. Speeds are multiples of ground cruise: flight starts at 1.6×
 // and Boost Cell tiers lift it to 2.2×, well above the 1.4× top ground boost.
@@ -294,7 +298,10 @@ function driveFrame(kart, input, road, boost, steer, throttle, brake, dt) {
 
   const pace=clamp(kart.speed/CRUISE_SPEED,0,1);
   const unwinding=kart.steer*steer<0 || Math.abs(steer)<Math.abs(kart.steer);
-  const rackStep=(unwinding?9:7-2*pace)*dt;
+  // A flicked stick or a tapped key mid-slide bends the line instead of snapping it.
+  // Rivals steer by exact numbers already, so they keep the direct response.
+  const eased=kart.sliding && !input.exactSteer;
+  const rackStep=(eased?SLIDE_RACK:unwinding?9:7-2*pace)*dt;
   kart.steer+=clamp(steer-kart.steer,-rackStep,rackStep);
   // Entering a turn rotates the nose; the velocity vector follows a shallower
   // arc under countersteer. This gives the player room to widen an active slide.
@@ -313,8 +320,14 @@ function driveFrame(kart, input, road, boost, steer, throttle, brake, dt) {
   }
   const tireRate=tireTurnRate(kart,turn,groundedBrake);
   const targetRate=kart.grounded?tireRate*grip:tireRate*(kart.hopping ? .42 : .12);
-  const response=kart.sliding?8:kart.grounded?16-6*pace:11;
-  kart.cornerRate=approach(kart.cornerRate,targetRate,response*grip,dt);
+  const response=eased?10:kart.sliding?8:kart.grounded?16-6*pace:11;
+  let cornerRate=approach(kart.cornerRate,targetRate,response*grip,dt);
+  if(eased){
+    const swing=tireTurnRate(kart,NEUTRAL_SLIDE_TURN+INSIDE_STEER,0)-tireTurnRate(kart,NEUTRAL_SLIDE_TURN-OUTSIDE_STEER,0);
+    const most=swing*grip*dt/SLIDE_SWING_SECONDS;
+    cornerRate=kart.cornerRate+clamp(cornerRate-kart.cornerRate,-most,most);
+  }
+  kart.cornerRate=cornerRate;
   const lateralAccel=kart.speed*kart.cornerRate;
   if(kart.grounded){
     const tireLoad=clamp(Math.abs(lateralAccel)/66,0,1);
@@ -330,7 +343,7 @@ function driveFrame(kart, input, road, boost, steer, throttle, brake, dt) {
   const priorSlip=kart.slipAngle;
   const slipTarget=kart.sliding ? kart.driftDirection*(.45+.20*inside)
     : kart.hopping && input.driftHeld ? kart.pendingDirection*.30 : 0;
-  kart.slipAngle=approach(priorSlip,slipTarget,(kart.sliding?9:12)*grip,dt);
+  kart.slipAngle=approach(priorSlip,slipTarget,(eased?6:kart.sliding?9:12)*grip,dt);
   const exitRotation=kart.grounded&&!kart.sliding?(priorSlip-kart.slipAngle)*.38:0;
   const previousYaw=kart.travelYaw;
   const previousS=kart.s,previousX=kart.x;

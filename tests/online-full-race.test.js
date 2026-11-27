@@ -49,8 +49,10 @@ describe('rollback netcode: full races', () => {
     const flying = { ticks: 0 };
     const m = createTestMatch({
       ...options,
-      // Wait for every human, however far behind the leading AI.
-      host: { finishGraceSeconds: 120 },
+      // Wait for every human, however far behind the leading AI. These "humans" are the rival
+      // autopilot sent through human controls, so mid-slide steering easing slows them: the
+      // slowest finishes about 130 s after the winner on track01.
+      host: { finishGraceSeconds: 200 },
       onHostTick() {
         const actors = m.host.world.state.actors;
         for (let i = 0; i < options.humans; i++) if (actors[i].kart.flying) flying.ticks++;

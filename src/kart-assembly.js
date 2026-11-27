@@ -1,11 +1,18 @@
 import * as T from 'three';
 import {mergeGeometries} from 'three/addons/utils/BufferGeometryUtils.js';
 import {RoundedBoxGeometry} from 'three/addons/geometries/RoundedBoxGeometry.js';
+import {reduceGeometry} from './kart-detail.js';
+
+// A finish that folds to a flat colour at a distance (userData.distant) no longer needs its UVs.
+const textured=material=>!material.userData.distant&&!!(material.map||material.roughnessMap||material.alphaMap||material.normalMap);
 
 // Bake each rigid assembly once. Preview, grid and ghost instances share the geometry.
 export function assembly(hardware,grade) {
   const buckets=new Map();
   function add(geometry,material,color,position=[0,0,0],rotation=[0,0,0]) {
+    // The distant-rival build swaps in a coarser shape here, or skips a tiny one.
+    geometry=reduceGeometry(geometry,{keepUV:textured(material)});
+    if(!geometry)return;
     const g=geometry.index?geometry.toNonIndexed():geometry;
     if(g!==geometry)geometry.dispose();
     const q=rotation.isQuaternion?rotation:new T.Quaternion().setFromEuler(new T.Euler(...rotation));
@@ -34,7 +41,7 @@ export function assembly(hardware,grade) {
     add(new T.CylinderGeometry(r2,r,along.length(),segments),material,color,v.lerp(end,.5).toArray(),q);
   }
   return {add,box,pipe,finish(){
-    return [...buckets].map(([material,parts])=>{
+    return [...buckets].filter(([,parts])=>parts.length).map(([material,parts])=>{
       const geometry=mergeGeometries(parts);
       parts.forEach(g=>g.dispose());
       return new T.Mesh(geometry,material);

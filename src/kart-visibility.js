@@ -238,6 +238,8 @@ function createFade(kart) {
   const parts = [];
   kart.traverse((mesh) => {
     if (!mesh.isMesh && !mesh.isPoints) return;
+    // A rival's distant build is never shown while it fades (see kartIsFaded).
+    if (mesh.userData.lowDetail) return;
     const source = mesh.material;
     if (!materials.has(source)) {
       const faded = source.clone();
@@ -255,6 +257,12 @@ function createFade(kart) {
 function restore(state) {
   for (const { mesh, source } of state.parts) mesh.material = source;
   state.opacity = 1;
+}
+
+/** True while a rival is partly faded, so its distant build must stay hidden. */
+export function kartIsFaded(kart) {
+  const state = fades.get(kart);
+  return !!state && state.opacity < 1;
 }
 
 /**

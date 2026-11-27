@@ -1,11 +1,12 @@
 import * as T from 'three';
 import {assembly,alloyReflections} from './kart-assembly.js';
+import {kartDetail} from './kart-detail.js';
 import outletsByCar from './concepts/exhaust.json' with {type:'json'};
 
 // Outlet coordinates use the body-local frame: Z+ points back. The hardware and
 // particle rig share one origin, so turn, hop, hover and hit-roll stay aligned.
 const byCar = new Map(Object.entries(outletsByCar));
-const templates = new Map();
+const templateSets = [new Map(),new Map()];
 const steel = new T.MeshStandardMaterial({vertexColors:true,roughness:.29,metalness:.69,envMap:alloyReflections(),envMapIntensity:.85,side:T.DoubleSide});
 const flashRing = new T.TorusGeometry(1,.10,8,26);
 
@@ -20,6 +21,7 @@ function nozzleShell(depth,r,jet){
 }
 
 function hardware(carId,specs){
+  const templates=templateSets[kartDetail()];
   if(templates.has(carId))return templates.get(carId);
   const parts=assembly(steel);
   for(const spec of specs){

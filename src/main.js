@@ -8,6 +8,7 @@ import {controllerIsOpen,openController} from './controller.js';
 import {attachFeedbackSdk,createFeedbackHold,installRaceFeedback,raceBreadcrumbs} from './feedback.js';
 import {createPaddock,lightScene} from './paddock.js';
 import {updateRivalVisibility} from './kart-visibility.js';
+import {warmRaceShaders} from './shader-warmup.js';
 import {makeKart,animateKart,disposeKart,resetKartWingPose} from './kart-art.js';
 import {createGarage} from './garage.js';
 import {carById,driverById} from './roster.js';
@@ -198,6 +199,9 @@ function begin(mode=selected,options=config){
   for(const m of models)if(m)m.visible=false;
   if(state.countdown>0)fx.tone('count');
   lookingBack=false;lastPose.length=0;syncWorld(0,1);hud();timingHUD();
+  // Compile every shader the race can need now, so none of them stalls a frame mid-race.
+  const karts=state.actors.map(a=>models[a.id]);
+  warmRaceShaders(renderer,world,camera,{built:[track,ghostModel,...karts],rivals:karts.filter((_,i)=>!state.actors[i].isPlayer),play,itemFx});
 }
 function loadSelectedCourse(){
   if(chosenCourse.id===track.id){ensureTrackVisuals();return;}

@@ -1,4 +1,5 @@
 import * as T from 'three';
+import {loadTexture} from './texture-budget.js';
 import coachworkUrl from './assets/crestline-coachwork.webp';
 import {assembly,surface} from './kart-assembly.js';
 import {kartDetail,lowDetail} from './kart-detail.js';
@@ -358,7 +359,7 @@ export function attachCrestline(body,wheels,shadow){
   if(!dressed){
     dressed=true;
     initMaterials();
-    const sheet=new T.TextureLoader().load(coachworkUrl);
+    const sheet=loadTexture(coachworkUrl);
     sheet.colorSpace=T.SRGBColorSpace;sheet.anisotropy=8;
     painted.map=textile.map=sheet;
     const sky=coachworkSky();painted.envMap=sky;

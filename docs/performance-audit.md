@@ -90,13 +90,19 @@ Fix: compile everything before the countdown. Build one of each item model, effe
 
 **R2. Kart models are too detailed to multiply.** A 12-kart online grid of the detailed cars would put 0.5 to 1 million kart triangles in view, on top of the circuit. Rivals use the same model as the player at any distance. Fix: a low-detail version of each kart for rivals beyond about 25 m (the cars are built from code, so segment counts can be parameters), and merging each kart's static parts so a kart is about 5 draw calls instead of 30. Effort: medium to large, mostly per-car work. Risk: visual; needs a side-by-side check per car. Gain: roughly halves triangles in pack racing; a prerequisite for 12 karts on modest hardware.
 
+> **Note, 26 November 2026 (PR #19).** Done. A rival more than 26 m from the camera is drawn with a second, cheaper build of the same car (7,423 triangles and 6 draw calls on average, against 26,668 and 18.3). The player, the ghost and the garage keep the full model.
+
 **R3. Sky Lane scenery and circuit props are drawn one object at a time.** `src/sky-visuals.js:160` creates one mesh per box and three objects per boost cell, and each floating item box is a 3,052-triangle crate. Circuit scenery accounts for 140 to 260 draw calls. Fix: instance the cells, boxes and glows, and cull by distance. Effort: medium. Risk: low. Gain: about 100 to 200 fewer draw calls in Sky Lane views. PR #14 rewrites `src/track.js` and `src/sky-visuals.js`, so this should wait for it or be built on top of it.
 
 > **Note, 27 November 2026 (built on PR #14).** Done for the Sky Lanes. In a Sky Lane view on Test Track 01 the lane scenery was 116 of 259 draw calls for 11% of the triangles, mostly Boost Cells drawn as a crystal, a ring and a glow sprite each. Boxes that never move are now collected per material and 160 m stretch of lane and drawn as instanced meshes, and a lap's cells are three instanced meshes per kind (the glow is a camera-facing quad placed by the vertex shader; over a frame with 42 glows, 97% of the glow's pixels are within 2/255 of the sprites it replaces). The same view is 26 draw calls for the lanes. Over a full race, draw calls per frame went from a mean of 153 to 181 and a maximum of 412 to 481 (three circuits) to a mean of 128 to 137 and a maximum of 311 to 332. Circuit props outside the lanes were already instanced by PR #14.
 
 **R4. There are no quality settings and no automatic scaling.** Every device gets 4-sample antialiasing, a 1.6 pixel ratio, 8× anisotropic filtering and full-detail models. Fix: three quality tiers plus automatic resolution scaling driven by the frame times `src/perf.js` already records (drop the pixel ratio in steps when frames run long, raise it when they recover). Effort: small to medium. Risk: low. Gain: not measurable on this machine, where GPU time did not change between pixel ratios 1.0 and 2.0. On integrated graphics and phones, resolution is normally the dominant cost, so this is the main protection for low-end devices. It needs one real low-end device to tune.
 
+> **Note, 27 November 2026 (PRs #17 and #14).** Done: Auto, High, Medium and Low, with automatic resolution scaling on all but High. Auto and High render up to 2.5 device pixels per CSS pixel within a 6-megapixel frame; Low turns off antialiasing and the sunlight shadow map. The scaler's rules were tuned in simulation (dropped frames that resolution does not cause, 48 and 50 Hz screens, 30 fps caps, devices limited by the graphics card or by the processor), not on a real low-end device.
+
 **R5. Choosing the Manta adds two spotlights to the whole scene.** `src/manta.js:305` adds two `SpotLight`s when the Manta is the player's car. Every lit material on screen then computes four lights instead of two. Fix: replace them with an unlit glow mesh. Effort: small. Risk: the Manta's headlight pools on the road disappear unless faked with a decal.
+
+> **Note, 26 November 2026 (PR #19).** Done. The spotlights are replaced by a painted pool of light under the car, which no longer lights rivals or walls.
 
 **R6. Visual updates run once per simulation tick, not once per frame.** `track.update` in `src/session.js:267` repositions every Sky Lane part and every boost cell on every tick, at any distance. When a frame runs long the loop runs up to six ticks, so this work multiplies exactly when the game is already behind. Fix: keep the tick for simulation state and move the visual repositioning into the per-frame path. Effort: small to medium. Risk: low.
 
@@ -110,7 +116,11 @@ Fix: compile everything before the countdown. Build one of each item model, effe
 
 **R8. Textures are uncompressed in GPU memory.** The textures in one race scene took about 36 MB; the four 2048×2048 car liveries are about 22 MB each when loaded. Fix: cap texture size at 1024 on the low quality tier, or convert to GPU-compressed KTX2. Effort: small for the cap, medium for KTX2. Gain: memory on phones, not frame rate.
 
+> **Note, 27 November 2026.** The cap is done: on the Low tier `src/texture-budget.js` draws any car texture larger than 1024 pixels a side down to that size before it is first sent to the graphics card. The four 2048 x 2048 textures (Barrage, Crestline, two on the Ironhide) go from about 22.4 MB to 5.6 MB each. The other tiers are unchanged, and KTX2 compression is not done.
+
 **R9. Model caches never shrink.** Browsing cars in the garage keeps every car's geometry and materials for the session (`src/concept-art.js:12`, `src/kart-wings.js:181`, `src/item-art.js:19`). Low priority; it matters only on memory-constrained phones.
+
+> **Note, 27 November 2026.** Measured: looking at all 50 cars in the garage left 669 models (about 107 MB of vertex data) and 27 textures on the graphics card for the rest of the session. `src/kart-art.js` now remembers what each car's karts were drawn with, and once more than eight cars are remembered, the ones with no kart alive and used longest ago release their graphics memory; a car that comes back is sent to the card again when it is next drawn. After the same walk through the garage: 163 models and 8 textures. The JavaScript copies of the models are still kept, so the page's own memory use is unchanged.
 
 ## 3. Frame loop and simulation
 
@@ -131,6 +141,8 @@ The cost matters on the server (section 4), and a profile of a 12-kart run shows
 *Done, 2026-11-26:* `src/session.js` now runs every single-player mode on `createSimWorld` through `createLocalRaceRunner` (`src/race-runner.js`). `tests/session-engine.test.js` checks that a Quick Race and a plain engine run with the same seed and inputs stay hash-identical. Two behaviours follow the engine's rules from now on: item draws are seeded (a new seed per start), and the track's moving parts follow the race leader's lap rather than the player's.
 
 **F2. Pausing when the tab is hidden cannot work online.** `src/main.js:421` pauses the race on `visibilitychange`. An online client needs a catch-up path instead. This is a design note for the online work, not a defect today.
+
+> **Note, 27 November 2026.** Still open; it belongs with connecting the netcode to the game loop.
 
 ## 4. Netcode and online architecture
 
@@ -169,6 +181,8 @@ A 12-player race at 20 snapshots a second would send about 1.3 MB/s from the ser
 ### Findings, ranked
 
 **N1. No online mode is wired up.** No client code opens a match, no server match handler exists, and no opcode definitions exist for joining, readying or starting. This is the bulk of the remaining work and it depends on the decisions in N2 to N4.
+
+> **Note, 27 November 2026.** Partly done. The netcode (N2, N4), the simulation speed-up (N3), the defects (N5) and most of N6 (leave and rejoin, AI takeover, late join, live desync detection, rate limits) are on `main`, and the server side runs inside `build/racer-sim.js` and behaves identically in Goja (`docs/online-netcode.md`). Not done: the Nakama match handler in `metaverse-hub`, and the game's own loop and menus using any of it.
 
 **N2. The parts of the netcode do not connect.** Confirmed in the code and by calling it:
 
@@ -238,6 +252,8 @@ Images are fetched only when a car that uses them appears, which is good. From c
 > **Note, 26 November 2026 (Batch 1 PR).** The `.ttf` files are removed; `public/fonts` is now 236 KB (seven `.woff2` files and two licence files).
 
 **L4. Everything is one eager download.** Race code, all car definitions and the hub SDK load before the lobby paints. Splitting the race and the hub realtime code behind `import()` would cut the first download; the gain is modest (a few hundred milliseconds on a slow connection) and it is not urgent.
+
+> **Note, 27 November 2026.** Not done. It means turning static imports in `src/main.js` into `import()`, and that file is being reworked to connect the netcode; splitting should follow that.
 
 ## 6. Recommended order
 

@@ -1,4 +1,5 @@
 import * as T from 'three';
+import {loadTexture} from './texture-budget.js';
 import {assembly,surface} from './kart-assembly.js';
 import {kartDetail,lowDetail,once} from './kart-detail.js';
 import {ironhideAxles,ironhideBumper,ironhideDriver,ironhideScreen,ironhideRoof,ironhideTireWidth} from './ironhide-layout.js';
@@ -37,7 +38,7 @@ const templates=[];
 const contactPlane=new T.PlaneGeometry(2,2);
 let contactMap;
 export function ironhideShadow(shadow){
-  if(!contactMap)contactMap=new T.TextureLoader().load(contactUrl);
+  if(!contactMap)contactMap=loadTexture(contactUrl);
   shadow.geometry=contactPlane;
   shadow.material.alphaMap=contactMap;
   shadow.material.opacity=.87;
@@ -47,9 +48,9 @@ export function ironhideShadow(shadow){
 function makeBody(){
   const p=assembly(paint);
   const skin=once('ironhide:skin',()=>{
-    const map=new T.TextureLoader().load(panelsUrl);
+    const map=loadTexture(panelsUrl);
     map.colorSpace=T.SRGBColorSpace;map.anisotropy=8;
-    const bumpMap=new T.TextureLoader().load(surfaceUrl);
+    const bumpMap=loadTexture(surfaceUrl);
     bumpMap.anisotropy=8;
     return new T.MeshStandardMaterial({map,bumpMap,bumpScale:.011,metalness:.12,roughness:.76,side:T.DoubleSide});
   });
@@ -197,7 +198,7 @@ function makeBody(){
   const thickness=roof.top-roof.bottom;
   p.box('#5c5944',[0,roof.bottom+thickness/2,midZ],[2*roof.halfWidth,thickness,depth],.040);
   const roofPaint=once('ironhide:roof',()=>{
-    const roofMap=new T.TextureLoader().load(hardtopUrl);
+    const roofMap=loadTexture(hardtopUrl);
     roofMap.colorSpace=T.SRGBColorSpace;roofMap.anisotropy=8;
     return new T.MeshStandardMaterial({map:roofMap,roughness:.81,metalness:.12});
   });
@@ -224,7 +225,7 @@ function makeWheel(){
   const profile=[[-w,.78],[-w,.85],[-w*.85,.93],[w*.85,.93],[w,.85],[w,.78]];
   p.add(new T.LatheGeometry(profile.map(([x,k])=>new T.Vector2(r*k,x)),48).rotateZ(-Math.PI/2),paint,'#18191a');
   const rubber=once('ironhide:tread',()=>{
-    const map=new T.TextureLoader().load(treadUrl);
+    const map=loadTexture(treadUrl);
     map.colorSpace=T.SRGBColorSpace;map.anisotropy=4;
     const tread=new T.MeshStandardMaterial({map,roughness:.92,bumpMap:map,bumpScale:.006});
     // From the switch distance the tread print is a flat dark rubber.
@@ -232,7 +233,7 @@ function makeWheel(){
     return tread;
   });
   const wallPaint=once('ironhide:sidewall',()=>{
-    const sidewall=new T.TextureLoader().load(wheelUrl);
+    const sidewall=loadTexture(wheelUrl);
     sidewall.colorSpace=T.SRGBColorSpace;sidewall.anisotropy=8;
     return new T.MeshStandardMaterial({map:sidewall,roughness:.83,metalness:.08,side:T.DoubleSide});
   });

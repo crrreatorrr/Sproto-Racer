@@ -16,6 +16,8 @@ export const TIER_IDS = ['auto', 'high', 'medium', 'low'];
  *                so a change takes effect on the next page load.
  * shadows        whether the circuit's sunlight shadow map is drawn. Also set up once, when the
  *                page loads.
+ * maxTextureSize optional longest side for car textures in pixels (src/texture-budget.js).
+ *                Applies to textures loaded after the choice is made.
  *
  * Medium's floor is below 1 so that it still differs from High on a screen whose own ratio is 1:
  * there both start at 1, and only Medium may lower it.
@@ -34,8 +36,8 @@ export const TIERS = {
     blurb: 'Lower resolution for a steadier frame rate. Drops a little further by itself if frames still run slow.',
   },
   low: {
-    id: 'low', label: 'Low', maxPixelRatio: 1, minPixelRatio: 0.75, antialias: false, shadows: false,
-    blurb: 'Lowest resolution, no edge smoothing and no cast shadows. Best for older laptops and phones.',
+    id: 'low', label: 'Low', maxPixelRatio: 1, minPixelRatio: 0.75, antialias: false, shadows: false, maxTextureSize: 1024,
+    blurb: 'Lowest resolution, no edge smoothing, no cast shadows and smaller car textures. Best for older laptops and phones.',
   },
 };
 

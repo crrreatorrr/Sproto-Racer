@@ -321,14 +321,23 @@ export function createTrackCore(course = CIRCUITS[0]) {
 
   // Scratch locate record to avoid per-call object allocation in hot paths.
   const loc = { distance: 0, index: 0, a: nodes[0], b: nodes[1], t: 0 };
+  // Where the last lookup landed. Lookups come in runs around one kart, so the same stretch
+  // between two nodes usually answers the next one and the search is skipped. Nodes are in
+  // road order, so a stretch that contains the distance is the one the search would find.
+  let lastNode = 0;
   function locateInto(s, out) {
     const distance = mod(s, length);
-    let lo = 0;
-    let hi = nodes.length - 1;
-    while (lo + 1 < hi) {
-      const mid = (lo + hi) >>> 1;
-      if (nodes[mid].s <= distance) lo = mid;
-      else hi = mid;
+    let lo = lastNode;
+    let hi = lo + 1;
+    if (!(nodes[lo].s <= distance && distance < nodes[hi].s)) {
+      lo = 0;
+      hi = nodes.length - 1;
+      while (lo + 1 < hi) {
+        const mid = (lo + hi) >>> 1;
+        if (nodes[mid].s <= distance) lo = mid;
+        else hi = mid;
+      }
+      lastNode = lo;
     }
     let sec = nodes[lo].section;
     if (distance + 1e-8 >= sections[sec].end) {

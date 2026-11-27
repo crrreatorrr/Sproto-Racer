@@ -139,6 +139,8 @@ export function createGameplayCore(track, hooks = {}) {
   const events = [];
   const brooms = [];
   const barrier = { s: 0, s0: 0, x: 0, x0: 0, y: 0, y0: 0 };
+  const frameA = {};
+  const frameB = {};
 
   function sampleTrack(s, x = 0, out = sampleA) {
     if (track.sampleInto) return track.sampleInto(s, x, out);
@@ -649,8 +651,10 @@ export function createGameplayCore(track, hooks = {}) {
       aiItems(a, k, s, a.id || 1, input);
       return input;
     }
-    const look = sampleTrack(k.s + 5 + k.speed * 0.20, k.x, sampleA);
-    const here = sampleTrack(k.s, k.x, sampleB);
+    // Only the road's curvature and width are needed here, which the frame alone carries.
+    const framed = track.evalFrame && track.sampleInto;
+    const look = framed ? track.evalFrame(k.s + 5 + k.speed * 0.20, frameA) : sampleTrack(k.s + 5 + k.speed * 0.20, k.x, sampleA);
+    const here = framed ? track.evalFrame(k.s, frameB) : sampleTrack(k.s, k.x, sampleB);
     const curvature = here.curvature * 0.65 + look.curvature * 0.35;
     const id = a.id || 1;
     let lane = clamp(sin(k.s / 128 + id * 2.1) * 2.2 + (id - 3) * 1.3, -7, 7);

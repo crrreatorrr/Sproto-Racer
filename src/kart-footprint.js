@@ -649,6 +649,7 @@ function createFootprint(){
   // the whole car, every band included, lies within `reach` of the kart's center.
   return {yaw:NaN,steering:0,id:undefined,body:null,bands:[],reach:0,
     centerS:0,centerX:0,radius:0,sharp:0,
+    car:undefined,known:false,concept:null,shaped:false,steers:false,
     source:null,ownBody:new Hull(),cos:1,sin:0,turn:0};
 }
 
@@ -656,17 +657,24 @@ function createFootprint(){
 // The result belongs to the kart and is refreshed in place when its heading, steering or car
 // changes, so read it before the next call for the same kart rather than holding on to it.
 export function kartFootprint(kart){
-  const id=kart.tuning?.id,yaw=kart.yaw||0,concept=conceptCarById(id);
-  const shaped=hasShapedBody(kart);
-  const steering=!concept&&id!=='saucer'&&id!=='shopping-cart'&&shaped?Math.round((kart.steer||0)*fullLockCurvature(kart)*512):0;
+  const id=kart.tuning?.id,yaw=kart.yaw||0;
   let fp=kart._fp;
-  if(fp && fp.yaw===yaw && fp.steering===steering && fp.id===id)return fp;
   if(!fp){
     fp=createFootprint();
     // Not enumerable: snapshots, hashes and copies of the kart never see the cache.
     Object.defineProperty(kart,'_fp',{value:fp,writable:true,configurable:true,enumerable:false});
   }
-  const source=sourceFor(getTables(),id,steering,concept,shaped);
+  if(fp.car!==id || !fp.known){
+    // What kind of outline this car has depends on the car alone. Look it up once per car.
+    fp.car=id;fp.known=true;
+    fp.concept=conceptCarById(id)||null;
+    fp.shaped=hasShapedBody(kart);
+    fp.steers=!fp.concept&&id!=='saucer'&&id!=='shopping-cart'&&fp.shaped;
+    fp.yaw=NaN;
+  }
+  const steering=fp.steers?Math.round((kart.steer||0)*fullLockCurvature(kart)*512):0;
+  if(fp.yaw===yaw && fp.steering===steering && fp.id===id)return fp;
+  const source=sourceFor(getTables(),id,steering,fp.concept,fp.shaped);
   fp.yaw=yaw;fp.steering=steering;fp.id=id;
   fp.cos=cos(yaw);fp.sin=sin(yaw);
   fp.turn++;

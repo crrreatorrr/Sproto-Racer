@@ -75,6 +75,59 @@ function watchRivals(renderer, scene, camera, rivals) {
   setTimeout(check, WATCH_STEP_MS);
 }
 
+// A rival's pictures (its paint, wings, number plate) are sent to the graphics card the
+// first time they are drawn. The draw below covers every picture that has arrived, but one
+// that is still downloading cannot be sent yet, and a rival behind the camera or far away
+// is not looked at again for a while: its picture was then sent mid-race, the first time
+// the kart came into view, and that stopped the game for 50 to 110 ms. Single player rarely
+// saw it because the player starts at the back with every rival in view; online the player
+// can start anywhere. So the rivals' pictures are checked for a while after the start and
+// each is sent when it has arrived, at most one per check.
+let pictureWatch = 0;
+
+function picturesOf(karts) {
+  const found = new Set();
+  for (const kart of karts) {
+    kart.traverse((mesh) => {
+      const material = mesh.material;
+      if (!material || Array.isArray(material)) return;
+      for (const key in material) {
+        // Reflection maps are prepared by the renderer itself.
+        if (key === 'envMap') continue;
+        const value = material[key];
+        if (value && value.isTexture) found.add(value);
+      }
+    });
+  }
+  return found;
+}
+
+const arrived = (image) => !!image && (image.complete === undefined || (image.complete && image.naturalWidth > 0));
+
+function sendPictures(renderer, pictures, limit) {
+  let sent = 0;
+  for (const picture of pictures) {
+    if (!arrived(picture.image)) continue;
+    pictures.delete(picture);
+    if (renderer.properties.get(picture).__version === picture.version) continue;
+    renderer.initTexture(picture);
+    if (++sent >= limit) break;
+  }
+}
+
+function watchPictures(renderer, karts) {
+  if (typeof renderer.initTexture !== 'function' || !renderer.properties) return;
+  const token = ++pictureWatch, until = performance.now() + WATCH_MS;
+  const pictures = picturesOf(karts);
+  const check = (limit) => {
+    // A newer race, nothing left to send, time up, or the karts are gone: stop.
+    if (token !== pictureWatch || !pictures.size || performance.now() > until || !karts.some((kart) => kart.parent)) return;
+    try { sendPictures(renderer, pictures, limit); } catch (error) { console.warn('Kart picture warm-up skipped', error); return; }
+    setTimeout(check, WATCH_STEP_MS, 1);
+  };
+  check(Infinity);
+}
+
 let scratchTarget = null;
 
 /**
@@ -173,6 +226,7 @@ export function warmRaceShaders(renderer, scene, camera, { built = [], rivals = 
     } catch (error) {
       console.warn('Scene warm-up draw skipped', error);
     }
+    watchPictures(renderer, karts);
     return true;
   });
 }

@@ -295,9 +295,13 @@ export function releaseKartFade(kart) {
   fades.delete(kart);
 }
 
-export function updateRivalVisibility(camera, models, dt) {
+/**
+ * Fades any rival that hides the player's kart from the camera. `localSeat` is the index
+ * in `models` of the kart this player drives (seat 0 in single player; any seat online).
+ */
+export function updateRivalVisibility(camera, models, dt, localSeat = 0) {
   if (models.length < 2) return;
-  const player = models[0];
+  const player = models[localSeat];
   if (!player?.userData?.body) return;
   player.userData.body.updateWorldMatrix(true, false);
   const playerBounds = getCompoundBounds(player);
@@ -309,9 +313,9 @@ export function updateRivalVisibility(camera, models, dt) {
   if (distance < 1e-4) return;
   toPlayer.multiplyScalar(1 / distance);
 
-  for (let i = 1; i < models.length; i++) {
+  for (let i = 0; i < models.length; i++) {
     const rival = models[i];
-    if (!rival?.visible || !rival.userData?.body) continue;
+    if (i === localSeat || !rival?.visible || !rival.userData?.body) continue;
     const covered = coversPlayer(rival, player, playerBounds, camera, distance);
     let state = fades.get(rival);
     if (!covered && (!state || state.opacity === 1)) continue;

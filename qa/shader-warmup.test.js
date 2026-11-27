@@ -164,3 +164,40 @@ describe('race-start shader warm-up', () => {
     track.dispose();
   });
 });
+
+describe('race-start picture warm-up', () => {
+  it('sends a rival picture that was still loading as soon as it has arrived, once', async () => {
+    vi.useFakeTimers();
+    const { scene, track, play, itemFx, camera, player, rival } = raceScene();
+    // The parts of WebGLRenderer the warm-up uses to send a picture ahead of its first draw.
+    const sent = [], uploaded = new Map();
+    const renderer = {
+      ...fakeRenderer(),
+      properties: { get: (texture) => ({ __version: uploaded.get(texture) }) },
+      initTexture(texture) { sent.push(texture); uploaded.set(texture, texture.version); },
+    };
+    // A picture whose file has not arrived: no image yet, as TextureLoader leaves it.
+    const livery = new THREE.Texture();
+    let paint;
+    rival.traverse((m) => { if (m.isMesh && m.material.isMeshStandardMaterial) paint ??= m.material; });
+    paint.map = livery;
+
+    await warmRaceShaders(renderer, scene, camera, { built: [track, player, rival], rivals: [rival], play, itemFx });
+    const times = () => sent.filter((texture) => texture === livery).length;
+    expect(times(), 'nothing to send while the file is still on its way').toBe(0);
+    vi.advanceTimersByTime(1000);
+    expect(times()).toBe(0);
+
+    livery.image = { complete: true, naturalWidth: 256, width: 256, height: 256 };
+    livery.needsUpdate = true;
+    vi.advanceTimersByTime(400);
+    expect(times()).toBe(1);
+    vi.advanceTimersByTime(3000);
+    expect(times(), 'sent once').toBe(1);
+
+    paint.map = null;
+    disposeKart(player);
+    disposeKart(rival);
+    track.dispose();
+  });
+});

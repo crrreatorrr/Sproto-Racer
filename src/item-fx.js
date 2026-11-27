@@ -92,7 +92,13 @@ export function createItemFx(scene,initialTrack,{reduced=false,onSignal}={}){
     e.yaw=Math.atan2(e.heading.x,e.heading.z);
     e.grade=road.grade??0;e.bank=road.bank??0;
     e.color.setHex(fill);e.edge.setHex(edge);
-    if(event.isPlayer)onSignal?.(event,fill);
+    if(event.isPlayer)onSignal?.(event,fill,e.seed);
+    return e.seed;
+  }
+  // Takes back the effect `cue` returned this token for, if it is still playing.
+  function cancel(token){
+    for(const e of slots)if(e.seed===token&&e.age<e.life){e.age=Infinity;return true;}
+    return false;
   }
   function update(dt,camera){
     for(const b of buckets)b.count=0;
@@ -182,5 +188,5 @@ export function createItemFx(scene,initialTrack,{reduced=false,onSignal}={}){
   }
   function dispose(){reset();group.removeFromParent();for(const b of buckets){b.dispose();b.geometry.dispose();b.material.dispose();}}
   reset();
-  return {cue,update,reset,group,dispose,setTrack(next){track=next;reset();}};
+  return {cue,cancel,update,reset,group,dispose,setTrack(next){track=next;reset();}};
 }

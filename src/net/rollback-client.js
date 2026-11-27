@@ -142,6 +142,8 @@ export function createRollbackClient(options = {}) {
   let oldEvents = null;
   const pendingFinal = new Map();
   const outEvents = [];
+  // Presentation events reported through `noteEvent` while a tick is being simulated.
+  const noted = [];
   const smoothers = [];
   const beforePoses = [];
   for (let i = 0; i < SEATS; i++) {
@@ -336,8 +338,10 @@ export function createRollbackClient(options = {}) {
       seatInputs[i] = unpackFrame(a, b, t, frameScratch[i]);
     }
     usedMask[ring] = mask;
+    noted.length = 0;
     const events = world.step(seatInputs);
-    handleEvents(t, events, isNew);
+    handleEvents(t, noted.length ? events.concat(noted) : events, isNew);
+    noted.length = 0;
   }
 
   function rollback(toTick) {
@@ -367,12 +371,14 @@ export function createRollbackClient(options = {}) {
     }
     emitted = kept;
 
+    // From here until the replay is done, hooks fired by the simulation (item meshes
+    // removed and re-created, visual cues) belong to old ticks, not to new play.
+    resimulating = true;
     restoreSnapshot(world, base.snap);
     // Hashes taken along the abandoned timeline are void. The replay takes them again.
     for (const tick of localHashes.keys()) {
       if (tick >= base.tick) localHashes.delete(tick);
     }
-    resimulating = true;
     for (let t = base.tick; t < present; t++) {
       if (t === present - 1 && options.onBeforeTick) options.onBeforeTick(world, t);
       simulateTick(t, false);
@@ -481,11 +487,13 @@ export function createRollbackClient(options = {}) {
       }
     }
     const lastGood = captureSnapshot(world);
+    resimulating = true;
     restoreSnapshot(world, snap);
     if (stateHash(world) !== kf.hash) {
       // The state did not survive the trip: wrong build or a codec fault. Put back what
       // was on screen and ask again; `update` keeps asking until a good one arrives.
       restoreSnapshot(world, lastGood);
+      resimulating = false;
       stats.keyframeFailures++;
       lastKeyframeRequestMs = -Infinity;
       awaitingKeyframe = true;
@@ -520,7 +528,6 @@ export function createRollbackClient(options = {}) {
       emitted = emitted.filter((e) => e.tick >= tick);
       oldEvents = emitted;
       emitted = [];
-      resimulating = true;
       for (let t = tick; t < present; t++) {
         if (t === present - 1 && options.onBeforeTick) options.onBeforeTick(world, t);
         simulateTick(t, false);
@@ -545,6 +552,7 @@ export function createRollbackClient(options = {}) {
       if (sentThrough < tick - 1) sentThrough = tick - 1;
       for (let i = 0; i < SEATS; i++) smoothers[i].reset();
     }
+    resimulating = false;
     if (phase !== 'finished') phase = 'racing';
   }
 
@@ -797,7 +805,8 @@ export function createRollbackClient(options = {}) {
     for (let i = 0; i < steps; i++) {
       const t = present;
       if (t >= frontier && t > sampledThrough && localSeat >= 0) {
-        const frame = controlsToIntentFrame(t, sampleControls ? sampleControls(t) : null);
+        // No sampler, or one with nothing to say this tick (a menu is open): hands off.
+        const frame = controlsToIntentFrame(t, (sampleControls && sampleControls(t)) || undefined);
         const ring = t & RING_MASK;
         localA[ring] = packFrameA(frame);
         localB[ring] = packFrameB(frame);
@@ -833,6 +842,17 @@ export function createRollbackClient(options = {}) {
     requestKeyframe: () => {
       lastKeyframeRequestMs = -Infinity;
       return requestKeyframe(KEYFRAME_REASON.REQUEST);
+    },
+    /**
+     * Reports a presentation event (for example an item's visual cue) produced by a
+     * simulation hook during the tick now being simulated. It is delivered with that
+     * tick's events, so it gets the same treatment: announced once, not repeated when
+     * the tick is replayed, marked `late` if it first appears in a replay, and followed
+     * by a `cancel` if a replay no longer produces it. `name` tells events of one type
+     * and seat apart.
+     */
+    noteEvent(ev) {
+      noted.push(ev);
     },
     /** Events since the last call, each exactly once. Not used when `onEvent` is given. */
     drainEvents() {

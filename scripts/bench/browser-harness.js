@@ -3,6 +3,9 @@
 //   const A = (await import('/scripts/bench/browser-harness.js')).default;
 //   await A.start('track01'); await A.runRace(); A.summary();
 //
+// An online test race (open the page with ?perf=1&online=loopback&latency=60 first):
+//   await A.startOnline('track01'); await A.runRace(); A.summary();
+//
 // Dev server only: it imports the app's own module instances by URL, so it
 // measures the game exactly as it runs and needs no change to the game code.
 const A = window.__A = { frames: [], auto: true, q: [], rec: false, programLog: [], goFrame: -1 };
@@ -30,13 +33,19 @@ A.setCourse = (id) => {
   A.core = core.createGameplayCore(track); A.len = track.length;
 };
 
+// The kart the player drives. The game says which one when it can (?perf=1); online it
+// is not seat 0. Older builds have no such hook, and there the player is always seat 0.
+A.race = () => window.__sprotoRace ?? null;
+A.player = () => A.race()?.runner?.localActor ?? A.actors?.[0] ?? null;
+A.online = () => A.race()?.online ?? null;
+
 // Autopilot: overwrite the player's polled input with the AI's decision.
 const origAssign = Object.assign;
 Object.assign = function (t, ...src) {
   const out = origAssign.call(Object, t, ...src); const s0 = src[0];
   if (A.auto && A.actors && A.core && s0 && typeof s0 === 'object' && 'pausePressed' in s0 && 'throttle' in s0) {
-    const p = A.actors[0];
-    if (p && p.isPlayer && !p.kart.fall) {
+    const p = A.player();
+    if (p && !p.kart.fall) {
       const c = A.core.decide(p, p, 1 / 60);
       t.throttle = c.throttle; t.brake = c.brake || 0; t.steer = c.steer || 0; t.pitch = c.pitch || 0;
       t.driftHeld = !!c.driftHeld; t.driftPressed = !!c.driftPressed; t.driftReleased = !!c.driftReleased;
@@ -91,7 +100,7 @@ A.pump = async (n, budgetMs = 20000) => {
     if (!A.wrapped && A.r) A.wrap();
     if (A.rec && A.r && A.s) noteNewPrograms(A.frames.length, js);
     if (A.rec && A.actors && !first) {
-      const p = A.actors[0], inf = A.r.info;
+      const p = A.player(), inf = A.r.info;
       if (A.goFrame < 0 && (p.kart.speed > 0.01 || document.getElementById('announce')?.textContent === 'GO!')) A.goFrame = A.frames.length;
       A.frames.push([A.t, js, A.renderMs, A.gpuNew ? A.gpuLast : -1, inf.render.calls, inf.render.triangles, inf.memory.geometries, inf.memory.textures, inf.programs.length, p.kart.s, p.kart.flying ? 1 : 0, performance.memory?.usedJSHeapSize ?? 0, p.finish != null ? 1 : 0, p.kart.rescues]);
     }
@@ -110,10 +119,29 @@ A.start = async (id) => {
   const t0 = performance.now(); document.getElementById('garage-next').click(); A.beginMs = +(performance.now() - t0).toFixed(1);
   await A.pump(3);
 };
+// An online test race: the same clicks, then the lobby's READY, then wait for the server to set the race.
+A.startOnline = async (id) => {
+  A.setCourse(id); A.actors = null; A.arm(); A.frames = []; A.programLog = []; A.goFrame = -1; A.rec = true;
+  await new Promise((r2) => setTimeout(r2, 1200));
+  document.querySelector('[data-track="' + id + '"]').click(); document.querySelector('[data-mode="race"]').click(); document.getElementById('launch').click();
+  await A.pump(5); document.getElementById('garage-next').click(); await A.pump(5);
+  document.getElementById('garage-next').click();
+  const ready = () => { const b = document.getElementById('online-ready'); return b && !b.disabled; };
+  for (let i = 0; i < 400 && !ready(); i++) { await new Promise((r2) => setTimeout(r2, 15)); await A.pump(1); }
+  if (!ready()) throw new Error('the online lobby did not open: is the page on ?online=loopback?');
+  document.getElementById('online-ready').click();
+  const t0 = performance.now();
+  for (let i = 0; i < 1200 && !A.online()?.runner.world; i++) await A.pump(1);
+  if (!A.online()?.runner.world) throw new Error('the match never started');
+  A.beginMs = +(performance.now() - t0).toFixed(1);
+  await A.pump(3);
+};
+// Online, the race goes on until the server's result is in, not just until the player finishes.
+A.over = () => (A.online() ? !!A.online().runner.results() : A.player()?.finish != null);
 A.runRace = async (maxFrames = 30000, budget = 24000) => {
   const start = performance.now(); let n = 0;
-  while (n < maxFrames && performance.now() - start < budget) { const p = await A.pump(300, budget); n += p.done; if (!A.actors || A.actors[0].finish != null || p.done === 0) break; }
-  return { n, frames: A.frames.length, s: A.actors?.[0].kart.s, finished: A.actors?.[0].finish != null };
+  while (n < maxFrames && performance.now() - start < budget) { const p = await A.pump(300, budget); n += p.done; if (!A.actors || A.over() || p.done === 0) break; }
+  return { n, frames: A.frames.length, s: A.player()?.kart.s, finished: !!A.over() };
 };
 
 const pct = (sorted, p) => sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * p))];
@@ -131,5 +159,22 @@ A.summary = () => {
     gpuMs: gpu.length ? { mean: +mean(gpu).toFixed(2), p99: +pct(gpu, .99).toFixed(2) } : null,
     framesOver50msAfterGo: slow,
     programsAddedAfterGo: A.programLog.filter((e) => e.frame > go),
+    // An online test race reports its own cost and whether it stayed in step with the host.
+    online: A.online()?.report() ?? null,
+  };
+};
+// The same summary in a few lines, with the online figures that matter for a report.
+A.brief = () => {
+  const s = A.summary(), o = s.online;
+  return {
+    frames: s.frames, finished: s.finished, programs: s.programs, scriptMs: s.scriptMs, gpuMs: s.gpuMs,
+    over50: s.framesOver50msAfterGo.length, programsAfterGo: s.programsAddedAfterGo.length, beginMs: s.beginMs,
+    online: o && {
+      seats: o.seats, humans: o.humans, latencyMs: o.latencyMs, localSeat: o.localSeat, phase: o.phase, raceTicks: o.raceTicks,
+      clientMs: o.clientMs, clientMsWithItems: o.clientMsWithItems, loopbackMs: o.loopbackMs, replayedTicksPerFrame: o.replayedTicksPerFrame,
+      rollbacks: o.rollbacks, replayMs: o.replayMs, leadTicks: o.leadTicks, hashChecks: o.hashChecks, hashDifferences: o.hashDifferences,
+      keyframeRequests: o.keyframeRequests, stalledFrames: o.stalledFrames, events: o.events, itemMeshes: o.itemMeshes, trailFill: o.trailFill,
+      resultsIn: !!o.results,
+    },
   };
 };

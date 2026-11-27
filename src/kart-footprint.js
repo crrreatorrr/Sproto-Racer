@@ -103,37 +103,60 @@ function orient(shape,yaw){
 // every tick, so this runs for every kart on every tick: it must not allocate once the hull has
 // reached its size. The arithmetic and its order match rotate() and span() exactly, so the
 // numbers are the same bit for bit.
-function emptyHull(){
-  return {points:[],along:{lo:0,hi:0},across:{lo:0,hi:0},axes:[]};
+//
+// Only the points are turned straight away, because the rail limits need them every tick. The
+// edge normals and the two road-axis spans are worked out the first time something reads
+// `axes`, `along` or `across`, which only happens when another kart, a hazard or an item is near.
+function Hull(){
+  this.points=[];
+  this.shape=null;this.cos=1;this.sin=0;
+  this.pending=false;
+  this.normals=[];
+  this.spanAlong={lo:0,hi:0};this.spanAcross={lo:0,hi:0};
 }
+
+function settle(hull){
+  const points=hull.points,c=hull.cos,sn=hull.sin;
+  let alongLo=Infinity,alongHi=-Infinity,acrossLo=Infinity,acrossHi=-Infinity;
+  for(let i=0;i<points.length;i++){
+    const q=points[i],along=q.s*1+q.x*0,across=q.s*0+q.x*1;
+    if(along<alongLo)alongLo=along;
+    if(along>alongHi)alongHi=along;
+    if(across<acrossLo)acrossLo=across;
+    if(across>acrossHi)acrossHi=across;
+  }
+  hull.spanAlong.lo=alongLo;hull.spanAlong.hi=alongHi;
+  hull.spanAcross.lo=acrossLo;hull.spanAcross.hi=acrossHi;
+  const from=hull.shape.axes,count=from.length,axes=hull.normals;
+  for(let i=0;i<count;i++){
+    const n=from[i];
+    let a=axes[i];
+    if(a===undefined)a=axes[i]={s:0,x:0,lo:0,hi:0};
+    a.s=n.s*c-n.x*sn;a.x=n.s*sn+n.x*c;
+    a.lo=n.lo;a.hi=n.hi;
+  }
+  if(axes.length!==count)axes.length=count;
+  hull.pending=false;
+}
+
+Object.defineProperties(Hull.prototype,{
+  axes:{get(){if(this.pending)settle(this);return this.normals;},enumerable:true,configurable:true},
+  along:{get(){if(this.pending)settle(this);return this.spanAlong;},enumerable:true,configurable:true},
+  across:{get(){if(this.pending)settle(this);return this.spanAcross;},enumerable:true,configurable:true},
+});
 
 function orientInto(hull,shape,c,sn){
   const from=shape.points,count=from.length,points=hull.points;
-  let alongLo=Infinity,alongHi=-Infinity,acrossLo=Infinity,acrossHi=-Infinity;
   for(let i=0;i<count;i++){
     const p=from[i];
     let q=points[i];
     if(q===undefined)q=points[i]={s:0,x:0};
     const s=p.s*c-p.x*sn,x=p.s*sn+p.x*c;
     q.s=s;q.x=x;
-    const along=s*1+x*0,across=s*0+x*1;
-    if(along<alongLo)alongLo=along;
-    if(along>alongHi)alongHi=along;
-    if(across<acrossLo)acrossLo=across;
-    if(across>acrossHi)acrossHi=across;
   }
   if(points.length!==count)points.length=count;
-  hull.along.lo=alongLo;hull.along.hi=alongHi;
-  hull.across.lo=acrossLo;hull.across.hi=acrossHi;
-  const normals=shape.axes,normalCount=normals.length,axes=hull.axes;
-  for(let i=0;i<normalCount;i++){
-    const n=normals[i];
-    let a=axes[i];
-    if(a===undefined)a=axes[i]={s:0,x:0,lo:0,hi:0};
-    a.s=n.s*c-n.x*sn;a.x=n.s*sn+n.x*c;
-    a.lo=n.lo;a.hi=n.hi;
-  }
-  if(axes.length!==normalCount)axes.length=normalCount;
+  hull.shape=shape;hull.cos=c;hull.sin=sn;
+  hull.pending=true;
   return hull;
 }
 
@@ -544,7 +567,7 @@ Object.defineProperty(Band.prototype,'hull',{get(){
   if(this.fixed!==null)return this.fixed;
   const fp=this.footprint;
   if(this.turn!==fp.turn){
-    orientInto(this.own||(this.own=emptyHull()),this.shape,fp.cos,fp.sin);
+    orientInto(this.own||(this.own=new Hull()),this.shape,fp.cos,fp.sin);
     this.turn=fp.turn;
   }
   return this.own;
@@ -552,7 +575,7 @@ Object.defineProperty(Band.prototype,'hull',{get(){
 
 function createFootprint(){
   return {yaw:NaN,steering:0,id:undefined,body:null,bands:[],reach:0,
-    source:null,ownBody:emptyHull(),cos:1,sin:0,turn:0};
+    source:null,ownBody:new Hull(),cos:1,sin:0,turn:0};
 }
 
 // The oriented outline of a kart: `body` is the whole-car outline, `bands` its height slices.
@@ -648,22 +671,32 @@ export function footprintContact(a,b,ds,dx,tie=1){
 
 export const geepLowerHeight=1.4, geepOverallHeight=2.504*geepScale;
 
+const halfRoadAt=(road,s)=>Math.max(3,road.widthAt?.(s)??road.width??16)/2;
+
 // The inside face of each rail is sampled along the rotated outline, including
 // at transitions into narrower lanes. Stock chassis retain their road margin.
 export function laneBounds(kart,road,stockMargin,curvature=road.curvature||0){
-  const halfAt=s=>Math.max(3,road.widthAt?.(s)??road.width??16)/2;
   if(!hasShapedBody(kart)){
-    const limit=halfAt(kart.s)-stockMargin;
+    const limit=halfRoadAt(road,kart.s)-stockMargin;
     return {min:road.dropAt?.(kart.s,-1)?-Infinity:-limit,max:road.dropAt?.(kart.s,1)?Infinity:limit};
   }
   const scale=Math.max(.55,Math.min(1.65,1-kart.x*curvature));
   let min=-Infinity,max=Infinity;
-  const pts=kartFootprint(kart).body.points;
+  const pts=kartFootprint(kart).body.points,base=kart.s;
+  if(road.edgesAt){
+    // Both rails from one lookup per outline point: the same numbers as edgeAt on each side.
+    const edges=road.edgesAt;
+    for(let i=0;i<pts.length;i++){
+      const p=pts[i],pair=edges(base+p.s/scale);
+      min=Math.max(min,-pair.left-p.x);max=Math.min(max,pair.right-p.x);
+    }
+    return {min,max};
+  }
   for(let i=0;i<pts.length;i++){
     const p=pts[i];
-    const s=kart.s+p.s/scale;
-    const left=road.edgeAt?.(s,-1)??(road.dropAt?.(s,-1)?Infinity:halfAt(s));
-    const right=road.edgeAt?.(s,1)??(road.dropAt?.(s,1)?Infinity:halfAt(s));
+    const s=base+p.s/scale;
+    const left=road.edgeAt?.(s,-1)??(road.dropAt?.(s,-1)?Infinity:halfRoadAt(road,s));
+    const right=road.edgeAt?.(s,1)??(road.dropAt?.(s,1)?Infinity:halfRoadAt(road,s));
     min=Math.max(min,-left-p.x);max=Math.min(max,right-p.x);
   }
   return {min,max};

@@ -381,6 +381,7 @@ export function createSimWorld(options = {}) {
     road.heightAt = heightAt;
     road.widthAt = track.widthAt;
     road.edgeAt = track.edgeAt;
+    road.edgesAt = track.edgesAt;
     road.dropAt = track.dropAt;
     road.length = track.length;
     const wasFalling = !!k.fall;

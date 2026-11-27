@@ -50,13 +50,11 @@
 //                        Online it is the host's result, so it is null until that arrives.
 //   net                  null offline; online { rttMs, leadTicks, predictedTicks, stalled, synced }.
 //
-// Not provided yet (the single-player move onto this interface has to add or keep them):
-//   - Time Trial ghosts: recording, the stored best lap and `session.ghost()` playback.
-//   - Test Drive tools: `session.select(item)`, the hazards on/off switch, starting from
-//     a chosen sector at speed through `restartSection` (the world accepts `mode: 'test'`
-//     and its settings, but nothing here exposes changing them mid-run).
-//   - `session.best`, `ghostSetup`, `reloadBest` and saving records at the finish.
-//   - Formatted split text. `hud().split` gives the numbers; `timeText` stays in the UI.
+// Not part of this interface, because they belong to one player on one machine. Single
+// player adds them on top of the local runner in src/session.js:
+//   - Time Trial ghosts: recording, the stored best lap, playback, saving records.
+//   - Test Drive tools: the item picker, the hazards switch, starting from a chosen sector.
+//   - Formatted split text. `hud().split` gives the numbers; `timeText` is in session.js.
 //   - Pausing. An online race cannot pause; offline the loop simply stops calling advance.
 
 import { createSimWorld, SIM_DT } from './sim/world.js';

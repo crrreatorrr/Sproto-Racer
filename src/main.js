@@ -169,6 +169,32 @@ let screen='lobby',selected='race',modal='',controllerOpen=false,config={...DEFA
 // ?mute=1 starts this visit muted; a test server (npm run dev:muted) always starts muted.
 let muted=startMuted(storage,location.search,import.meta.env.VITE_START_MUTED==='1');
 fx.mute(muted);
+const circuitSongs = {
+  track01: 'green-light-shuffle',
+  track02: 'black-ice-relay',
+  track03: 'granite-hairpin',
+  track04: 'gargoyle-gallop',
+  track05: 'low-gravity-pocket',
+};
+const music = new Audio();
+music.loop = true;
+music.volume = 0.35;
+let raceSong = '';
+function syncMusic() {
+  if (!raceSong || muted || modal || controllerOpen || document.hidden || feedbackHold.held()) {
+    music.pause();
+  } else if (music.paused) {
+    music.play().catch(() => {}); // Browsers can require another user gesture.
+  }
+}
+function selectRaceSong(id) {
+  music.pause();
+  raceSong = circuitSongs[id] || '';
+  if (raceSong) music.src = import.meta.env.BASE_URL + 'music/' + raceSong + '.mp3';
+  syncMusic();
+}
+document.addEventListener('pointerdown', syncMusic);
+document.addEventListener('keydown', syncMusic);
 let previous=performance.now(),animation=0,w=0,h=0,lastHUD=0;
 let followKart=createChaseCamera(camera,track);
 let wideView=false,lookingBack=false;
@@ -189,28 +215,28 @@ function selectMode(id){
 }
 document.querySelectorAll('[data-mode]').forEach(b=>b.onclick=()=>{selectMode(b.dataset.mode);fx.tone('click')});
 function soundToggle(){muted=!muted;saveMuted(storage,muted);
-  fx.unlock();fx.mute(muted);updateSound();if(!muted)fx.tone('click');}
+  fx.unlock();fx.mute(muted);syncMusic();updateSound();if(!muted)fx.tone('click');}
 // The paddock's speaker button and the pause panel's Sound button show the same choice.
 function updateSound(){$('audio').innerHTML=icon(muted?'mute':'sound');$('audio').setAttribute('aria-label',muted?'Enable sound':'Mute sound');
   const inPause=$('pause-sound');if(inPause){inPause.textContent=soundLabel(muted);inPause.setAttribute('aria-pressed',String(!muted));}}
 updateSound();$('audio').onclick=soundToggle;
-function controller(){controllerOpen=true;openController(input,()=>{const pad=input.rawPad();navPrev=pad?padEdges(pad):[];controllerOpen=false;previous=performance.now();});}
+function controller(){controllerOpen=true;syncMusic();openController(input,()=>{const pad=input.rawPad();navPrev=pad?padEdges(pad):[];controllerOpen=false;syncMusic();previous=performance.now();});}
 $('controls').onclick=controller;
 function showPanel(name,html){
   const pad=input.rawPad();
   navPrev=pad?padEdges(pad):[];
-  pendingEdges={};pendingSlot=null;itemHold=-1;hudItemDown=false;modal=name;$('overlay').hidden=false;$('overlay').firstElementChild.innerHTML=html;
+  pendingEdges={};pendingSlot=null;itemHold=-1;hudItemDown=false;modal=name;syncMusic();$('overlay').hidden=false;$('overlay').firstElementChild.innerHTML=html;
   $('overlay').querySelector('.primary,button,select')?.focus({preventScroll:true});fx.pause();
 }
 function closePanel(){
   const closed=modal;
-  modal='';$('overlay').hidden=true;previous=performance.now();document.activeElement?.blur();
+  modal='';syncMusic();$('overlay').hidden=true;previous=performance.now();document.activeElement?.blur();
   // Backing out of the online lobby before the race is set up leaves the match.
   if(closed==='online-lobby'&&online&&!runner.world)leaveOnline();
 }
 function home(){
   leaveOnline();
-  garage.close();closePanel();screen='lobby';fx.pause();$('lobby').hidden=false;$('game').hidden=true;
+  selectRaceSong(null);garage.close();closePanel();screen='lobby';fx.pause();$('lobby').hidden=false;$('game').hidden=true;
   document.querySelector('.topbar').hidden=false;$('hero-canvas').append(renderer.domElement);w=0;h=0;
   selectMode(selected);
 }
@@ -241,7 +267,7 @@ function noteCrumbs(){
   }
   w.live=true;w.lap=lap;w.done=done;w.offTrack=offTrack;w.stunned=stunned;
 }
-const feedbackHold=createFeedbackHold(input,{pauseAudio:()=>fx.pause()});
+const feedbackHold=createFeedbackHold(input,{pauseAudio:()=>{fx.pause();music.pause();}});
 function renderFeedbackFrame(){
   if(screen==='lobby')paddock.render(renderer,animation,w||1,h||1);
   else{ensureTrackVisuals();track.drawVisuals();sceneLight.focus(track,player?.kart,animation,true);renderer.render(world,camera);}
@@ -249,7 +275,7 @@ function renderFeedbackFrame(){
 const feedbackHandle=installRaceFeedback({
   hold(){pendingEdges={};pendingSlot=null;return feedbackHold.hold();},
   release(token){
-    feedbackHold.release(token);
+    feedbackHold.release(token);syncMusic();
     const pad=input.rawPad();
     navPrev=pad?padEdges(pad):[];
     previous=performance.now();
@@ -278,6 +304,7 @@ function showRaceScreen(){
 }
 // Builds what is drawn for the race `runner` has just set up: single player or online.
 function raceReady(title){
+  selectRaceSong(track.id);
   state=runner.world.state;player=runner.localActor;view=runner.hud();
   const mode=state.mode,seat=runner.localSeat;
   for(const actor of state.actors){
@@ -611,7 +638,7 @@ window.addEventListener('keydown',e=>{
  if(keyStep.type==='launch'&&screen==='lobby')$('launch').click();
 });
 // An online race cannot pause: a hidden page stops, and catches up when it is shown again.
-document.addEventListener('visibilitychange',()=>{if(document.hidden&&screen==='game'&&!modal&&!controllerOpen&&!online)pause();});
+document.addEventListener('visibilitychange',()=>{syncMusic();if(document.hidden&&screen==='game'&&!modal&&!controllerOpen&&!online)pause();});
 function placeModel(model,k,b,dt){
   const f=track.sampleInto(k.s,k.x,placeSample);
   model.visible=true;

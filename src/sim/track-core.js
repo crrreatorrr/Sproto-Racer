@@ -3,6 +3,9 @@
 
 import { PI, atan2, clamp, damp, hypot, mix, mod, sin, cos, smoothstep } from './math.js';
 import { createSky } from './sky.js';
+import { layout as medieval } from './track04-layout.js';
+import { layout as orbital } from './track05-layout.js';
+import { layout as future } from './track06-layout.js';
 
 const NAMES = [
   'Launch Grid', 'Linked Switchbacks', 'Rolling Drum Floor', 'Uphill Drift Spiral',
@@ -159,6 +162,7 @@ export const CIRCUITS = [
     ],
     gates: [[1, 0.3, -5], [1, 0.52, 5], [3, 0.45, 5], [4, 0.32, 0], [5, 0.24, -5], [5, 0.40, 5], [5, 0.56, -5], [5, 0.72, 5], [8, 0.42, 4], [8, 0.62, -4], [10, 0.83, 0]],
   },
+  medieval, orbital, future,
 ];
 
 export const courseById = (id) => CIRCUITS.find((c) => c.id === id) ?? CIRCUITS[0];

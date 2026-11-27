@@ -57,6 +57,9 @@ Select a circuit in the paddock before choosing a mode, driver, and car. Each ma
 | Test Track 01 | 6.62 km | Link the deeper switchbacks, hold a long slide up the larger spiral, then change drift direction through the downhill slalom and switch bridge. |
 | Crestline Ridge | 7.93 km | Climb the Staircase switchbacks and carry speed through the sweeping descent. The paired ramps have different jump impulses. Landing lanes have brackets every 10 m for 50–120 m, and stronger ramps have a trackside 40 m board. |
 | Switchback Summit | 9.17 km | Brake into the granite and return hairpins, then switch lines through the cliffside esses. The 75, 50, and 25 m boards mark braking distances. White arrows point past the dividers. |
+| Crown & Cloister | 8.73 km | Medieval castle gates, abbey switchbacks and a watermill chicane, with beveled stone roads and a flight through Gargoyle Gorge. |
+| Selene Station | 8.06 km | Lunar habitats and crater-rim corners on bolted deck plates, then a high-or-low line through the orbital debris field. |
+| Neon Grid | 8.41 km | Neon shoulder inlays, servo chicanes and a fast transit straight leading to a rooftop flight past shutters and sweepers. |
 
 ### Circuit look and grip
 
@@ -78,6 +81,9 @@ Each circuit has a **main Sky Lane**, a long flight section that replaces a stre
 | Test Track 01 | Banked Dish to the Drafting Straight, about 1.9 km | Brake Basin over the Switch Bridge, about 1.1 km, right-hand catapult |
 | Crestline Ridge | Summit Approach to the Twin Rollers, about 1.5 km | Long Descent, about 0.8 km, left-hand catapult |
 | Switchback Summit | Cliffside Esses and Eagle Traverse, about 1.3 km | Return Hairpin, about 0.6 km, right-hand catapult |
+| Crown & Cloister | Gargoyle Gorge, about 1.42 km | Longbow Meadow, about 0.47 km, right-hand catapult |
+| Selene Station | Debris Run, about 1.44 km | Aurora Gate, right-hand catapult |
+| Neon Grid | Photon Flyway, about 1.43 km | Battery Causeway, right-hand catapult |
 
 Every lane ends on straight road. The corridor funnels down onto the landing deck, so the kart touches down between the rails at flight speed and eases back to ground speed over about 1.5 s.
 
@@ -109,7 +115,7 @@ Item boxes start about 42 m from the line on every circuit. Each row has two or 
 ## Modes
 
 - **Quick Race** runs three laps against five AI karts with item pickups.
-- **Time Trial** records the fastest completed three-lap run. On this browser the ghost is saved with it. Signed in to the hub, the time follows that account to other devices; the ghost stays on the browser that set it. A subsequent run shows the saved ghost when this browser still has it. Records carry the circuit layout they were set on. Sky Lanes started layout 2 and car classes layout 3, so earlier times and ghosts are no longer shown and the first run on the current layout sets the record. To reset them again after a layout change, bump `TRIAL_LAYOUT` in `src/hub/config.js`.
+- **Time Trial** records the fastest completed three-lap run. On this browser the ghost is saved with it. Signed in to the hub, the time follows that account to other devices; the ghost stays on the browser that set it. A subsequent run shows the saved ghost when this browser still has it. Records carry the circuit layout they were set on. Sky Lanes started layout 2 and car classes layout 3, so earlier runs do not appear as current records. Recognized layout-2 times (and local ghost frames) are preserved in separate archive slots. The first run on the current layout sets the active record.
 - **Test Drive** offers all twenty items with unlimited supply. Select a section, entry speed, rivals, and lap state before driving. Test tools can reload those conditions during play. Choose a full pack to try area attacks or one rival ahead to practice aimed shots.
 
 ## Garage

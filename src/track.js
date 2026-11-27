@@ -9,6 +9,16 @@ import { makeCircuitProp } from './circuit-props.js';
 import { buildTestTrackLandmarks } from './test-track-landmarks.js';
 import { buildMountainCabins, mountainCabinSites } from './mountain-cabins.js';
 import { makePickupGeometry, applyPickupVertexShader } from './pickup-chest.js';
+import { buildTrackArt as medievalArt } from './track04-art.js';
+import { buildTrackArt as orbitalArt } from './track05-art.js';
+import { buildTrackArt as futureArt } from './track06-art.js';
+
+const themeArt = { track04: medievalArt, track05: orbitalArt, track06: futureArt };
+const routeLook = {
+  track04: { style:'setts', subtitle:'CROWN CIRCUIT', arch:0x5a483b, accent:0xefbf63, edge:0xffd595 },
+  track05: { style:'alloy', subtitle:'ORBITAL RACING LEAGUE', arch:0x30466c, accent:0x92eccb, edge:0xb6e3ff },
+  track06: { style:'circuit', subtitle:'METROPOLITAN SPEED NETWORK', arch:0x283150, accent:0x41fce4, edge:0x6dfff1 },
+};
 
 const TAU = Math.PI * 2;
 const mix = THREE.MathUtils.lerp;
@@ -23,12 +33,57 @@ const roadLooks = {
   track01: { floor: 0x8fb198, tarmac: 0x36424d, shoulder: 0x394d51, snow: 0x88aaa1, curb: 0xff6b43, rails: 0xa8cfc6, fascia: 0x244747 },
   track02: { floor: 0xaccee0, tarmac: 0x3f5568, shoulder: 0x607883, snow: 0xddecf5, curb: 0x287caa, rails: 0x8fbfda, fascia: 0x294459, orange: 0xf37b39, foam: 0xcde4ee, mint: 0x74b8ce, steel: 0x456278, milk: 0xeaf4f8 },
   track03: { floor: 0x87917b, tarmac: 0x414753, shoulder: 0x505d66, snow: 0xcbd6de, curb: 0xeeb540, rails: 0x91a5ac, fascia: 0x2a373f, orange: 0xf2a72b, steel: 0x526776, mint: 0x76aea8, milk: 0xf2eddb },
+  track04: { floor:0x859263,tarmac:0x776856,shoulder:0x55523e,asphaltEdge:0x665947,curb:0xad543c,rails:0xb2a08a,fascia:0x5a5144,orange:0xf4b56c,steel:0x857967,dark:0x51473b,milk:0xf6e5bd },
+  track05: { floor:0x515472,tarmac:0x374258,shoulder:0x465675,asphaltEdge:0x222c43,curb:0xc4904d,rails:0x9eb9df,fascia:0x3e4d70,orange:0xffca75,steel:0x778cab,dark:0x273550,milk:0xd7ebff },
+  track06: { floor:0x262d40,tarmac:0x313c50,shoulder:0x38495a,asphaltEdge:0x202738,curb:0xe57842,rails:0x83aabb,fascia:0x263951,orange:0xffad63,steel:0x65899b,dark:0x14273d,milk:0xd9faff },
 };
 
 // Vertex coordinates identify painted road space independent of its world winding.
 // Grain is derivative-filtered so early camera switch/long-distance views do not shimmer.
-function styleRoad(material) {
-  material.customProgramCacheKey = () => 'sproto-paved-ribbon-hd';
+function styleRoad(material, finish) {
+  material.customProgramCacheKey = () => 'sproto-paved-ribbon-hd'+(finish?'--'+finish:'');
+  const overlay = finish === 'setts' ? `
+    // Larger, hand-laid rectangular setts with mortar, raised bevels and a dusty shoulder.
+    float row=floor(q.y/1.60);
+    vec2 brick=vec2(q.x/2.48+mod(row,2.)*.5,q.y/1.60);
+    vec2 cell=floor(brick), bd=min(fract(brick),1.-fract(brick));
+    float depth=min(bd.x,bd.y);
+    float nearSetts=1.-smoothstep(.40,1.40,lod);
+    float grout=(1.-smoothstep(.016,.052+lod*.075,depth))*nearSetts;
+    float lip=(smoothstep(.025,.058,depth)-smoothstep(.069,.12,depth))*nearSetts;
+    float variation=roadHash(cell);
+    vec3 stone=mix(vec3(.80,.89,1.03),vec3(1.20,1.08,.89),variation);
+    tar=tar*mix(vec3(1.),stone,.44+.45*nearSetts)*(1.05-grout*.34+lip*.18);
+    tar+=vec3(.022,.014,.006)*shoulders*(.46+macro);
+  ` : finish === 'alloy' ? `
+    // Interlocking flight-deck plates, seams, chamfer highlights and countersunk fasteners.
+    vec2 plate=vec2(q.x/5.6,q.y/15.);
+    vec2 tileCoord=fract(plate);
+    vec2 e=min(tileCoord,1.-tileCoord);
+    float nearPlate=1.-smoothstep(.52,2.2,lod);
+    float groovePlate=(1.-smoothstep(.008,.024+lod*.006,min(e.x,e.y)))*nearPlate;
+    float bevel=(smoothstep(.012,.032,e.y)-smoothstep(.039,.070,e.y))*nearPlate;
+    vec2 bolt=vec2((e.x-.058)*5.6,(e.y-.066)*15.);
+    float radius=length(bolt);
+    float washer=(1.-smoothstep(.13,.22+lod*.11,radius))*nearPlate;
+    float head=(1.-smoothstep(.064,.098+lod*.08,radius))*nearPlate;
+    tar*=1.03+.22*roadHash(floor(plate))-groovePlate*.43-washer*.40;
+    tar+=vec3(.035,.060,.089)*bevel+vec3(.052,.066,.077)*head;
+  ` : finish === 'circuit' ? `
+    // Dark resurfaced speedway, with interrupted traces and inset service pads.
+    float sideX=abs(q.x);
+    float nearTrace=1.-smoothstep(.48,2.50,lod);
+    float traceRun=fract(q.y/10.5);
+    float traceMask=smoothstep(.09,.14,traceRun)*(1.-smoothstep(.77,.83,traceRun));
+    float slot=1.-smoothstep(.064,.20+lod*.15,abs(sideX-9.45));
+    float halo=1.-smoothstep(.16,.43+lod*.09,abs(sideX-9.45));
+    float seams=(1.-smoothstep(.010,.04,abs(fract(q.y/19.)-.5)))*smoothstep(5.,12.,sideX);
+    tar*=1.03-seams*nearTrace*.22;
+    tar+=vec3(.017,.10,.106)*(slot+.27*halo)*traceMask*nearTrace;
+    float pad= (1.-smoothstep(.31,.49,abs(sideX-10.65)))*
+      (1.-smoothstep(.12,.18,abs(fract(q.y/19.)-.5)))*nearTrace;
+    tar+=vec3(.043,.039,.073)*pad;
+  ` : '';
   material.onBeforeCompile = (shader) => {
     shader.vertexShader = 'attribute vec3 aPavement; varying vec3 vPavement;\n' + shader.vertexShader.replace(
       '#include <begin_vertex>', '#include <begin_vertex>\n vPavement = aPavement;'
@@ -60,6 +115,7 @@ function styleRoad(material) {
         float joints=groove*.068*(1.-smoothstep(.25,.88,lod));
         vec3 tar=diffuseColor.rgb*(.93+macro*.12+weather*.08+aggregate*.23-polishedRuts-joints);
         tar+=vec3(.010,.014,.014)*shoulders*weather;
+        ${overlay}
         if(vPavement.z>.001) {
           vec2 lens=vec2(q.x*.95+q.y*.13,q.y*.19-q.x*.24);
           float sheet=roadNoise(lens*.37), ripple=roadNoise(lens*1.06);
@@ -168,6 +224,7 @@ export function createTrack(scene, course = CIRCUITS[0], options = {}) {
   } = core;
 
   const original = course.id === 'track01';
+  const theme = routeLook[course.id];
   const look = roadLooks[course.id] ?? roadLooks.track01;
   const C = { ...defaultColors, ...course.colors, ...look };
   const icePatches = core.icePatches ?? [];
@@ -297,10 +354,12 @@ export function createTrack(scene, course = CIRCUITS[0], options = {}) {
     const windowMaterial = new THREE.MeshPhongMaterial({shininess:68,specular:0x8eafb8,emissive:0x071420});
     extraDisposables = [...Object.values(geo), solid, dirt, windowMaterial,propMaterial];
 
-    const ground = new THREE.Mesh(new THREE.PlaneGeometry(18000, 18000), dirt);
-    ground.rotation.x = -Math.PI / 2;
-    ground.position.y = -6.4;
-    trackGroup.add(ground);
+    if (course.id !== 'track05') {
+      const ground = new THREE.Mesh(new THREE.PlaneGeometry(18000, 18000), dirt);
+      ground.rotation.x = -Math.PI / 2;
+      ground.position.y = -6.4;
+      trackGroup.add(ground);
+    }
 
     const q = new THREE.Quaternion();
     const eul = new THREE.Euler();
@@ -462,7 +521,13 @@ export function createTrack(scene, course = CIRCUITS[0], options = {}) {
     const crownCuts = [-1, -.91, -.79, -.62, -.38, -.18, 0, .18, .38, .62, .79, .91, 1];
     const flatCuts = [-1,-.91,-.38,0,.38,.91,1];
     const snowBands = [.92, .955, .99, 1.055];
-    const edgeLight = course.id === 'track03' ? 0xf4c86a : original ? 0xdafff2 : 0x9fe6ff;
+    const precisionPaving=!!theme;
+    const routeRail=theme ? {
+      track04: { shoulder:0x574435, line:0xf1ce86, bevel:0x937357, inset:0xb4693e, edge:0x674f3d },
+      track05: { shoulder:0x242f49, line:0xc7e4ff, bevel:0x5b7dab, inset:0xefb664, edge:0x364d72 },
+      track06: { shoulder:0x1d2b49, line:0x8ff9e9, bevel:0x327f8f, inset:0xa067d5, edge:0x385b7b },
+    }[course.id] : null;
+    const edgeLight = theme?.edge ?? (course.id === 'track03' ? 0xf4c86a : original ? 0xdafff2 : 0x9fe6ff);
     let a = frame(0);
     for (let n = 0; n < segments; n++) {
       const start = n * segmentLength, end = (n + 1) * segmentLength;
@@ -474,6 +539,11 @@ export function createTrack(scene, course = CIRCUITS[0], options = {}) {
       const icyBoundaries = icePatches.flatMap((p) => [p.s0,p.s1,p.s0+7,p.s1-7]).filter((s) => s > start + .002 && s < end - .002);
       const extra = [...icyBoundaries];
       if (Math.abs(a.curvature) > .012 || Math.abs(a.bank) > .17 || ramp || a.index === 5 && original || roadGone(a.distance) !== roadGone(b.distance)) extra.push((start+end)*.5);
+      // Match tessellation of the themed ribbons and edge paint at bends and grade changes.
+      // All added stations read the same authoritative geometry as the tires.
+      if(precisionPaving && (Math.abs(a.curvature)>.017 || Math.abs(a.bank)>.19 || Math.abs(a.center.y-b.center.y)>.52)){
+        extra.push((start+end)*.5);
+      }
       if (extra.length) stations.splice(1,0,...extra.sort((x,y)=>x-y).filter((v,i,q)=>!i||v-q[i-1]>.002).map(frame));
       for (let j=0; j<stations.length-1; j++) {
         const u=stations[j], v=stations[j+1];
@@ -499,9 +569,24 @@ export function createTrack(scene, course = CIRCUITS[0], options = {}) {
       for (const sign of [-1,1]){
         const open=core.dropAt((n+.5)*segmentLength,sign);
         const edgeColor=open?(n%2?0xffca33:C.ink):curbColor;
-        strip(a,b,sign*halfA,sign*(halfA-(open?1.04:.73)),sign*halfB,sign*(halfB-(open?1.04:.73)),edgeColor,.105);
-        strip(a,b,sign*(halfA-1.51),sign*(halfA-1.31),sign*(halfB-1.51),sign*(halfB-1.31),open?0xf8b535:C.milk,.086);
-        if (n%3 !==0 && !open) strip(a,b,sign*(halfA-.91),sign*(halfA-.75),sign*(halfB-.91),sign*(halfB-.75),edgeLight,.109);
+        if(routeRail) {
+          for(let i=0;i<stations.length-1;i++){
+            const u=stations[i],v=stations[i+1];
+            const ledge=(lo,hi,color,h)=>strip(u,v,sign*(u.width*.5-lo),sign*(u.width*.5-hi),sign*(v.width*.5-lo),sign*(v.width*.5-hi),color,h);
+            ledge(0,open?1.05:.90,edgeColor,.100);
+            ledge(open?1.05:.90,2.22,routeRail.shoulder,.077);
+            ledge(1.92,2.18,open?0xf8b535:routeRail.line,.112);
+            if(!open){
+              ledge(.08,.23,routeRail.bevel,.114);
+              ledge(.68,.88,routeRail.edge,.114);
+              if(n%3!==2) ledge(1.11,1.29,routeRail.inset,.106);
+            }
+          }
+        }else{
+          strip(a,b,sign*halfA,sign*(halfA-(open?1.04:.73)),sign*halfB,sign*(halfB-(open?1.04:.73)),edgeColor,.105);
+          strip(a,b,sign*(halfA-1.51),sign*(halfA-1.31),sign*(halfB-1.51),sign*(halfB-1.31),open?0xf8b535:C.milk,.086);
+          if (n%3 !==0 && !open) strip(a,b,sign*(halfA-.91),sign*(halfA-.75),sign*(halfB-.91),sign*(halfB-.75),edgeLight,.109);
+        }
         const A0=lp(a,sign*halfA),B0=lp(b,sign*halfB);
         const A1=lp(a,sign*(halfA-.08),-.51), B1=lp(b,sign*(halfB-.08),-.51);
         const A2=lp(a,sign*(halfA-.44),-1.43), B2=lp(b,sign*(halfB-.44),-1.43);
@@ -509,16 +594,37 @@ export function createTrack(scene, course = CIRCUITS[0], options = {}) {
         if (n%5 ===0 && !open) quad(A2,B2,lp(b,sign*(halfB-1.1),-1.43),lp(a,sign*(halfA-1.1),-1.43),C.steel);
         if (!open) railSegment(a,b,sign,hasGuardrail(a));
         // Frost stays in the verge except where the authoritative ice map says otherwise.
-        if (!original && !open && n%18 < (course.id==='track02'?15:8)) {
+        if (!original && C.snow != null && !open && n%18 < (course.id==='track02'?15:8)) {
           const offset=(k,f)=>sign*(f.width*.5+(k-.99)*3.4);
           const jag=(.17*Math.sin(n*1.32+sign)+.095*Math.cos(n*.46));
           strip(a,b,offset(snowBands[1]+jag*.06,a),offset(snowBands[3]+jag*.28,a),offset(snowBands[1]-jag*.11,b),offset(snowBands[3]-jag*.25,b),C.snow,.026);
         }
       }
-      if (n%9===0) strip(a,b,-.085,.085,-.085,.085,0x83959d,.072);
+      if (!routeRail && n%9===0) strip(a,b,-.085,.085,-.085,.085,0x83959d,.072);
       a=b;
     }
 
+    if(routeRail) {
+      // Paint sparse directional markers in the outside shoulder only. Skip Sky Lane
+      // entries/landings, drop edges, ice, and any bridge or jump where a cue would mislead.
+      const lanes=core.sky?.lanes??[];
+      for(let i=1;i<sections.length;i++){
+        const apex=frame(at(i,.42));
+        if(Math.abs(apex.curvature)<.005) continue;
+        const side=-Math.sign(apex.curvature);
+        for(let j=0;j<3;j++){
+          const s=at(i,.14)+j*6.5;
+          if(roadGone(s)||core.dropAt(s,side)||ramps.some(p=>Math.abs(s-p.s)<36)||
+            lanes.some(l=>Math.abs(s-l.start)<80||Math.abs(s-l.end)<80)||
+            icePatches.some(p=>iceDistance(p,s)<iceLength(p))) continue;
+          const f=frame(s),x=side*(f.width*.5-3.5);
+          const local=(dx,ds)=>lp(frame(s+ds),x+dx*side,.137);
+          // A short inward arrow, with dark backing so its shape reads on paler road.
+          tri(local(.77,-1.15),local(.77,1.22),local(-1.02,.09),routeRail.shoulder);
+          tri(local(.59,-.89),local(.59,.89),local(-.75,.09),routeRail.line);
+        }
+      }
+    }
     for (const i of [1, 3, 4, 6, 8, 11]) {
       const corner = at(i, 0.17);
       for (let k = 1; k <= 3; k++) {
@@ -633,7 +739,7 @@ export function createTrack(scene, course = CIRCUITS[0], options = {}) {
       mountedSign(
         s, x, 6.9, 8.5, 3.1,
         String(i + 1).padStart(2, '0') + ' / ' + (original ? sections[i].name.split(' ')[0] : sections[i].name).toUpperCase(),
-        'SPROTO  •  TEST TRACK ' + course.number,
+        'SPROTO  •  ' + (theme?.subtitle ?? 'TEST TRACK '+course.number),
         C.dark, C.milk,
       );
     }
@@ -725,8 +831,8 @@ export function createTrack(scene, course = CIRCUITS[0], options = {}) {
       const x = f.width * 0.5 + 2.2;
       const height = 11.9;
       const alpine = course.id === 'track02';
-      const tower = alpine ? 0x274c65 : C.dark;
-      const beacon = alpine ? 0x93e2f4 : original ? C.lime : 0xf2b646;
+      const tower = theme?.arch ?? (alpine ? 0x274c65 : C.dark);
+      const beacon = theme?.accent ?? (alpine ? 0x93e2f4 : original ? C.lime : 0xf2b646);
       for (const side of [-1, 1]) {
         trackShape('box', s, side * x, height / 2, 1.48, height, 2.32, tower);
         trackShape('box', s, side * x, 1.46, 2.2, 2.92, 3.1, C.steel);
@@ -766,142 +872,144 @@ export function createTrack(scene, course = CIRCUITS[0], options = {}) {
       }
 
     }
-    arch(0, original ? 'SPROTO RACING' : course.name.toUpperCase(), 'START  /  FINISH                              COMPETITION RESEARCH UNIT');
+    arch(0, original ? 'SPROTO RACING' : course.name.toUpperCase(), theme ? 'START  /  FINISH                   '+theme.subtitle : 'START  /  FINISH                              COMPETITION RESEARCH UNIT');
 
     let seed = 0x5350;
     function rand() {
       seed = (1664525 * seed + 1013904223) >>> 0;
       return seed / 4294967296;
     }
-    const summit=course.id==='track03';
-    const facilityTint = original ? 0x394c51 : course.id === 'track02' ? 0x264c68 : 0x54493f;
-    const glazing = original ? 0x478a92 : 0x486e86;
-    const trim = original ? C.lime : course.id==='track02' ? 0x8bdffc : 0xf2b846;
-    // Layered cantilever pit modules and ridge viewing pavilions. Base locations
-    // are wholly outside the road and avoid all scripted hazards.
-    for (const [s,side] of [[47,1],[72,1],[109,1],[131,1]]) {
-      const x = side*(frame(s).width*.5+10.9);
-      const base = original ? 4.1 : 5.4;
-      trackShape('box',s,x,base*.50,12,base,13,facilityTint);
-      trackShape('box',s,x,base+.13,14.8,.44,14.3,trim);
-      trackShape('box',s,x,base+.55,9.6,.57,9.4,C.steel);
-      trackShape('box',s,x-side*6.8,base*.33,.71,1.65,11.6,C.dark);
-      for(let j=-2;j<=2;j++){
-        trackShape('bevel',s+j*2.3,x-side*6.38,base*.71,.46,1.34,2.01,C.ink);
-        trackShape('glaze',s+j*2.3,x-side*6.65,base*.71,.15,1.00,1.78,glazing);
-        trackShape('box',s+j*2.3,x-side*6.74,base*.71,.10,1.03,.10,C.steel);
-        trackShape('box',s+j*2.3,x-side*7.2,base*.17,.37,.41,1.84,trim);
-      }
-      for(const z of [-5.4,5.4]){
-        const f=frame(s+z), near=x-side*7.1;
-        beam(lp(f,near,base*.37),lp(f,near+side*2.55,base+.23),.18,.18,C.steel);
-        trackShape('bevel',s+z,near,base*.23,.71,1.46,.73,facilityTint);
-        trackShape('glaze',s+z,near-side*.40,base*.62,.083,.25,.78,trim);
-      }
-      if(!original && !summit){
-        trackShape('box',s,x,base+.91,11.8,.29,11.8,C.snow);
-        trackShape('box',s,x+side*2.2,base+1.18,5.1,.36,7.5,C.foam);
-      }
-      if(summit) {
-        // Two shingled planes and their timber ridge; still outside the curb.
-        const origins=[frame(s-6.6),frame(s+6.6)];
-        const ridge=origins.map(f=>lp(f,x,base+3.05));
-        for(const side of [-1,1]){
-          const eave=origins.map(f=>lp(f,x+side*7.28,base+.42));
-          quad(eave[0],ridge[0],ridge[1],eave[1],side<0?0x476357:0x556f60);
-          tri(eave[0],ridge[0],lp(origins[0],x,base+.42),0x6f6250);
-          tri(eave[1],ridge[1],lp(origins[1],x,base+.42),0x6f6250);
-          for(let j=-2;j<=2;j++)trackShape('box',s+j*2.3,x+side*5.6,base+1.10,3.2,.12,.18,0x778b78);
+    const trim = theme?.accent ?? (original ? C.lime : course.id==='track02' ? 0x8bdffc : 0xf2b846);
+    if (!theme) {
+      const summit=course.id==='track03';
+      const facilityTint = original ? 0x394c51 : course.id === 'track02' ? 0x264c68 : 0x54493f;
+      const glazing = original ? 0x478a92 : 0x486e86;
+      // Layered cantilever pit modules and ridge viewing pavilions. Base locations
+      // are wholly outside the road and avoid all scripted hazards.
+      for (const [s,side] of [[47,1],[72,1],[109,1],[131,1]]) {
+        const x = side*(frame(s).width*.5+10.9);
+        const base = original ? 4.1 : 5.4;
+        trackShape('box',s,x,base*.50,12,base,13,facilityTint);
+        trackShape('box',s,x,base+.13,14.8,.44,14.3,trim);
+        trackShape('box',s,x,base+.55,9.6,.57,9.4,C.steel);
+        trackShape('box',s,x-side*6.8,base*.33,.71,1.65,11.6,C.dark);
+        for(let j=-2;j<=2;j++){
+          trackShape('bevel',s+j*2.3,x-side*6.38,base*.71,.46,1.34,2.01,C.ink);
+          trackShape('glaze',s+j*2.3,x-side*6.65,base*.71,.15,1.00,1.78,glazing);
+          trackShape('box',s+j*2.3,x-side*6.74,base*.71,.10,1.03,.10,C.steel);
+          trackShape('box',s+j*2.3,x-side*7.2,base*.17,.37,.41,1.84,trim);
         }
-        trackShape('box',s,x,base+3.07,.40,.20,13.5,C.steel);
-      }
-    }
-    if(original){
-      // Paired pit-light stacks and a multi-tier lattice mast at the spiral.
-      for(const side of [-1,1]) for(const s of [17,143]) {
-        const x=side*(frame(s).width*.5+3.20);
-        trackShape('box',s,x,3.5,.55,7,.55,C.dark);
-        for(let j=0;j<4;j++)trackShape('box',s-.37,x,4.7+j*.49,1.15,.23,.31,j<2?C.orange:C.lime);
-      }
-    }else{
-      // High-route survey masts and summit marker gantries stay outside racing width.
-      for(const [i,u,side] of [[1,.55,1],[3,.21,-1],[4,.56,1],[6,.35,1],[8,.63,-1],[10,.54,1]]) {
-        const s=at(i,u), f=frame(s), x=side*(f.width*.5+6.15);
-        trackShape('box',s,x,.92,4.8,1.84,3.3,C.fascia);
-        trackShape('box',s,x,4.66,.76,9.2,.78,C.steel);
-        trackShape('box',s,x,8.15,2.8,1.32,3.7,C.foam);
-        trackShape('box',s,x,8.95,3.3,.25,4.1,C.snow);
-        trackShape('box',s-.89,x,8.18,2.3,.28,.32,trim);
-        trackShape('pillar',s,x,10.1,.37,2.4,.37,C.dark);
-        trackShape('sphere',s,x,11.38,.67,.6,.67,trim);
-      }
-    }
-    function grandstandProfile(f) {
-      const profile = [[-25.9, 1.67], [-27.7, 1.67], [-27.7, 2.55], [-29.5, 2.55],
-        [-29.5, 3.43], [-31.3, 3.43], [-31.3, 4.31], [-33.2, 4.31]];
-      const seats = profile.map(([x, h]) => lp(f, x, h));
-      const front = seats[0].clone();
-      const back = seats[seats.length - 1].clone();
-      front.y = -6.36;
-      back.y = -6.36;
-      return [front, ...seats, back];
-    }
-    function roofProfile(f) {
-      return [[-25.4, 8.37], [-25.4, 8.79], [-35.2, 9.05], [-35.2, 8.74]].map(([x, h]) => lp(f, x, h));
-    }
-    for (let s = 31; s < 139; s += 3) {
-      const fa = frame(s);
-      const fb = frame(s + 3);
-      const A = grandstandProfile(fa);
-      const B = grandstandProfile(fb);
-      for (let k = 0; k < A.length - 1; k++) quad(A[k], B[k], B[k + 1], A[k + 1], k === 0 || k === A.length - 2 ? C.steel : C.foam);
-      const R = roofProfile(fa);
-      const S = roofProfile(fb);
-      for (let k = 0; k < 4; k++) quad(R[k], S[k], S[(k + 1) % 4], R[(k + 1) % 4], k === 0 ? trim : !original && k===2 ? C.snow : C.mint);
-      if (s === 31 || s === 136) {
-        const end = s === 31 ? R : S;
-        quad(...end, C.mint);
-        const wall = s === 31 ? A : B;
-        for (let k = 1; k < wall.length - 1; k++) tri(wall[0], wall[k], wall[k + 1], C.steel);
-      }
-    }
-    for(let s=36;s<139;s+=12){
-      for(let row=0;row<4;row++) trackShape('box',s,-26.7-row*1.8,1.63+row*.88,.52,.21,10.3,(row+s)%3?C.steel:trim);
-      trackShape('box',s,-26.2,8.13,.64,.31,10.2,C.dark);
-      trackShape('box',s,-33.9,6.38,.33,6.36,.56,C.fascia);
-    }
-    for (const s of [48, 84, 120]) {
-      for (let row = 0; row < 4; row++) {
-        for(let j=0;j<11;j++){
-          const pos=s-14+j*2.68+rand()*.5;
-          const w=.84+rand()*.22,h=1.34+rand()*.36,variant=Math.floor(rand()*3);
-          trackShape('detail-fan-'+variant,pos,-26.8-row*1.8,2.34+row*.88,w,h,.92,0xffffff,(j%3-1)*.16);
+        for(const z of [-5.4,5.4]){
+          const f=frame(s+z), near=x-side*7.1;
+          beam(lp(f,near,base*.37),lp(f,near+side*2.55,base+.23),.18,.18,C.steel);
+          trackShape('bevel',s+z,near,base*.23,.71,1.46,.73,facilityTint);
+          trackShape('glaze',s+z,near-side*.40,base*.62,.083,.25,.78,trim);
+        }
+        if(!original && !summit){
+          trackShape('box',s,x,base+.91,11.8,.29,11.8,C.snow);
+          trackShape('box',s,x+side*2.2,base+1.18,5.1,.36,7.5,C.foam);
+        }
+        if(summit) {
+          // Two shingled planes and their timber ridge; still outside the curb.
+          const origins=[frame(s-6.6),frame(s+6.6)];
+          const ridge=origins.map(f=>lp(f,x,base+3.05));
+          for(const side of [-1,1]){
+            const eave=origins.map(f=>lp(f,x+side*7.28,base+.42));
+            quad(eave[0],ridge[0],ridge[1],eave[1],side<0?0x476357:0x556f60);
+            tri(eave[0],ridge[0],lp(origins[0],x,base+.42),0x6f6250);
+            tri(eave[1],ridge[1],lp(origins[1],x,base+.42),0x6f6250);
+            for(let j=-2;j<=2;j++)trackShape('box',s+j*2.3,x+side*5.6,base+1.10,3.2,.12,.18,0x778b78);
+          }
+          trackShape('box',s,x,base+3.07,.40,.20,13.5,C.steel);
         }
       }
-      for (const d of [-13, 13]) trackShape('box', s + d, -34.2, 4.45, 0.47, 9.1, 0.48, C.dark);
-    }
-    for (const s of [34, 60, 86, 112, 138, 164]) {
-      trackShape('pillar', s, 19.4, 5.5, 0.19, 11, 0.19, C.dark);
-      trackShape('box', s, 20.9, 9.9, 3, 0.95, 0.09, C.orange);
-    }
-    if(original){
-      // Track control booth: paneled concrete, upper control glazing and real roof equipment.
-      trackShape('bevel',87,35,8.8,14,17.6,16,C.foam);
-      trackShape('box',87,35,18.1,15,.8,17,C.lime);
-      trackShape('box',87,35,13,14.3,3.8,16.4,C.ink);
-      for(let i=-2;i<=2;i++){
-        trackShape('glaze',87+i*2.85,27.73,13.15,.14,2.5,2.53,0x83bbce);
-        trackShape('box',87+i*2.85,27.66,12.22,.13,.21,2.67,0x8a9fa1);
+      if(original){
+        // Paired pit-light stacks and a multi-tier lattice mast at the spiral.
+        for(const side of [-1,1]) for(const s of [17,143]) {
+          const x=side*(frame(s).width*.5+3.20);
+          trackShape('box',s,x,3.5,.55,7,.55,C.dark);
+          for(let j=0;j<4;j++)trackShape('box',s-.37,x,4.7+j*.49,1.15,.23,.31,j<2?C.orange:C.lime);
+        }
+      }else{
+        // High-route survey masts and summit marker gantries stay outside racing width.
+        for(const [i,u,side] of [[1,.55,1],[3,.21,-1],[4,.56,1],[6,.35,1],[8,.63,-1],[10,.54,1]]) {
+          const s=at(i,u), f=frame(s), x=side*(f.width*.5+6.15);
+          trackShape('box',s,x,.92,4.8,1.84,3.3,C.fascia);
+          trackShape('box',s,x,4.66,.76,9.2,.78,C.steel);
+          trackShape('box',s,x,8.15,2.8,1.32,3.7,C.foam);
+          trackShape('box',s,x,8.95,3.3,.25,4.1,C.snow);
+          trackShape('box',s-.89,x,8.18,2.3,.28,.32,trim);
+          trackShape('pillar',s,x,10.1,.37,2.4,.37,C.dark);
+          trackShape('sphere',s,x,11.38,.67,.6,.67,trim);
+        }
       }
-      trackShape('pillar',90,36,19.45,.31,2.7,.31,C.steel);
-      trackShape('bevel',84,38,18.94,3.4,1.18,3.6,C.steel);
-    }else{
-      const winter=course.id==='track02';
-      trackShape(winter?'detail-snow-station':'detail-timber-station',87,35,7.8,16,15.6,18,0xffffff,Math.PI*.5);
+      function grandstandProfile(f) {
+        const profile = [[-25.9, 1.67], [-27.7, 1.67], [-27.7, 2.55], [-29.5, 2.55],
+          [-29.5, 3.43], [-31.3, 3.43], [-31.3, 4.31], [-33.2, 4.31]];
+        const seats = profile.map(([x, h]) => lp(f, x, h));
+        const front = seats[0].clone();
+        const back = seats[seats.length - 1].clone();
+        front.y = -6.36;
+        back.y = -6.36;
+        return [front, ...seats, back];
+      }
+      function roofProfile(f) {
+        return [[-25.4, 8.37], [-25.4, 8.79], [-35.2, 9.05], [-35.2, 8.74]].map(([x, h]) => lp(f, x, h));
+      }
+      for (let s = 31; s < 139; s += 3) {
+        const fa = frame(s);
+        const fb = frame(s + 3);
+        const A = grandstandProfile(fa);
+        const B = grandstandProfile(fb);
+        for (let k = 0; k < A.length - 1; k++) quad(A[k], B[k], B[k + 1], A[k + 1], k === 0 || k === A.length - 2 ? C.steel : C.foam);
+        const R = roofProfile(fa);
+        const S = roofProfile(fb);
+        for (let k = 0; k < 4; k++) quad(R[k], S[k], S[(k + 1) % 4], R[(k + 1) % 4], k === 0 ? trim : !original && k===2 ? C.snow : C.mint);
+        if (s === 31 || s === 136) {
+          const end = s === 31 ? R : S;
+          quad(...end, C.mint);
+          const wall = s === 31 ? A : B;
+          for (let k = 1; k < wall.length - 1; k++) tri(wall[0], wall[k], wall[k + 1], C.steel);
+        }
+      }
+      for(let s=36;s<139;s+=12){
+        for(let row=0;row<4;row++) trackShape('box',s,-26.7-row*1.8,1.63+row*.88,.52,.21,10.3,(row+s)%3?C.steel:trim);
+        trackShape('box',s,-26.2,8.13,.64,.31,10.2,C.dark);
+        trackShape('box',s,-33.9,6.38,.33,6.36,.56,C.fascia);
+      }
+      for (const s of [48, 84, 120]) {
+        for (let row = 0; row < 4; row++) {
+          for(let j=0;j<11;j++){
+            const pos=s-14+j*2.68+rand()*.5;
+            const w=.84+rand()*.22,h=1.34+rand()*.36,variant=Math.floor(rand()*3);
+            trackShape('detail-fan-'+variant,pos,-26.8-row*1.8,2.34+row*.88,w,h,.92,0xffffff,(j%3-1)*.16);
+          }
+        }
+        for (const d of [-13, 13]) trackShape('box', s + d, -34.2, 4.45, 0.47, 9.1, 0.48, C.dark);
+      }
+      for (const s of [34, 60, 86, 112, 138, 164]) {
+        trackShape('pillar', s, 19.4, 5.5, 0.19, 11, 0.19, C.dark);
+        trackShape('box', s, 20.9, 9.9, 3, 0.95, 0.09, C.orange);
+      }
+      if(original){
+        // Track control booth: paneled concrete, upper control glazing and real roof equipment.
+        trackShape('bevel',87,35,8.8,14,17.6,16,C.foam);
+        trackShape('box',87,35,18.1,15,.8,17,C.lime);
+        trackShape('box',87,35,13,14.3,3.8,16.4,C.ink);
+        for(let i=-2;i<=2;i++){
+          trackShape('glaze',87+i*2.85,27.73,13.15,.14,2.5,2.53,0x83bbce);
+          trackShape('box',87+i*2.85,27.66,12.22,.13,.21,2.67,0x8a9fa1);
+        }
+        trackShape('pillar',90,36,19.45,.31,2.7,.31,C.steel);
+        trackShape('bevel',84,38,18.94,3.4,1.18,3.6,C.steel);
+      }else{
+        const winter=course.id==='track02';
+        trackShape(winter?'detail-snow-station':'detail-timber-station',87,35,7.8,16,15.6,18,0xffffff,Math.PI*.5);
+      }
+      textPanel(87,35,6.8,11.9,5,course.number,original?'TEST FACILITY':course.id==='track02'?'SNOW RESCUE':'RANGER STATION',C.orange,C.ink,8.035);
+      textPanel(150, 28, 9, 20, 7, 'SPROTO', 'RACING DIVISION     /     ' + course.number, C.orange, C.ink);
+      trackShape('box', 150, 28, 4.5, 0.56, 9, 0.66, C.dark);
     }
-    textPanel(87,35,6.8,11.9,5,course.number,original?'TEST FACILITY':course.id==='track02'?'SNOW RESCUE':'RANGER STATION',C.orange,C.ink,8.035);
-    textPanel(150, 28, 9, 20, 7, 'SPROTO', 'RACING DIVISION     /     ' + course.number, C.orange, C.ink);
-    trackShape('box', 150, 28, 4.5, 0.56, 9, 0.66, C.dark);
 
     for (let i = 0; i < 12; i++) {
       for (const u of [0.29, 0.58, 0.79]) {
@@ -1258,7 +1366,9 @@ export function createTrack(scene, course = CIRCUITS[0], options = {}) {
     if (pickupMesh.boundingSphere) pickupMesh.boundingSphere.radius += 3.5;
     trackGroup.add(pickupMesh);
 
-    trackGroup.add(createCircuitSkyline(course.id));
+    if (!externalSkyline && course.id !== 'track05' && course.id !== 'track06') trackGroup.add(createCircuitSkyline(course.id));
+    const bespoke=themeArt[course.id]?.(core);
+    if(bespoke) trackGroup.add(bespoke);
     const cabins=mountainCabinSites(core);
     const reservedSites=cabins.map(site=>({...site,radius:Math.max(19,site.radius)}));
     const biome=buildCircuitBiome(core,{reservedSites});
@@ -1352,7 +1462,7 @@ export function createTrack(scene, course = CIRCUITS[0], options = {}) {
       }
     } // Winter scenery and mountains are mounted by the biome layer.
     const pavementMaterial = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide, flatShading: true });
-    styleRoad(pavementMaterial);
+    styleRoad(pavementMaterial,theme?.style);
     extraDisposables.push(pavementMaterial);
     for (const { positions, colors, coords } of surfaceTiles.values()) {
       const g=new THREE.BufferGeometry();
@@ -1458,9 +1568,11 @@ export function createTrack(scene, course = CIRCUITS[0], options = {}) {
       else if (item?.isMaterial) materials.add(item);
     }
     trackGroup.traverse((obj) => {
-      if (!obj.isMesh) return;
-      geometries.add(obj.geometry);
-      materials.add(obj.material);
+      if (!obj.isMesh && !obj.isPoints && !obj.isLine && !obj.isSprite) return;
+      if(obj.geometry) geometries.add(obj.geometry);
+      for(const mat of (Array.isArray(obj.material)?obj.material:[obj.material])){
+        if(mat) materials.add(mat);
+      }
       if (obj.isInstancedMesh) obj.dispose();
     });
     for (const geometry of geometries) geometry.dispose();

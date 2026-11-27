@@ -73,8 +73,11 @@ for(const course of CIRCUITS){
     assert(Number.isFinite(t.edgeAt(s,-side)));
     for(const car of ['apex','geep']){
       for(const outward of [side,-side]){
-        const st=session.start('test',{sector,speed:'cruise',lap:2,rivals:'solo',car,item:2});
+        // Use a grounded start before placing the kart at the lip. A sector
+        // can start within a Sky Lane and have a grounded drop farther on.
+        const st=session.start('test',{sector:0,speed:'cruise',lap:2,rivals:'solo',car,item:2});
         const a=st.player,k=a.kart;
+        assert(k.grounded && !k.flying, 'edge fixture must start in ground mode');
         const heading=outward*.52;
         Object.assign(k,{s:s+t.length,x:outward*(t.widthAt(s)/2-4),speed:40,travelYaw:heading,yaw:heading});
         grantBoost(a.boost,3,2);session.useItem(a);

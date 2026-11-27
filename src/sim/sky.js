@@ -40,6 +40,13 @@ const MAIN_PROGRAMME = [
   [['sweeper', 0.15], ['split', 0.31], ['shutter', 0.5], ['pylons', 0.64, 'dense'], ['sweeper', 0.79]],
   [['fan', 0.13], ['debris', 0.25], ['shutter', 0.38], ['sweeper', 0.5], ['squeeze', 0.61], ['fan', 0.72], ['debris', 0.83]],
 ];
+// The first lap teaches a different flying skill on each new circuit. The
+// standard second/third-lap escalation stays in place, with course-seeded layouts.
+const OPENING_PROGRAMMES = {
+  medieval: { obstacles: [['pylons',.18],['squeeze',.35],['squeeze',.58],['pylons',.76]], crossing:.465 },
+  orbital: { obstacles: [['pylons',.16],['debris',.31],['split',.53],['squeeze',.76]], crossing:.435 },
+  neon: { obstacles: [['pylons',.16],['sweeper',.32],['pylons',.51],['shutter',.73]], crossing:.415 },
+};
 const GATE_PROGRAMME = [
   [],
   [['pylons', 0.3], ['shutter', 0.62]],
@@ -67,7 +74,7 @@ function boxPart(s, x, y, hs, hx, hy, motion = null) {
 }
 
 // Builds one lap's layout. `seed` keeps every lane and lap distinct.
-function buildLayout(lane, programme, seed, storm, crossing, lapIndex) {
+function buildLayout(lane, programme, seed, storm, crossing, lapIndex, openingCrossing) {
   const half = lane.width / 2;
   const floor = lane.floor;
   const ceiling = lane.ceiling;
@@ -181,7 +188,7 @@ function buildLayout(lane, programme, seed, storm, crossing, lapIndex) {
   if(crossing){
     // These are reserved open windows between the stock obstacle clusters. Add
     // crossings without drawing from the seeded stream that places those clusters.
-    const u=[.445,.565,.454][lapIndex];
+    const u=openingCrossing??[.445,.565,.454][lapIndex];
     const s=lane.start+u*span;
     const [hx,hy,hs]=crossing==='plane'?[5.4,1.35,2.7]:crossing==='birds'?[4.1,1.28,2.4]:[4.6,1.68,2.3];
     const phase=hash(seed+790)*TAU;
@@ -287,7 +294,7 @@ function insideStatic(obstacles, cell) {
 
 /** Resolves a course's lanes against a track core's sections. */
 export function createSky(course, sections, length) {
-  const def = SKY_COURSES[course.id];
+  const def = course.sky ?? SKY_COURSES[course.id];
   if (!def) return { theme: 'rig', lanes: [], laneAt: () => -1, inMainLane: () => false };
   const at = ([i, f]) => mix(sections[i].start, sections[i].end, f);
   const lanes = def.lanes.map((raw, index) => {
@@ -304,7 +311,11 @@ export function createSky(course, sections, length) {
       openLap: raw.openLap ?? 1,
     };
     const programme = lane.optional ? GATE_PROGRAMME : MAIN_PROGRAMME;
-    lane.layouts = programme.map((p, lap) => buildLayout(lane, p, (course.number | 0) * 31 + index * 7 + lap + 1, lap === 2, lane.optional ? null : def.crossing, lap));
+    const opening = lane.optional ? null : OPENING_PROGRAMMES[def.theme];
+    lane.layouts = programme.map((p, lap) => buildLayout(lane,
+      lap === 0 && opening ? opening.obstacles : p,
+      (course.number | 0) * 31 + index * 7 + lap + 1, lap === 2,
+      lane.optional ? null : def.crossing, lap, lap === 0 ? opening?.crossing : undefined));
     return lane;
   });
 

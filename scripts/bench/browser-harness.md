@@ -24,6 +24,30 @@ The game's tab has to be the selected tab in its window. A tab behind another on
 
 `runRace()` stops after 24 seconds of real time so that a console call cannot hang; call it again to continue the same race. Reload the page before each new race. Shader compilation is only "cold" on the first run after the browser starts, because the browser keeps compiled shaders on disk.
 
+## An online test race
+
+The development server can run an online race against a match that lives inside the page (see `docs/online-netcode.md`, "In the game"). Open `http://127.0.0.1:5173/?perf=1&online=loopback&latency=60` (add `&seats=12&humans=6` for a full grid), stay in the lobby, then:
+
+```js
+const A = (await import('/scripts/bench/browser-harness.js')).default;
+await A.startOnline('track01');   // picks the circuit, goes through the garage, presses READY
+await A.runRace();                // repeat until it reports finished: true (the server's result is in)
+A.brief();
+```
+
+The player's kart is driven by the same autopilot. `A.summary().online` (and the shorter `A.brief()`) adds what the online side cost and whether it stayed in step with the host:
+
+| Field | Meaning |
+| --- | --- |
+| `clientMs` | Milliseconds per frame this player's online work took: correcting, re-running and stepping the race, tidying item meshes, playing cues. Mean, 99th percentile and worst |
+| `clientMsWithItems` | The same over the frames that had item objects alive |
+| `loopbackMs` | The in-page server and the other players. A real client does not pay this; subtract it from `scriptMs` |
+| `replayedTicksPerFrame` | Ticks re-run by corrections per frame |
+| `hashChecks`, `hashDifferences` | How often the client compared its state with the host's, and how often they differed. Must be 0 |
+| `keyframeRequests`, `stalledFrames` | Full-state resyncs asked for, and frames spent waiting at the edge of the prediction window |
+| `events` | Events announced, first seen after a correction (`late`), and taken back (`cancelled`) |
+| `itemMeshes`, `trailFill` | Item meshes built, started from scratch and handed back after a correction; how complete shot trails were when drawn |
+
 ## What `A.summary()` reports
 
 | Field | Meaning |
@@ -47,6 +71,7 @@ All of this happens in the page only.
 - `THREE.Scene.prototype.onBeforeRender`, to find the renderer, the race scene (the one with fog) and its camera.
 - `Array.prototype.map`, once per race, to find the list of karts (`state.actors`).
 - `Object.assign`, to overwrite the player's controls with the AI's decision whenever the copied object is the result of polling input. Set `A.auto = false` to drive by hand.
+- `window.__sprotoRace`, which the game sets with `?perf=1`, to find the kart the player drives (online it is not seat 0). On a build without it the player is taken to be seat 0.
 - `renderer.render`, to time the call and wrap it in a GPU timer query.
 - `window.requestAnimationFrame`, as described above.
 

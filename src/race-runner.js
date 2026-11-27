@@ -53,6 +53,9 @@
 //                        Online it is the host's result, so it is null until that arrives.
 //   net                  null offline; online { rttMs, leadTicks, predictedTicks, stalled, synced }.
 //
+// The game loop in src/main.js drives both kinds of race through this interface and
+// nothing else.
+//
 // Not part of this interface, because they belong to one player on one machine. Single
 // player adds them on top of the local runner in src/session.js:
 //   - Time Trial ghosts: recording, the stored best lap, playback, saving records.

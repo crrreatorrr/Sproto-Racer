@@ -8,7 +8,7 @@ import {controllerIsOpen,openController} from './controller.js';
 import {attachFeedbackSdk,createFeedbackHold,installRaceFeedback,raceBreadcrumbs} from './feedback.js';
 import {createPaddock,lightScene} from './paddock.js';
 import {updateRivalVisibility} from './kart-visibility.js';
-import {warmRaceShaders} from './shader-warmup.js';
+import {drawKartsOnce,warmRaceShaders} from './shader-warmup.js';
 import {makeKart,animateKart,disposeKart,resetKartWingPose,updateKartDetail,forceKartDetail} from './kart-art.js';
 import {createGarage} from './garage.js';
 import {carById,driverById} from './roster.js';
@@ -279,6 +279,8 @@ function raceReady(title){
   // Compile every shader the race can need now, so none of them stalls a frame mid-race.
   const karts=state.actors.map(a=>models[a.id]);
   warmRaceShaders(renderer,world,camera,{built:[track,ghostModel,...karts],rivals:karts.filter((_,i)=>i!==seat),play,itemFx});
+  // And send every kart to the graphics card now, wherever it sits on the grid.
+  drawKartsOnce(renderer,world,karts);
 }
 function loadSelectedCourse(){
   if(chosenCourse.id===track.id){ensureTrackVisuals();return;}
@@ -410,7 +412,7 @@ function onlineLobbyFrame(dt){
   online.shownLobby=text;
   if(runner.error){list.innerHTML=`<li>The match refused this racer (${escapeHtml(runner.error)}).</li>`;return;}
   list.innerHTML=runner.lobby.map(p=>`<li><b>${escapeHtml(p.name)}</b><span>${escapeHtml(carById(p.car).name)}</span><em>${p.ready?'READY':'…'}</em></li>`).join('')
-    +`<li class="subtle"><b>${onlineDev.seats-runner.lobby.length} more</b><span>computer drivers</span><em></em></li>`;
+    +(runner.lobby.length<onlineDev.seats?`<li class="subtle"><b>${onlineDev.seats-runner.lobby.length} more</b><span>computer drivers</span><em></em></li>`:'');
 }
 function onlineMenu(){
   showPanel('pause',`<h2 id="panel-title">Online race</h2><p>${track.name} · ${track.sections[view.sector].name}</p><p>An online race cannot pause. It carries on behind this panel.</p><p class="subtle">${onlineNote()}</p>${graphicsField()}<div class="panel-actions"><button class="primary" id="resume">BACK TO THE RACE ${icon('arrow')}</button><button id="edit-pad">Controller setup</button><button id="back-home">Leave the race</button></div>`);
@@ -789,7 +791,7 @@ function hud(){
  setText('feedback',feedback.join('\n')||shownSplitText);
  const finalLap=state.mode!=='test'&&finalLapAt>=0&&state.elapsed-finalLapAt<2.4&&!state.done;
  $('announce').classList.toggle('final-lap',finalLap);
- setText('announce',online&&runner.phase==='waiting'?'GET READY':state.countdown?Math.ceil(state.countdown):state.elapsed<.7&&state.mode!=='test'?'GO!':finalLap?'FINAL LAP':online&&a.finish!=null?'FINISHED':'');
+ setText('announce',online&&runner.phase==='waiting'?(state.tick>0?'CATCHING UP':'GET READY'):state.countdown?Math.ceil(state.countdown):state.elapsed<.7&&state.mode!=='test'?'GO!':finalLap?'FINAL LAP':online&&a.finish!=null?'FINISHED':'');
  // The roulette fills the front slot when it is empty, otherwise the second slot.
  const rolling=a.roulette?pickupPreview(a.roulette,state.elapsed):null;
  const frontRolling=!!a.roulette&&a.held==null;

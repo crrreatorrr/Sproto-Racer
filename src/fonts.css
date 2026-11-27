@@ -3,54 +3,47 @@
   font-style: italic;
   font-weight: 800;
   font-display: swap;
-  src: url(/fonts/HTxyL3I-JCGChYJ8VI-L6OO_au7B6xTrf3fWvA.woff2) format('woff2'),
-       url(/fonts/HTxyL3I-JCGChYJ8VI-L6OO_au7B6xTrf3fWvA.ttf) format('truetype');
+  src: url(/fonts/HTxyL3I-JCGChYJ8VI-L6OO_au7B6xTrf3fWvA.woff2) format('woff2');
 }
 @font-face {
   font-family: 'Barlow Condensed';
   font-style: italic;
   font-weight: 900;
   font-display: swap;
-  src: url(/fonts/HTxyL3I-JCGChYJ8VI-L6OO_au7B6xTrW3bWvA.woff2) format('woff2'),
-       url(/fonts/HTxyL3I-JCGChYJ8VI-L6OO_au7B6xTrW3bWvA.ttf) format('truetype');
+  src: url(/fonts/HTxyL3I-JCGChYJ8VI-L6OO_au7B6xTrW3bWvA.woff2) format('woff2');
 }
 @font-face {
   font-family: 'Barlow Condensed';
   font-style: normal;
   font-weight: 600;
   font-display: swap;
-  src: url(/fonts/HTxwL3I-JCGChYJ8VI-L6OO_au7B4873_3E.woff2) format('woff2'),
-       url(/fonts/HTxwL3I-JCGChYJ8VI-L6OO_au7B4873_3E.ttf) format('truetype');
+  src: url(/fonts/HTxwL3I-JCGChYJ8VI-L6OO_au7B4873_3E.woff2) format('woff2');
 }
 @font-face {
   font-family: 'Barlow Condensed';
   font-style: normal;
   font-weight: 700;
   font-display: swap;
-  src: url(/fonts/HTxwL3I-JCGChYJ8VI-L6OO_au7B46r2_3E.woff2) format('woff2'),
-       url(/fonts/HTxwL3I-JCGChYJ8VI-L6OO_au7B46r2_3E.ttf) format('truetype');
+  src: url(/fonts/HTxwL3I-JCGChYJ8VI-L6OO_au7B46r2_3E.woff2) format('woff2');
 }
 @font-face {
   font-family: 'Barlow Condensed';
   font-style: normal;
   font-weight: 800;
   font-display: swap;
-  src: url(/fonts/HTxwL3I-JCGChYJ8VI-L6OO_au7B47b1_3E.woff2) format('woff2'),
-       url(/fonts/HTxwL3I-JCGChYJ8VI-L6OO_au7B47b1_3E.ttf) format('truetype');
+  src: url(/fonts/HTxwL3I-JCGChYJ8VI-L6OO_au7B47b1_3E.woff2) format('woff2');
 }
 @font-face {
   font-family: 'Space Mono';
   font-style: normal;
   font-weight: 400;
   font-display: swap;
-  src: url(/fonts/i7dPIFZifjKcF5UAWdDRUEY.woff2) format('woff2'),
-       url(/fonts/i7dPIFZifjKcF5UAWdDRUEY.ttf) format('truetype');
+  src: url(/fonts/i7dPIFZifjKcF5UAWdDRUEY.woff2) format('woff2');
 }
 @font-face {
   font-family: 'Space Mono';
   font-style: normal;
   font-weight: 700;
   font-display: swap;
-  src: url(/fonts/i7dMIFZifjKcF5UAWdDRaPpZYFI.woff2) format('woff2'),
-       url(/fonts/i7dMIFZifjKcF5UAWdDRaPpZYFI.ttf) format('truetype');
+  src: url(/fonts/i7dMIFZifjKcF5UAWdDRaPpZYFI.woff2) format('woff2');
 }

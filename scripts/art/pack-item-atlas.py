@@ -1,9 +1,9 @@
-"""Pack the 20 PNG tiles in a validated 5×4 lossless RGBA WebP atlas.
+"""Pack the 20 PNG tiles in a validated 5×4 RGBA WebP atlas (lossy colour, near-exact alpha).
 Usage: python pack-item-atlas.py [render-dir] [game src/items.js] [output]
 """
 from pathlib import Path
-import sys, re, json, hashlib
-from PIL import Image, ImageDraw, ImageFont
+import sys, re, json, math
+from PIL import Image, ImageChops, ImageDraw, ImageFont, ImageStat
 
 DIR=Path(__file__).resolve().parent
 renders=Path(sys.argv[1]) if len(sys.argv)>1 else DIR/'item-renders'
@@ -46,9 +46,17 @@ for i,(label,key) in enumerate(labels):
         preview.paste(tile,(x2+50,y2+12),tile)
         ImageDraw.Draw(preview).text((x2+71,y2+78),label,font=font,anchor='mm',fill='#16253d' if theme=='light' else '#eaf2ff')
     data.append({'index':i,'name':label,'key':key,'bounds':bbox})
-atlas.save(dest,'WEBP',lossless=True,quality=100,method=6,exact=True)
+# HUD tiles are drawn at 25-38 CSS px from 192 px cells, so lossy colour is not visible there.
+# Lossless was 505 KB; this is about 96 KB. Alpha stays within 2/255 so edges keep their shape.
+atlas.save(dest,'WEBP',quality=75,alpha_quality=80,method=6)
 round_trip=Image.open(dest).convert('RGBA')
-assert hashlib.sha256(round_trip.tobytes()).digest()==hashlib.sha256(atlas.tobytes()).digest(), 'RGBA changed during lossless write'
+assert round_trip.size==atlas.size
+assert ImageChops.difference(round_trip.getchannel('A'),atlas.getchannel('A')).getextrema()[1]<=2, 'alpha changed during write'
+def on_dark(img):
+    base=Image.new('RGBA',img.size,colors['dark']);base.alpha_composite(img);return base.convert('RGB')
+error=ImageStat.Stat(ImageChops.difference(on_dark(round_trip),on_dark(atlas)))
+psnr=10*math.log10(255*255/max(1e-9,sum(error.sum2)/(atlas.width*atlas.height*3)))
+assert psnr>=34, f'atlas lost too much detail: {psnr:.1f} dB'
 for theme,preview in qa.items():preview.save(DIR/f'qa-42px-{theme}.png')
 (DIR/'atlas-verification.json').write_text(json.dumps({'size':atlas.size,'items':data},indent=2)+'\n')
-print(f'{dest}: {atlas.width}×{atlas.height}, {len(data)} distinct ordered cells, exact lossless RGBA, {dest.stat().st_size} bytes')
+print(f'{dest}: {atlas.width}×{atlas.height}, {len(data)} distinct ordered cells, {psnr:.1f} dB, {dest.stat().st_size} bytes')

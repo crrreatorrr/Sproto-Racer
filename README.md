@@ -13,6 +13,15 @@ npm run dev
 
 Open the local address printed by Vite in a WebGL 2 browser. To build and run the static version, use `npm run build` followed by `npm run preview`. The production files are in `dist/`.
 
+### Sound
+
+The speaker button in the paddock's top bar and the **Sound** button in the pause panel mute and unmute the game. The choice is remembered for the next visit (`src/sound-pref.js`).
+
+Testing is done muted:
+
+- `npm run dev:muted` starts a server on which the game always opens muted, whatever was saved. The `sproto-dev` entry in `.claude/launch.json` uses it.
+- Add `?mute=1` to the address to open any build muted for that visit. `?mute=0` opens it with sound.
+
 ## Hub account
 
 The paddock uses the same login as the [metaverse hub](https://github.com/crrreatorrr/metaverse-hub). A visit from the plaza arrives with `#t=<ticket>`. The game redeems it for that hub account and shows the username (a hub guest shows as Guest). Time-trial records for that account sync through the hub cloud save. Play opened on its own keeps this browser's records and does not copy them into an account.

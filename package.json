@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
+    "dev:muted": "VITE_START_MUTED=1 vite --host 127.0.0.1",
     "build": "vite build",
     "build:server-sim": "node scripts/build-server-sim.mjs",
     "check:server-sim": "node scripts/build-server-sim.mjs --check",

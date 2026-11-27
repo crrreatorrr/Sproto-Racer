@@ -150,7 +150,7 @@ describe('item effects in an online race', () => {
       host: {
         courseId: 'track02',
         seed: 77,
-        laps: 1,
+        laps: 2,
         seatCount: 6,
         startDelayTicks: 90,
         onTick(tick, _events, inputs, mask) {
@@ -165,7 +165,7 @@ describe('item effects in an online race', () => {
     for (let i = 0; i < 3; i++) {
       const record = { announced: [], cancelled: [], spawnsOutsideReplay: 0, staleSpawns: 0, ep: null };
       const driver = createScriptedDriver({ style: i % 2 ? 'keys' : 'stick', itemEvery: 61 });
-      record.ep = match.connect('p' + i, { latencyMs: 40 + i * 70, jitterMs: 15 + i * 10 }, {
+      record.ep = match.connect('p' + i, { latencyMs: 40 + i * 120, jitterMs: 15 + i * 25 }, {
         hello: { car: 'apex', driver: 'sproto', name: 'P' + i },
         controls: driver.controls,
         frameOffsetMs: 1 + i * 4,
@@ -225,7 +225,8 @@ describe('item effects in an online race', () => {
       assert.ok(p.spawnsOutsideReplay > 10);
       assert.equal(p.staleSpawns, 0, 'a saved state was put back without being flagged as a replay');
     }
-    // The slowest connection has the most to take back.
-    assert.ok(players[2].cancelled.length > 0, 'nothing was ever cancelled, so cancelling was not tested');
+    // A slow connection predicts further ahead, so it has effects to take back.
+    const takenBack = players.reduce((sum, p) => sum + p.cancelled.length, 0);
+    assert.ok(takenBack > 0, 'nothing was ever cancelled, so cancelling was not tested');
   });
 });

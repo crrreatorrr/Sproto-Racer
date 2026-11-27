@@ -6,15 +6,17 @@ import {createInput,bindingName} from './input.js';
 import {driftGrade,meterBands} from './boost.js';
 import {controllerIsOpen,openController} from './controller.js';
 import {attachFeedbackSdk,createFeedbackHold,installRaceFeedback,raceBreadcrumbs} from './feedback.js';
-import {createPaddock,lightScene} from './paddock.js';
+import {createPaddock} from './paddock.js';
+import {createCircuitLighting} from './circuit-lighting.js';
 import {updateRivalVisibility} from './kart-visibility.js';
-import {drawKartsOnce,warmRaceShaders} from './shader-warmup.js';
+import {warmRaceShaders} from './shader-warmup.js';
 import {makeKart,animateKart,disposeKart,resetKartWingPose,updateKartDetail,forceKartDetail} from './kart-art.js';
 import {createGarage} from './garage.js';
 import {carById,driverById} from './roster.js';
 import {createChaseCamera} from './chase-camera.js';
 import {mountTrackSelector,savedCourse} from './track-selector.js';
 import {createTrack} from './track.js';
+import {CIRCUIT_ATMOSPHERE} from './circuit-skyline.js';
 import {createGameplay,ITEMS} from './gameplay.js';
 import {pickupPreview} from './items.js';
 import {createItemFx,cueIconType} from './item-fx.js';
@@ -49,11 +51,11 @@ try{renderer=new THREE.WebGLRenderer({antialias:bootAntialias,alpha:false,powerP
 catch(error){$('hero-canvas').innerHTML='<div class="unavailable">WebGL 2 is unavailable. Enable hardware acceleration in your browser and reload.</div>';$('launch').disabled=true;throw error;}
 // The frame loop keeps these current: the screen's ratio is re-read every frame, and during a race
 // the scaler lowers the pixel ratio when frames run slow.
-let seenDpr=0,pixelRatio=basePixelRatio(gfx,window.devicePixelRatio),debugFrameMs=0;
+let seenDpr=0,seenArea=0,pixelRatio=basePixelRatio(gfx,window.devicePixelRatio),debugFrameMs=0;
 renderer.setPixelRatio(pixelRatio);perf.noteQuality(gfx.id,pixelRatio,1);
 function setGraphics(id){
   gfx=tierFor(id);saveTier(storage,gfx.id);
-  scaler.reset();seenDpr=0;
+  scaler.reset();seenDpr=0;seenArea=0;
 }
 if(perf.enabled)window.__sprotoQuality={
   // Test hook, ?perf=1 only: feed the scaler this frame time instead of the real one (0 = real).
@@ -66,12 +68,19 @@ renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=1.
 $('hero-canvas').append(renderer.domElement);
 const paddock=createPaddock();
 const world=new THREE.Scene();
-world.background=new THREE.Color('#b9d9dc');world.fog=new THREE.FogExp2(0xc6d9d4,.0017);
-lightScene(world,2.1);
-const camera=new THREE.PerspectiveCamera(62,1,.15,2300);
+// Like antialiasing, the shadow map is set up once: the Low tier (or ?shadows=off) starts without it.
+const sceneLight=createCircuitLighting(world,renderer,{enabled:gfx.shadows&&new URLSearchParams(location.search).get('shadows')!=='off'});
+function setCircuitAtmosphere(course){
+  const look=CIRCUIT_ATMOSPHERE[course.id]??CIRCUIT_ATMOSPHERE.track01;
+  world.background=new THREE.Color(look.background);
+  world.fog=new THREE.FogExp2(look.fog,look.density);
+  sceneLight.atmosphere(course.id);
+}
+const camera=new THREE.PerspectiveCamera(62,1,.15,6500);
 let chosenCourse=savedCourse();
+setCircuitAtmosphere(chosenCourse);
 // Defer heavy circuit mesh/atlas build until after the first lobby frame paints.
-let track=createTrack(world,chosenCourse,{deferVisuals:true});
+let track=createTrack(world,chosenCourse,{deferVisuals:true});track.setVisualsPerFrame(true);
 let trackMountJob=null;
 function cancelTrackMount(){
   if(trackMountJob===null)return;
@@ -81,12 +90,13 @@ function cancelTrackMount(){
 }
 function scheduleTrackMount(targetTrack){
   cancelTrackMount();
-  const mount=()=>{trackMountJob=null;if(targetTrack===track)targetTrack.mountVisuals();};
+  const mount=()=>{trackMountJob=null;if(targetTrack===track){targetTrack.mountVisuals();sceneLight.prepareTrack(targetTrack.trackGroup);}};
   trackMountJob=typeof requestIdleCallback==='function'?requestIdleCallback(mount,{timeout:400}):setTimeout(mount,32);
 }
 function ensureTrackVisuals(){
   cancelTrackMount();
   track.mountVisuals();
+  sceneLight.prepareTrack(track.trackGroup);
 }
 scheduleTrackMount(track);
 
@@ -145,6 +155,7 @@ function syncModel(old,id,setup,{ghost=false,local=false}={}){
   // Rivals carry a cheaper build for when they are far from the camera (kart-lod.js).
   const m=makeKart(id,car,driver,ghost,{flightWings:true,lowDetail,player:mine});
   if(ghost)m.traverse(mesh=>{if(mesh.isMesh){mesh.userData.originalPaint=mesh.material;mesh.material=ghostPaint;}});
+  sceneLight.prepareKart(m,ghost);
   world.add(m);
   // Compile both builds' shaders now, while the race loads, not at the first switch.
   if(m.userData.low)renderer.compile(m,camera,world);
@@ -228,7 +239,7 @@ function noteCrumbs(){
 const feedbackHold=createFeedbackHold(input,{pauseAudio:()=>fx.pause()});
 function renderFeedbackFrame(){
   if(screen==='lobby')paddock.render(renderer,animation,w||1,h||1);
-  else{ensureTrackVisuals();renderer.render(world,camera);}
+  else{ensureTrackVisuals();track.drawVisuals();sceneLight.focus(track,player?.kart,animation,true);renderer.render(world,camera);}
 }
 const feedbackHandle=installRaceFeedback({
   hold(){pendingEdges={};pendingSlot=null;return feedbackHold.hold();},
@@ -279,14 +290,15 @@ function raceReady(title){
   // Compile every shader the race can need now, so none of them stalls a frame mid-race.
   const karts=state.actors.map(a=>models[a.id]);
   warmRaceShaders(renderer,world,camera,{built:[track,ghostModel,...karts],rivals:karts.filter((_,i)=>i!==seat),play,itemFx});
-  // And send every kart to the graphics card now, wherever it sits on the grid.
-  drawKartsOnce(renderer,world,karts);
 }
 function loadSelectedCourse(){
   if(chosenCourse.id===track.id){ensureTrackVisuals();return;}
   cancelTrackMount();
   const next=createTrack(world,chosenCourse);
+  next.setVisualsPerFrame(true);
   track.dispose();track=next;
+  sceneLight.prepareTrack(next.trackGroup);
+  setCircuitAtmosphere(chosenCourse);
   play.setTrack(track);fx.setTrack(track);itemFx.setTrack(track);
   session=createSession(track,play,fx,undefined,itemFx.cue);state=session.state;
   runner=session.runner;player=null;view=null;
@@ -678,6 +690,17 @@ function rebuildMap(){
     mapBgCtx.stroke();
   }
   mapBgCtx.setLineDash([]);
+ mapBgCtx.strokeStyle='#8be8fd';mapBgCtx.lineWidth=3;
+ for(const {s0,s1,type} of [...(track.icePatches??[]),...(track.wetPatches??[]).map(p=>({...p,type:'wet'}))]){
+  mapBgCtx.strokeStyle=type==='wet'?'#7db7ea':'#8be8fd';
+  mapBgCtx.beginPath();
+  for(let i=0;i<=18;i++){
+   track.mapXYAt(s0+(s1-s0)*i/18,mapPtScratch);
+   const x=mapOriginX+(mapPtScratch.x-mapMinX)*mapScale,y=mapOriginZ+(mapPtScratch.z-mapMinZ)*mapScale;
+   if(i===0)mapBgCtx.moveTo(x,y);else mapBgCtx.lineTo(x,y);
+  }
+  mapBgCtx.stroke();
+ }
 }
 rebuildMap();
 let shownMeter=-1,shownReserve=-1;
@@ -785,7 +808,17 @@ function hud(){
  const grade=b.feedbackTime>0?b.feedback:'';
  // The first seconds of each flight teach the Sky Lane controls.
  const skyTip=k.flying&&state.elapsed-flightStartedAt<2.6&&!notice&&!grade?(input.deviceName==='Keyboard'?'W DIVE · S CLIMB · Q CARVE · Q+A/D ROLL':'STICK PITCH · DRIFT CARVE · DRIFT+STEER ROLL'):'';
- const feedback=k.fall?['OFF TRACK']:[notice,k.stunRemaining>0?'STUNNED':k.tumble>0?'TUMBLE':grade,skyTip].filter(Boolean);
+ const iceDistance=!k.flying&&!k.fall?(track.distanceToIce?.(k.s)??Infinity):Infinity;
+ const wetDistance=!k.flying&&!k.fall?(track.distanceToWet?.(k.s)??Infinity):Infinity;
+ const iceTip=iceDistance===0?'ICE · REDUCED GRIP':iceDistance<60?'ICE AHEAD · BRAKE EARLY'
+  :wetDistance===0&&track.wetAt?.(k.s,k.x)>.025?'PUDDLE · REDUCED GRIP'
+  :wetDistance>0&&wetDistance<48?'WET PATCH AHEAD':'';
+
+ const lane=k.flying?track.sky.lanes[k.skyLane]:null;
+ const laneS=k.s-Math.floor(k.s/track.length)*track.length;
+ const crossing=lane?.layouts[Math.min(2,Math.max(0,view.lap-1))]?.obstacles.find(ob=>ob.type==='crossing'&&laneS>=ob.warn&&laneS<ob.s+ob.depth);
+ const crossingTip=crossing?(crossing.variant==='plane'?'AIRCRAFT CROSSING':crossing.variant==='birds'?'FLOCK CROSSING':'SATELLITE CROSSING'):'';
+ const feedback=k.fall?['OFF TRACK']:[notice,k.stunRemaining>0?'STUNNED':k.tumble>0?'TUMBLE':grade,crossingTip||skyTip,iceTip].filter(Boolean);
  const split=view.split&&view.split.at+SPLIT_SHOWN>state.elapsed?view.split:null;
  if(split!==shownSplit){shownSplit=split;shownSplitText=split?splitText(split):'';}
  setText('feedback',feedback.join('\n')||shownSplitText);
@@ -881,6 +914,8 @@ function raceFrame(now,dt,rawDt,c){
  fx.update(dt,state.actors,true,state.countdown>0,player);syncWorld(dt);
  itemFx.update(dt,camera);timingHUD();raceCues();skyHUD();
  if(now-lastHUD>45){hud();lastHUD=now;}
+ track.drawVisuals();
+ sceneLight.focus(track,player?.kart,animation);
  renderer.render(world,camera);
  perf.recordFrame(rawDt*1000,renderer,now);
  scaler.sample(debugFrameMs||rawDt*1000);
@@ -893,9 +928,11 @@ function frame(now){
  const dt=Math.min(.1,rawDt);previous=now;animation+=dt;
  const host=screen==='lobby'?$('hero-canvas'):$('race-canvas');const W=host.clientWidth,H=host.clientHeight;
  const dpr=window.devicePixelRatio||1;
- if(dpr!==seenDpr){seenDpr=dpr;scaler.setMinScale(minScaleFor(gfx,dpr));}
+ // The tier's pixel budget depends on the canvas size, so the floor follows resizes too.
+ const area=W*H;
+ if(dpr!==seenDpr||area!==seenArea){seenDpr=dpr;seenArea=area;scaler.setMinScale(minScaleFor(gfx,dpr,area));}
  // The paddock always renders at the tier's full resolution; only a race is scaled.
- const ratio=basePixelRatio(gfx,dpr)*(screen==='game'?scaler.scale:1),resized=W&&H&&(W!==w||H!==h);
+ const ratio=basePixelRatio(gfx,dpr,area)*(screen==='game'?scaler.scale:1),resized=W&&H&&(W!==w||H!==h);
  // An online race runs on whatever this page shows; only the feedback tool's frozen frame stops it.
  const racingOn=online&&screen==='game';
  if(resized||ratio!==pixelRatio){
@@ -903,7 +940,7 @@ function frame(now){
    if(resized){w=W;h=H;renderer.setSize(w,h,false);camera.aspect=w/h;camera.updateProjectionMatrix();scaler.restart();}
    perf.noteQuality(gfx.id,ratio,screen==='game'?scaler.scale:1);
    // Resizing clears the canvas, and a paused race does not draw: repaint it once.
-   if(screen==='game'&&w&&h&&(modal||controllerOpen||feedbackHold.held()))renderer.render(world,camera);
+   if(screen==='game'&&w&&h&&(modal||controllerOpen||feedbackHold.held())){track.drawVisuals();renderer.render(world,camera);}
  }
  // Frames outside a running race only teach the scaler how fast this screen refreshes.
  if(screen!=='game'||feedbackHold.held()||(!racingOn&&(modal||controllerOpen)))scaler.observe(rawDt*1000);

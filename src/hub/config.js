@@ -19,5 +19,8 @@ export const RECORD_KEY = 'sproto.racer.progress';
  */
 export const TRIAL_LAYOUT = 3;
 
+/** Crossings (and Crestline ice) change race strategy. Preserve all previous times/ghosts. */
+export const trialRecordId = (circuitId) => /^track0[123]$/.test(circuitId) ? circuitId+'-crossings' : circuitId;
+
 /** Browser ghosts written before the hub store. Merged into the device copy only. */
 export const LEGACY_GHOST = /^sproto\.([a-z0-9][a-z0-9-]{0,31})\.ghost\.v1$/;

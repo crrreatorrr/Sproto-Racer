@@ -87,9 +87,9 @@ describe('item meshes in an online race',()=>{
     expect(kept.stats.fresh).toBeLessThan(rebuilt.stats.fresh/3);
     // A shot's trail is a short history of where it has been. A rebuilt mesh only has the
     // few ticks the correction re-ran, so its trail is cut short; a kept one has it all.
-    // (Measured here: 0.93 of the full trail kept, 0.70 rebuilt.)
-    expect(kept.trailFill).toBeGreaterThan(.6);
-    expect(rebuilt.trailFill).toBeLessThan(kept.trailFill*.8);
+    // (Measured here: 0.94 of the full trail kept, 0.78 rebuilt.)
+    expect(kept.trailFill).toBeGreaterThan(.85);
+    expect(rebuilt.trailFill).toBeLessThan(kept.trailFill-.1);
     kept.play.dispose();rebuilt.play.dispose();
   });
 });

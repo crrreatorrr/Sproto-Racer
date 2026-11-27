@@ -1,6 +1,5 @@
-import { Box3, Color, OrthographicCamera, Vector3, Vector4 } from 'three';
+import { Color, WebGLRenderTarget } from 'three';
 import { withKartFadeMaterials } from './kart-visibility.js';
-import { setKartDetail } from './kart-art.js';
 
 // The browser compiles a shader the first time a material is drawn, and the game
 // stops while it does. A race draws many materials for the first time long after
@@ -76,6 +75,54 @@ function watchRivals(renderer, scene, camera, rivals) {
   setTimeout(check, WATCH_STEP_MS);
 }
 
+let scratchTarget = null;
+
+/**
+ * Draws the whole scene once into a tiny off-screen target with nothing hidden and nothing
+ * culled, and with the sun's shadow camera widened to take in the whole circuit.
+ *
+ * `compileAsync` builds the shaders of materials in the scene, but two kinds of first-use work
+ * are left for the frame that first needs them: the shadow pass's own depth shaders (one per
+ * kind of caster: plain, instanced, double-sided), and sending each model's vertices and
+ * textures to the graphics card. With a shadow map and large scenery both cost tens of
+ * milliseconds mid-race. This pays for all of it in one frame while the race loads.
+ */
+function drawEverythingOnce(renderer, scene, camera) {
+  const hidden = [], culled = [];
+  let sun = null;
+  scene.traverse((object) => {
+    if (!object.visible) { hidden.push(object); object.visible = true; }
+    if (object.frustumCulled) { culled.push(object); object.frustumCulled = false; }
+    if (!sun && object.isDirectionalLight && object.castShadow) sun = object;
+  });
+  const film = sun?.shadow.camera;
+  const bounds = film && [film.left, film.right, film.top, film.bottom, film.near, film.far];
+  const previousTarget = renderer.getRenderTarget();
+  try {
+    if (film) {
+      film.left = film.bottom = -1e4;
+      film.right = film.top = 1e4;
+      film.near = -1e4;
+      film.far = 1e4;
+      film.updateProjectionMatrix();
+      renderer.shadowMap.needsUpdate = true;
+    }
+    scratchTarget ??= new WebGLRenderTarget(8, 8);
+    renderer.setRenderTarget(scratchTarget);
+    renderer.render(scene, camera);
+  } finally {
+    renderer.setRenderTarget(previousTarget);
+    for (const object of hidden) object.visible = false;
+    for (const object of culled) object.frustumCulled = true;
+    if (film) {
+      [film.left, film.right, film.top, film.bottom, film.near, film.far] = bounds;
+      film.updateProjectionMatrix();
+      // The next real frame redraws the shadow map around the player.
+      renderer.shadowMap.needsUpdate = true;
+    }
+  }
+}
+
 /**
  * @param {import('three').WebGLRenderer} renderer
  * @param {import('three').Scene} scene the race scene, lit as it will be drawn
@@ -111,114 +158,21 @@ export function warmRaceShaders(renderer, scene, camera, { built = [], rivals = 
     // A failed warm-up only means shaders compile on first use, as they did before.
     console.warn('Shader warm-up skipped', error);
   }
-  return Promise.all(pending).then(() => true);
-}
-
-// A kart's shapes and pictures are sent to the graphics card the first time it is drawn,
-// and a heavy car can stop the game for 50 to 80 ms when that happens. In single player
-// the player starts at the back of the grid, so every rival is drawn during the countdown.
-// Online the player can start anywhere, with rivals behind the camera and, on a 12-kart
-// grid, rivals far enough away to be showing their cheaper distant build. Each of those
-// used to be drawn in full for the first time when it caught up, mid-race.
-//
-// This draws every new kart once at race load, in both of its builds, from straight above
-// and into a single pixel of the canvas, so nothing shows and nothing is left for later.
-//
-// A picture that is still downloading at that moment cannot be sent yet, so the karts'
-// pictures are checked for a while afterwards and each is sent when it has arrived.
-const drawn = new WeakSet();
-const above = new OrthographicCamera(-1, 1, 1, -1, 1, 1000);
-const grid = new Box3(), middle = new Vector3(), keptScissor = new Vector4();
-let pictureWatch = 0;
-
-function picturesOf(karts) {
-  const found = new Set();
-  for (const kart of karts) {
-    kart.traverse((mesh) => {
-      const material = mesh.material;
-      if (!material || Array.isArray(material)) return;
-      for (const key in material) {
-        // Reflection maps are prepared by the renderer itself.
-        if (key === 'envMap') continue;
-        const value = material[key];
-        if (value && value.isTexture) found.add(value);
+  return Promise.all(pending).then(() => {
+    // Once the shaders are built, so this frame does not wait on them one by one.
+    try {
+      if (karts.every((kart) => kart.parent)) {
+        // Item models go back in for this one draw so their vertices are sent too.
+        const removeItems = play?.warmVisuals?.();
+        try {
+          drawEverythingOnce(renderer, scene, camera);
+        } finally {
+          removeItems?.();
+        }
       }
-    });
-  }
-  return found;
-}
-
-const arrived = (image) => !!image && (image.complete === undefined || (image.complete && image.naturalWidth > 0));
-
-// Sends the pictures that have arrived and are not on the graphics card yet: all of them
-// at race load, then at most one per check so a late one costs a single short pause.
-function sendPictures(renderer, pictures, limit) {
-  let sent = 0;
-  for (const picture of pictures) {
-    if (!arrived(picture.image)) continue;
-    pictures.delete(picture);
-    if (renderer.properties?.get(picture).__version === picture.version) continue;
-    renderer.initTexture(picture);
-    if (++sent >= limit) break;
-  }
-}
-
-function watchPictures(renderer, karts, pictures) {
-  const token = ++pictureWatch, until = performance.now() + WATCH_MS;
-  const check = () => {
-    if (token !== pictureWatch || !pictures.size || performance.now() > until) return;
-    // The race these karts were built for is over: leave their pictures alone.
-    if (!karts.some((kart) => kart.parent)) return;
-    try { sendPictures(renderer, pictures, 1); } catch (error) { console.warn('Kart picture warm-up skipped', error); return; }
-    setTimeout(check, WATCH_STEP_MS);
-  };
-  setTimeout(check, WATCH_STEP_MS);
-}
-
-/**
- * @param {import('three').WebGLRenderer} renderer
- * @param {import('three').Scene} scene the race scene, with the karts placed on the grid
- * @param {import('three').Object3D[]} karts every kart in the race
- * @returns {boolean} false when every kart had been through here before
- */
-export function drawKartsOnce(renderer, scene, karts) {
-  const fresh = karts.filter((kart) => kart && kart.parent && !drawn.has(kart));
-  if (!fresh.length) return false;
-  grid.makeEmpty();
-  for (const kart of fresh) {
-    drawn.add(kart);
-    grid.expandByPoint(kart.position);
-  }
-  grid.getCenter(middle);
-  const reach = grid.min.distanceTo(grid.max) / 2 + 30;
-  above.left = above.bottom = -reach;
-  above.right = above.top = reach;
-  above.far = reach * 2 + 200;
-  above.position.set(middle.x, middle.y + reach + 100, middle.z);
-  above.up.set(0, 0, -1);
-  above.lookAt(middle);
-  above.updateProjectionMatrix();
-  const builds = fresh.map((kart) => kart.userData.low?.active);
-  const test = renderer.getScissorTest();
-  renderer.getScissor(keptScissor);
-  try {
-    renderer.setScissor(0, 0, 1, 1);
-    renderer.setScissorTest(true);
-    for (const distant of [false, true]) {
-      for (const kart of fresh) setKartDetail(kart, distant);
-      renderer.render(scene, above);
+    } catch (error) {
+      console.warn('Scene warm-up draw skipped', error);
     }
-    // Parts hidden in both builds (stowed wings, boost flames) were not drawn: send their pictures too.
-    const pictures = picturesOf(fresh);
-    sendPictures(renderer, pictures, Infinity);
-    if (pictures.size) watchPictures(renderer, fresh, pictures);
-  } catch (error) {
-    // A failed draw only means the karts are sent on first sight, as they were before.
-    console.warn('Kart warm-up draw skipped', error);
-  } finally {
-    fresh.forEach((kart, i) => setKartDetail(kart, !!builds[i]));
-    renderer.setScissor(keptScissor);
-    renderer.setScissorTest(test);
-  }
-  return true;
+    return true;
+  });
 }

@@ -58,6 +58,9 @@ function makeWheel(spec,car){
   const h=model(),{r,width,style,x}=spec,n=style==='ring'?40:24, side=Math.sign(x)||1;
   const color=spec.tire??tirePaint, rim=spec.rim??car.trim;
   const barrel=(c,rr,w,p=[0,0,0],m='solid')=>h.mesh(c,new T.CylinderGeometry(rr,rr,w,n),p,[0,0,Math.PI/2],m);
+  // A short seam across a plain cylinder makes its roll visible from the chase camera.
+  const seam=(c,m='solid')=>h.mesh(c,new T.CylinderGeometry(r+.002,r+.002,width*.94,2,1,true,0,.13),
+    [0,0,0],[0,0,Math.PI/2],m);
   const torus=(c,rr,th,p,segments=32)=>h.mesh(c,new T.TorusGeometry(rr,th,6,segments),p,[0,Math.PI/2,0]);
   if(style==='ring'){
     const thickness=width*.42;
@@ -80,6 +83,7 @@ function makeWheel(spec,car){
     }
   }else if(style==='wood'){
     barrel('#a06b40',r,width);
+    seam('#654329');
     for(const d of [-1,1]){
       const face=[d*width*.51,0,0];
       barrel('#cf985b',r*.93,.026,face);
@@ -87,6 +91,7 @@ function makeWheel(spec,car){
     }
   }else if(style==='speaker'){
     barrel('#2d262d',r,width);
+    seam('#574e55');
     for(const d of [-1,1]){
       const face=d*width*.51;
       barrel('#18171b',r*.88,.030,[face,0,0]);
@@ -96,6 +101,7 @@ function makeWheel(spec,car){
     }
   }else if(style==='drum'){
     barrel('#808487',r,width,[0,0,0],'metal');
+    seam('#565d5f','metal');
     for(const d of [-1,1])barrel(rim,r*.91,.045,[d*width*.51,0,0]);
   }else{
     if(style==='spoke'){

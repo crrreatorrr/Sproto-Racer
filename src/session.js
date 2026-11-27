@@ -10,7 +10,7 @@
 import { ITEMS } from './items.js';
 import { acceptTrial, noteTrial, pageRecords } from './hub/records.js';
 import { trialRecordId } from './hub/config.js';
-import { mod } from './sim/math.js';
+import { lerpAngle, mod } from './sim/math.js';
 import { createSimWorld, SIM_DT } from './sim/world.js';
 import { createLocalRaceRunner } from './race-runner.js';
 import { createCuePlayer } from './race-cues.js';
@@ -109,7 +109,8 @@ export function createSession(track, play, fx, records = pageRecords, onVisualCu
       s: a[1] + (b[1] - a[1]) * f,
       x: a[2] + (b[2] - a[2]) * f,
       y: a[3] + (b[3] - a[3]) * f,
-      yaw: a[4] + (b[4] - a[4]) * f,
+      yaw: lerpAngle(a[4], b[4], f),
+      rescues: a[5] ?? 0,
       // Old recordings do not distinguish ground ramps from Sky Lanes.
       flying: (state.elapsed >= b[0] ? b[6] : a[6]) === 1,
       speed: 0,

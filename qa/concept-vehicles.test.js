@@ -46,6 +46,7 @@ describe('reference concept roster',()=>{
       });
       expect(triangles).toBeLessThan(30000);
       expect(meshes).toBeLessThan(35);
+      animateKart(kart,{speed:0,s:19},{},2.9);
       animateKart(kart,{speed:16,steer:.5,s:20,y:.12,hopLift:.2},{},3);
       for(const w of wheels){
         const r=w.rotation[w.userData.spinAxis];

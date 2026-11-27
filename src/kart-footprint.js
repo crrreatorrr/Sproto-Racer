@@ -74,6 +74,57 @@ function polygon(points){
   return {points,axes};
 }
 
+// A circle around a convex outline, and how sharp its sharpest corner is (the sine of half the
+// smallest interior angle; 0 when the outline is not a proper convex polygon). See hullsApart.
+function discOf(shape){
+  if(shape.disc)return shape.disc;
+  const points=shape.points,count=points.length;
+  let minS=Infinity,maxS=-Infinity,minX=Infinity,maxX=-Infinity;
+  for(let i=0;i<count;i++){
+    const p=points[i];
+    minS=Math.min(minS,p.s);maxS=Math.max(maxS,p.s);minX=Math.min(minX,p.x);maxX=Math.max(maxX,p.x);
+  }
+  const s=(minS+maxS)/2,x=(minX+maxX)/2;
+  let radius=0,sharp=count>=3?1:0,turning=0;
+  for(let i=0;i<count;i++){
+    const a=points[(i+count-1)%count],p=points[i],b=points[(i+1)%count];
+    radius=Math.max(radius,hypot(p.s-s,p.x-x));
+    const us=a.s-p.s,ux=a.x-p.x,vs=b.s-p.s,vx=b.x-p.x,lu=hypot(us,ux),lv=hypot(vs,vx);
+    const cross=us*vx-ux*vs;
+    // Every corner must turn the same way, or this is not a convex outline in order.
+    if(!(lu>0&&lv>0) || cross*turning<0)sharp=0;
+    else if(cross!==0){
+      turning=cross;
+      sharp=Math.min(sharp,Math.sqrt(Math.max(0,(1-(us*vs+ux*vx)/(lu*lv))/2)));
+    }
+  }
+  if(!(radius>=0))sharp=0;
+  return shape.disc={s,x,radius,sharp};
+}
+
+// True only when two outlines are certainly clear of each other, in which case
+// footprintContact(a,b,ds,dx) is null and need not be run. It never changes an answer:
+//
+// - footprintContact reports contact only if the outlines overlap by more than 0.1 mm along
+//   every edge normal it keeps. polygon() drops a normal that is within 0.999999 (cosine) of one
+//   it already has, so each true edge normal is represented to within 1.42 mrad.
+// - Two convex outlines a distance d apart are separated by d along some edge normal when the
+//   nearest points involve an edge, and by at least d * sin(corner / 2) when corner meets
+//   corner. `sharp` is that sine for the sharpest corner of an outline.
+// - Swinging the axis by 1.42 mrad moves the projected gap by at most 1.42 mm per metre of the
+//   pair's extent, which is under twice the two radii plus the gap.
+//
+// So a gap of (0.003 * reach + 0.001) / (sharp - 0.002) metres beyond the two circles is more
+// than enough for one kept axis to show the outlines apart. Outlines with very sharp corners
+// (or none measured) are never skipped.
+export function hullsApart(a,b,ds,dx){
+  const sharp=Math.max(a.sharp,b.sharp);
+  if(!(sharp>.05))return false;
+  const reach=a.radius+b.radius,clear=reach+(.003*reach+.001)/(sharp-.002);
+  const s=ds+b.centerS-a.centerS,x=dx+b.centerX-a.centerX;
+  return s*s+x*x>clear*clear;
+}
+
 export function footprintBox(halfLength,halfWidth){
   return polygon([{s:-halfLength,x:-halfWidth},{s:halfLength,x:-halfWidth},
     {s:halfLength,x:halfWidth},{s:-halfLength,x:halfWidth}]);
@@ -109,6 +160,7 @@ function orient(shape,yaw){
 // `axes`, `along` or `across`, which only happens when another kart, a hazard or an item is near.
 function Hull(){
   this.points=[];
+  this.discS=0;this.discX=0;this.centerS=0;this.centerX=0;this.radius=0;this.sharp=0;
   this.shape=null;this.cos=1;this.sin=0;
   this.pending=false;
   this.normals=[];
@@ -155,7 +207,12 @@ function orientInto(hull,shape,c,sn){
     q.s=s;q.x=x;
   }
   if(points.length!==count)points.length=count;
-  hull.shape=shape;hull.cos=c;hull.sin=sn;
+  if(hull.shape!==shape){
+    const disc=discOf(shape);
+    hull.shape=shape;hull.discS=disc.s;hull.discX=disc.x;hull.radius=disc.radius;hull.sharp=disc.sharp;
+  }
+  hull.centerS=hull.discS*c-hull.discX*sn;hull.centerX=hull.discS*sn+hull.discX*c;
+  hull.cos=c;hull.sin=sn;
   hull.pending=true;
   return hull;
 }
@@ -165,7 +222,8 @@ function horizontalDisc(radius){
     const t=i*PI/24;
     return {s:radius*cos(t),x:radius*sin(t)};
   });
-  return orient(polygon(points),0);
+  const shape=polygon(points),disc=discOf(shape);
+  return Object.assign(orient(shape,0),{centerS:disc.s,centerX:disc.x,radius:disc.radius,sharp:disc.sharp});
 }
 
 function cartShape(){

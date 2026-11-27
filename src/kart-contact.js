@@ -1,5 +1,5 @@
 import {HALF_KART_WIDTH,flightCeiling} from './driving.js';
-import {kartFootprint,footprintContact,laneBounds,separatedOn,lastSeparatingAxis} from './kart-footprint.js';
+import {kartFootprint,footprintContact,laneBounds,separatedOn,lastSeparatingAxis,hullsApart} from './kart-footprint.js';
 import {cos,sin} from './sim/math.js';
 import {createTrackSample} from './sim/track-core.js';
 
@@ -89,8 +89,9 @@ function resolvePair(track, first, second, slotA, slotB) {
       const bandB=bandsB[j];
       if(bandA.high<=height+bandB.low || bandA.low>=height+bandB.high)continue;
       const hullA=bandA.hull,hullB=bandB.hull;
+      // Most parts of two touching cars are nowhere near each other.
       const hit=hullA===bodyA && hullB===bodyB ? envelope :
-        footprintContact(hullA,hullB,gapS,dx,tie);
+        hullsApart(hullA,hullB,gapS,dx) ? null : footprintContact(hullA,hullB,gapS,dx,tie);
       if(hit && (!contact || hit.depth>contact.depth))contact=hit;
     }
   }

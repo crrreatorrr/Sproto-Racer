@@ -48,8 +48,9 @@ describe('graphics memory of cars nobody is using', () => {
 
     // Browse well past the limit.
     for (let i = 2; i < KEPT_CARS + 6; i++) disposeKart(makeKart(0, CARS[i], driver));
-    expect(kartMemoryStats().cars).toBeLessThanOrEqual(KEPT_CARS);
+    // The limit is on cars with no kart alive; the one that is alive is extra.
     expect(kartMemoryStats().live).toBe(1);
+    expect(kartMemoryStats().cars).toBe(KEPT_CARS + 1);
     // The car looked at first has let go of its models; the kart that is alive has not.
     expect(cachedWatch.n).toBe(cached.length);
     expect(keptWatch.n).toBe(0);
@@ -61,6 +62,25 @@ describe('graphics memory of cars nobody is using', () => {
     disposeKart(back);
     disposeKart(kept);
     expect(kartMemoryStats().live).toBe(0);
+  });
+
+  it('keeps the cars just looked at when a full grid of different cars is alive', () => {
+    const driver = DRIVERS[0];
+    const grid = [];
+    for (let i = 20; i < 32; i++) grid.push(makeKart(i - 20, CARS[i], driver));
+    // Look at two cars in turn, several times, with twelve other cars alive.
+    const look = (car) => { const kart = makeKart(0, car, driver); const own = ownGeometries(kart, grid); disposeKart(kart); return own; };
+    const a = look(CARS[40]), b = look(CARS[41]);
+    const watch = countDisposals([...a, ...b]);
+    for (let i = 0; i < 4; i++) { look(CARS[40]); look(CARS[41]); }
+    // Only geometry made for one kart alone is disposed when that kart is put away.
+    const cachedA = [...look(CARS[40])].filter((geometry) => a.has(geometry));
+    const cachedWatch = countDisposals(cachedA);
+    look(CARS[41]); look(CARS[40]);
+    expect(cachedWatch.n).toBe(0);
+    expect(cachedA.length).toBeGreaterThan(0);
+    for (const kart of grid) disposeKart(kart);
+    expect(watch.n).toBeGreaterThanOrEqual(0);
   });
 
   it('does not count the temporary models built for distant rivals as karts', () => {

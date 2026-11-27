@@ -12,23 +12,25 @@ export const TIER_IDS = ['auto', 'high', 'medium', 'low'];
  *                means the resolution is fixed.
  * antialias      a WebGL context attribute: it can only be chosen when the renderer is created,
  *                so a change takes effect on the next page load.
- * anisotropy     texture filtering cap for modules that load textures (see anisotropyCap()).
+ *
+ * Medium's floor is below 1 so that it still differs from High on a screen whose own ratio is 1:
+ * there both start at 1, and only Medium may lower it.
  */
 export const TIERS = {
   auto: {
-    id: 'auto', label: 'Auto', maxPixelRatio: 1.6, minPixelRatio: 0.75, antialias: true, anisotropy: 8,
+    id: 'auto', label: 'Auto', maxPixelRatio: 1.6, minPixelRatio: 0.75, antialias: true,
     blurb: 'Sharpest picture your screen allows. Lowers the resolution by itself if the frame rate drops, and raises it again when it recovers.',
   },
   high: {
-    id: 'high', label: 'High', maxPixelRatio: 1.6, minPixelRatio: 1.6, antialias: true, anisotropy: 8,
+    id: 'high', label: 'High', maxPixelRatio: 1.6, minPixelRatio: 1.6, antialias: true,
     blurb: 'Sharpest picture, never lowered. Choose this if the game already runs smoothly.',
   },
   medium: {
-    id: 'medium', label: 'Medium', maxPixelRatio: 1.3, minPixelRatio: 1, antialias: true, anisotropy: 4,
-    blurb: 'Lower resolution for a steadier frame rate.',
+    id: 'medium', label: 'Medium', maxPixelRatio: 1.3, minPixelRatio: 0.85, antialias: true,
+    blurb: 'Lower resolution for a steadier frame rate. Drops a little further by itself if frames still run slow.',
   },
   low: {
-    id: 'low', label: 'Low', maxPixelRatio: 1, minPixelRatio: 0.75, antialias: false, anisotropy: 2,
+    id: 'low', label: 'Low', maxPixelRatio: 1, minPixelRatio: 0.75, antialias: false,
     blurb: 'Lowest resolution and no edge smoothing. Best for older laptops and phones.',
   },
 };
@@ -72,17 +74,9 @@ export function loadTier(storage, search) {
   return TIERS[tierFromSearch(search) ?? savedTier(storage) ?? DEFAULT_TIER];
 }
 
-let active = TIERS[DEFAULT_TIER];
-export function setActiveTier(id) {
-  active = TIERS[normalizeTier(typeof id === 'string' ? id : id?.id) ?? DEFAULT_TIER];
-  return active;
-}
-export function activeTier() {
-  return active;
-}
-/** Texture loaders can clamp to this: Math.min(anisotropyCap(), renderer.capabilities.getMaxAnisotropy()). */
-export function anisotropyCap() {
-  return active.anisotropy;
+/** A tier by id; anything unknown gives Auto. */
+export function tierFor(id) {
+  return TIERS[normalizeTier(id) ?? DEFAULT_TIER];
 }
 
 /** The pixel ratio a tier renders at before any scaling, on a screen with this devicePixelRatio. */
@@ -98,89 +92,148 @@ export function minScaleFor(tier, devicePixelRatio) {
 }
 
 /*
- * The scaler's numbers, and why.
+ * The scaler: how it decides, and why the numbers are what they are.
  *
- * What it can see: only the time between animation frames. On a 60 Hz screen that is 16.7 ms when
- * the frame was ready in time and 33.3 ms when it was not, with nothing in between. So it can tell
- * "too slow", but never "how much room is left". That shapes everything below.
+ * What it can see is only the time between animation frames. A screen shows a frame on one of its
+ * refreshes, so on a 60 Hz screen that time is 16.7 ms when the frame was ready and 33.3 ms when it
+ * was not, with nothing in between. It can tell "late", never "how much room is left", and it
+ * cannot tell why a frame was late. So every change of resolution is treated as an experiment: a
+ * lower resolution is kept only while it measurably reduces late frames.
  *
- * step 0.85        Each step multiplies the pixel ratio by 0.85, about 28% fewer pixels. Big enough
- *                  to move a frame that just missed, small enough that a step is hard to notice.
- * blockFrames 20   Frames are judged in blocks of 20 (a third of a second at 60 fps).
- * slowMs 21        A frame counts as slow above 21 ms: under a missed frame on every common screen
- *                  (22.2 ms at 90 Hz, 25 ms at 120 Hz, 33.3 ms at 60 Hz) and above a 50 Hz
- *                  screen's normal 20 ms.
- * blockSlow 2      A block is slow when 2 of its 20 frames are slow, which is the block's 90th
- *                  percentile crossing 21 ms.
- * downBlocks 3     Step down after 3 slow blocks in a row (60 frames). Requiring every block to be
- *                  slow is what makes it "sustained": a shader compile, a garbage collection or a
- *                  burst of a dozen bad frames lands in one or two blocks and moves nothing.
- * settleFrames 8   The frames right after a change are skipped: the browser is reallocating the
- *                  canvas, and they say nothing about the new resolution.
- * heavyMs 40       If those 60 frames average 40 ms (under 25 fps) one step cannot be enough, so
- *                  it takes two at once.
- * calmMs 19        Stepping back up needs calm blocks: no frame over 19 ms. A block with one such
- *                  frame neither counts nor resets the run; more than calmSpikes (1) resets it.
- *                  The 19 to 21 ms gap is the hysteresis band; frames in it move nothing.
- * upBlocks 12      Calm has to last 12 blocks (240 frames, 4 s at 60 fps) before a step up, four
- *                  times the evidence needed to step down.
- * probeFrames 600  Because headroom is invisible, a step up is a probe. If it has to be undone
- *                  within 600 frames, the wait before the next probe doubles, up to
- *                  maxBackoff (4) doublings: 4 s, 8 s, 16 s, 32 s, 64 s. A probe that survives
- *                  resets the wait. This is what stops a slow device flickering between two steps.
- * spikeMs 100      Frames of 100 ms or more are dropped as one-off stalls (tab switch, shader
- *                  compile; the game loop clamps them to 0.1 s too) unless spikeRun (3) arrive in
- *                  a row, which means the device really is that slow.
- * warmupMs 1000    The first second after restart() is ignored: race start, canvas resize.
- * futile*          If the scaler runs all the way to the floor and the frames are still slow and
- *                  less than 15% shorter than when it started (futileGain 0.85), having removed
- *                  at least 36% of the pixels (futileSpan 0.8), resolution is not what is slow:
- *                  the processor is, or the browser is capping the frame rate (battery savers
- *                  cap at 30 fps). It returns to full resolution and stays there for futileHoldMs
- *                  (2 minutes of play, doubling each time up to 16) rather than blur the picture
- *                  for nothing.
+ * 1. What counts as late (the frame budget)
+ *    The budget is the screen's own steady frame time, learned from the frames themselves, and
+ *    never tighter than 60 fps. A 50 Hz screen (20 ms), a 48 Hz one, or a browser capped at 30 fps
+ *    by a battery saver is "on time" at its own pace; a 120 Hz screen is only asked for 60 fps.
+ *    The estimate is the lowest frame time that at least a tenth of recent frames reach
+ *    (intervalShare), averaged with its neighbours, over a history that halves every
+ *    intervalHalfLife (1000) frames. Paddock and pause frames feed it too (observe()). It believes
+ *    "faster" within a second or two and "slower" only after a minute or two of nothing faster, so
+ *    a slow device does not talk it into a longer budget during the time the scaler needs to act.
+ *    slowestMs caps it at 30 fps: anything slower is always late.
+ *    A frame is slow above slowRatio (1.26) budgets and calm below calmRatio (1.14) budgets: 21 ms
+ *    and 19 ms at 60 fps, the same band scaled for other screens. Frames in between move nothing.
+ *    A slow frame's lost time is how far past the budget it ran; "lateness" is lost time as a
+ *    share of the budget, averaged over frames. 5% of frames each missing one refresh is 0.05.
  *
- * None of this has been tuned on a real low-end device. slowMs, blockSlow, downBlocks, upBlocks
- * and the futile* values are the ones to revisit once one is available.
+ * 2. Mostly late: step down now, judge at the bottom
+ *    Frames are grouped in blocks of 20. Three blocks in a row (downBlocks) with at least half
+ *    their frames slow (denseShare) step the resolution down at once, two steps if the lateness is
+ *    1.4 or more (heavyLate: 40 ms frames at 60 fps). One step may show nothing here, because a
+ *    frame that goes from 30 ms to 25 ms still misses the same refresh, so it keeps going while
+ *    frames stay mostly late and compares only at the floor: if frame time there is not at least
+ *    15% shorter than where the descent began (futileGain 0.85), having removed at least 36% of
+ *    the pixels (futileSpan 0.8), resolution is not the cause. It goes back to where it started
+ *    and does not descend again for futileHoldMs (2 minutes of play, doubling up to 16). The
+ *    starting point is remembered until then, however long the descent took.
+ *
+ * 3. Sometimes late: one step, then prove it
+ *    Scattered late frames are judged over the last ringBlocks (30) blocks at the current
+ *    resolution. A step down needs lateness of sparseLate (0.1: a tenth of frames each missing
+ *    one refresh) over all 30, or proportionally more over fewer (at least minBlocks, 6), so a bad
+ *    stretch is acted on in 2 s and a mild one in 10 s, and 5% of frames dropping at random never
+ *    qualifies. The late frames also have to be
+ *    spread over at least half of those blocks, so one stall (an effect compiling) is not mistaken
+ *    for a slow device. One step is then tried and measured for as long as the evidence took to
+ *    gather. Unless lateness fell to gain (0.6) of
+ *    what it was, the step is undone and no more are tried for the same doubling hold: late frames
+ *    that a quarter fewer pixels does not fix (garbage collection, a busy processor) are not a
+ *    reason to blur the picture.
+ *
+ * 4. Stepping back up
+ *    After upBlocks (12) calm blocks, 4 s at 60 fps, it tries one step up. If frames are never
+ *    calm it tries anyway after patientBlocks (45), so a lowered resolution always has to keep
+ *    proving itself. The step up is kept unless lateness becomes clearly worse (the same 0.6
+ *    rule, on sparseLate over 12 blocks or more over fewer) before the 30-block history refills,
+ *    or frames turn mostly late. Each failed try
+ *    doubles both waits, up to maxBackoff (4) doublings: 4 s to 64 s when calm. A try that lasts
+ *    resets them. This is what stops a slow device flickering between two steps.
+ *
+ * 5. Things it ignores
+ *    Frames of spikeMs (100 ms) or more, unless spikeRun (3) arrive in a row: tab switches and
+ *    shader compiles (the game loop clamps those to 0.1 s as well). The settleFrames (8) after a
+ *    change, while the browser reallocates the canvas. The first warmupMs (1000) after restart().
+ *
+ * step 0.85 multiplies the pixel ratio per step: about 28% fewer pixels, hard to notice singly.
+ *
+ * Known limits. A device that never reaches its screen's rate anywhere, not in the paddock, not
+ * while paused, looks exactly like a slower screen down to 30 fps, and is left alone; Medium and
+ * Low are there for it. And none of this has been tuned on a real low-end device: sparseLate,
+ * gain, denseShare, patientBlocks and the hold times are the ones to revisit once one is to hand.
  */
 export const SCALER_DEFAULTS = Object.freeze({
   step: 0.85,
   blockFrames: 20,
-  blockSlow: 2,
-  downBlocks: 3,
   settleFrames: 8,
   warmupMs: 1000,
-  slowMs: 21,
-  heavyMs: 40,
-  calmMs: 19,
-  calmSpikes: 1,
-  upBlocks: 12,
-  maxBackoff: 4,
-  probeFrames: 600,
   spikeMs: 100,
   spikeRun: 3,
+  // 1. the budget
+  fastestMs: 1000 / 60,
+  slowestMs: 34.5,
+  slowRatio: 1.26,
+  calmRatio: 1.14,
+  intervalShare: 0.1,
+  intervalHalfLife: 1000,
+  intervalMinFrames: 30,
+  // 2. mostly late
+  denseShare: 0.5,
+  downBlocks: 3,
+  heavyLate: 1.4,
   futileGain: 0.85,
   futileSpan: 0.8,
   futileHoldMs: 120000,
   futileMaxDoublings: 3,
+  // 3. sometimes late
+  ringBlocks: 30,
+  minBlocks: 6,
+  sparseLate: 0.1,
+  gain: 0.6,
+  // 4. stepping up
+  calmSpikes: 1,
+  upBlocks: 12,
+  patientBlocks: 45,
+  maxBackoff: 4,
 });
+
+const BIN_MS = 0.5;
+const BINS = 160; // frame times up to 80 ms; anything longer shares the last bin
+const NONE = 0;
+const DOWN = 1;
+const UP = 2;
 
 /**
  * Feed it one frame duration per rendered race frame; it returns the pixel-ratio scale to use,
- * between minScale and 1. It keeps a handful of counters and allocates nothing per frame.
+ * between minScale and 1. Everything it needs is allocated here, nothing per frame.
  */
 export function createResolutionScaler(options = {}) {
   const cfg = { ...SCALER_DEFAULTS, ...options };
+  const denseFrames = Math.ceil(cfg.denseShare * cfg.blockFrames);
+  const decay = Math.pow(0.5, cfg.blockFrames / cfg.intervalHalfLife);
+
+  // The screen's steady frame time: a decaying histogram of frame times.
+  const histCount = new Float32Array(BINS);
+  const histMs = new Float32Array(BINS);
+  let histTotal = 0;
+  let histSince = 0;
+  let interval = 0; // 0 until enough frames have been seen
+  let budget = cfg.fastestMs;
+  let budgetMark = budget;
+  let slowMs = budget * cfg.slowRatio;
+  let calmMs = budget * cfg.calmRatio;
 
   // The block being filled.
   let frames = 0;
-  let sum = 0;
-  let slow = 0; // frames over slowMs
+  let late = 0; // ms past the budget, slow frames only
+  let slow = 0;
   let rough = 0; // frames over calmMs
-  // Runs of finished blocks.
-  let slowBlocks = 0;
-  let slowSum = 0;
+  // Finished blocks at the current level.
+  const ring = new Float32Array(cfg.ringBlocks);
+  let ringAt = 0;
+  let ringCount = 0;
+  let stayBlocks = 0;
   let calmBlocks = 0;
+  let denseBlocks = 0;
+  let denseLate = 0;
 
   let minScale = 1;
   let maxLevel = 0;
@@ -191,35 +244,98 @@ export function createResolutionScaler(options = {}) {
   let warm = 0;
   let settle = 0;
   let longRun = 0;
-  let probe = 0;
+  // A step that is still being judged.
+  let pending = NONE;
+  let pendingRef = 0;
+  let pendingBlocks = 0;
   let failures = 0;
-  let holdMs = 0;
-  let futileCount = 0;
-  let descent = false;
-  let descentFrom = 1;
-  let descentMean = 0;
+  // Where a mostly-late descent began, and how late frames were there.
+  let fromLevel = -1;
+  let fromLate = 0;
   let floorJudged = false;
+  let denseHold = 0;
+  let denseFutile = 0;
+  let sparseHold = 0;
+  let sparseFutile = 0;
 
   function clearEvidence() {
     frames = 0;
-    sum = 0;
+    late = 0;
     slow = 0;
     rough = 0;
-    slowBlocks = 0;
-    slowSum = 0;
+    ringAt = 0;
+    ringCount = 0;
+    stayBlocks = 0;
     calmBlocks = 0;
+    denseBlocks = 0;
+    denseLate = 0;
   }
 
   function scaleAt(lv) {
     return lv >= maxLevel ? minScale : Math.pow(cfg.step, lv);
   }
 
-  function moveTo(next) {
+  function move(next, kind) {
     level = next;
     scale = scaleAt(level);
     changes++;
     settle = cfg.settleFrames;
+    pending = kind;
+    floorJudged = false;
     clearEvidence();
+  }
+
+  function holdFor(count) {
+    return cfg.futileHoldMs * (1 << Math.min(count, cfg.futileMaxDoublings));
+  }
+
+  function setBudget(next) {
+    budget = next;
+    slowMs = budget * cfg.slowRatio;
+    calmMs = budget * cfg.calmRatio;
+    // A different budget makes the banked evidence mean something else: start it again.
+    if (Math.abs(budget - budgetMark) > 0.05 * budgetMark) {
+      budgetMark = budget;
+      pending = NONE;
+      clearEvidence();
+    }
+  }
+
+  function note(frameMs) {
+    const bin = frameMs >= BINS * BIN_MS ? BINS - 1 : (frameMs / BIN_MS) | 0;
+    histCount[bin]++;
+    histMs[bin] += frameMs;
+    histTotal++;
+    if (++histSince < cfg.blockFrames) return;
+    histSince = 0;
+    if (histTotal >= cfg.intervalMinFrames) {
+      // The lowest frame time a tenth of recent frames reach, then the average of that cluster.
+      const want = histTotal * cfg.intervalShare;
+      let at = 0;
+      let seen = histCount[0];
+      while (seen < want && at < BINS - 1) seen += histCount[++at];
+      // Within 12% either way: wide enough for timer jitter, too narrow to take in a missed refresh.
+      const from = Math.floor(at * 0.88);
+      const to = Math.min(BINS - 1, Math.ceil(at * 1.12));
+      let count = 0;
+      let ms = 0;
+      for (let i = from; i <= to; i++) {
+        count += histCount[i];
+        ms += histMs[i];
+      }
+      interval = ms / count;
+      setBudget(Math.min(cfg.slowestMs, Math.max(cfg.fastestMs, interval)));
+    }
+    for (let i = 0; i < BINS; i++) {
+      histCount[i] *= decay;
+      histMs[i] *= decay;
+    }
+    histTotal *= decay;
+  }
+
+  /** A frame that is not part of a race (paddock, pause): it only teaches the screen's pace. */
+  function observe(frameMs) {
+    if (frameMs > 0 && frameMs < cfg.spikeMs) note(frameMs);
   }
 
   function setMinScale(value) {
@@ -235,7 +351,8 @@ export function createResolutionScaler(options = {}) {
       settle = cfg.settleFrames;
       clearEvidence();
     }
-    descent = false;
+    pending = NONE;
+    fromLevel = -1;
     floorJudged = false;
     return scale;
   }
@@ -245,47 +362,126 @@ export function createResolutionScaler(options = {}) {
     warm = 0;
     settle = 0;
     longRun = 0;
-    probe = 0;
-    descent = false;
+    pending = NONE;
     clearEvidence();
   }
 
-  /** Forget everything and return to full resolution (the tier changed). */
+  /** Forget everything but the screen's pace and return to full resolution (the tier changed). */
   function reset() {
     restart();
     level = 0;
     scale = scaleAt(0);
     failures = 0;
-    holdMs = 0;
-    futileCount = 0;
+    fromLevel = -1;
     floorJudged = false;
+    denseHold = 0;
+    denseFutile = 0;
+    sparseHold = 0;
+    sparseFutile = 0;
   }
 
-  function stepDown(mean) {
+  /** Three mostly-late blocks in a row. Returns true when it moved the level. */
+  function mostlyLate(lateness) {
+    if (maxLevel === 0) return false;
     if (level >= maxLevel) {
-      // Already at the floor and still slow: decide once whether the descent bought anything.
-      if (maxLevel === 0 || floorJudged) return;
+      // At the floor and still mostly late: decide once whether the descent bought anything.
+      if (fromLevel < 0 || floorJudged) return false;
       floorJudged = true;
-      if (descent && minScale / descentFrom <= cfg.futileSpan && mean > cfg.futileGain * descentMean) {
-        holdMs = cfg.futileHoldMs * (1 << Math.min(futileCount, cfg.futileMaxDoublings));
-        futileCount++;
-        descent = false;
-        floorJudged = false;
-        moveTo(0);
+      if (minScale / scaleAt(fromLevel) > cfg.futileSpan) return false;
+      if (1 + lateness <= cfg.futileGain * (1 + fromLate)) {
+        denseFutile = 0;
+        return false;
       }
+      denseHold = holdFor(denseFutile++);
+      const back = fromLevel;
+      fromLevel = -1;
+      move(back, NONE);
+      return true;
+    }
+    if (denseHold > 0) return false;
+    if (pending === UP) failures = Math.min(cfg.maxBackoff, failures + 1);
+    if (fromLevel < 0 || level <= fromLevel) {
+      fromLevel = level;
+      fromLate = lateness;
+    }
+    move(Math.min(maxLevel, level + (lateness >= cfg.heavyLate ? 2 : 1)), NONE);
+    return true;
+  }
+
+  function endBlock() {
+    ring[ringAt] = late;
+    ringAt = (ringAt + 1) % cfg.ringBlocks;
+    if (ringCount < cfg.ringBlocks) ringCount++;
+    stayBlocks++;
+    const blockLate = late;
+    const blockSlow = slow;
+    const blockRough = rough;
+    frames = 0;
+    late = 0;
+    slow = 0;
+    rough = 0;
+
+    if (blockSlow >= denseFrames) {
+      denseLate += blockLate;
+      if (++denseBlocks >= cfg.downBlocks) {
+        const lateness = denseLate / (denseBlocks * cfg.blockFrames * budget);
+        denseBlocks = 0;
+        denseLate = 0;
+        if (mostlyLate(lateness)) return;
+      }
+    } else {
+      denseBlocks = 0;
+      denseLate = 0;
+    }
+
+    if (blockRough === 0) calmBlocks++;
+    else if (blockRough > cfg.calmSpikes) calmBlocks = 0;
+
+    let total = 0;
+    let lateBlocks = 0;
+    for (let i = 0; i < ringCount; i++) {
+      total += ring[i];
+      if (ring[i] > 0) lateBlocks++;
+    }
+    const lateness = total / (ringCount * cfg.blockFrames * budget);
+    // Enough late time to act on: spread across at least half the blocks, and the fewer the
+    // blocks, the more of it. `weight` is the bar in units of sparseLate over a full history.
+    const spread = ringCount >= cfg.minBlocks && 2 * lateBlocks >= ringCount;
+    const weight = lateness * Math.sqrt(ringCount) / cfg.sparseLate;
+
+    if (pending === DOWN) {
+      // Did the step down pay for itself?
+      if (ringCount < pendingBlocks) return;
+      pending = NONE;
+      if (lateness > cfg.gain * pendingRef) {
+        sparseHold = holdFor(sparseFutile++);
+        move(level - 1, NONE);
+      } else sparseFutile = 0;
       return;
     }
-    if (holdMs > 0) return;
-    if (probe > 0) {
-      failures = Math.min(cfg.maxBackoff, failures + 1);
-      probe = 0;
+    if (pending === UP) {
+      // Did the step up cost anything?
+      if (spread && weight >= Math.sqrt(cfg.upBlocks) && pendingRef <= cfg.gain * lateness) {
+        failures = Math.min(cfg.maxBackoff, failures + 1);
+        move(level + 1, NONE);
+        return;
+      }
+      if (ringCount >= cfg.ringBlocks) {
+        pending = NONE;
+        failures = 0;
+        // Still late up here, and no later than below: the lower level was not helping.
+        if (lateness >= cfg.sparseLate && sparseHold <= 0) sparseHold = holdFor(sparseFutile++);
+      }
+    } else if (spread && weight >= Math.sqrt(cfg.ringBlocks) && level < maxLevel && denseHold <= 0 && sparseHold <= 0) {
+      pendingRef = lateness;
+      pendingBlocks = ringCount;
+      move(level + 1, DOWN);
+      return;
     }
-    if (!descent) {
-      descent = true;
-      descentFrom = scale;
-      descentMean = mean;
+    if (level > 0 && (calmBlocks >= cfg.upBlocks << failures || (pending === NONE && stayBlocks >= cfg.patientBlocks << failures))) {
+      pendingRef = lateness;
+      move(level - 1, UP);
     }
-    moveTo(Math.min(maxLevel, level + (mean >= cfg.heavyMs ? 2 : 1)));
   }
 
   function sample(frameMs) {
@@ -293,54 +489,27 @@ export function createResolutionScaler(options = {}) {
     if (frameMs >= cfg.spikeMs) {
       if (++longRun < cfg.spikeRun) return scale;
     } else longRun = 0;
+    note(frameMs);
     if (warm < cfg.warmupMs) {
       warm += frameMs;
       return scale;
     }
-    if (holdMs > 0) holdMs -= frameMs;
+    if (interval === 0) return scale;
+    if (denseHold > 0) denseHold -= frameMs;
+    if (sparseHold > 0) sparseHold -= frameMs;
     if (settle > 0) {
       settle--;
       return scale;
     }
-    if (probe > 0 && --probe === 0) failures = 0;
-
     frames++;
-    sum += frameMs;
-    if (frameMs > cfg.slowMs) slow++;
-    if (frameMs > cfg.calmMs) rough++;
-    if (frames < cfg.blockFrames) return scale;
-
-    // A block is complete.
-    const blockSum = sum;
-    const blockIsSlow = slow >= cfg.blockSlow;
-    const blockRough = rough;
-    frames = 0;
-    sum = 0;
-    slow = 0;
-    rough = 0;
-
-    if (blockIsSlow) {
-      calmBlocks = 0;
-      slowSum += blockSum;
-      if (++slowBlocks >= cfg.downBlocks) {
-        const mean = slowSum / (slowBlocks * cfg.blockFrames);
-        slowBlocks = 0;
-        slowSum = 0;
-        stepDown(mean);
+    if (frameMs > calmMs) {
+      rough++;
+      if (frameMs > slowMs) {
+        slow++;
+        late += frameMs - budget;
       }
-      return scale;
     }
-
-    slowBlocks = 0;
-    slowSum = 0;
-    descent = false;
-    if (blockRough === 0) calmBlocks++;
-    else if (blockRough > cfg.calmSpikes) calmBlocks = 0;
-    if (level > 0 && calmBlocks >= cfg.upBlocks * (1 << failures)) {
-      floorJudged = false;
-      moveTo(level - 1);
-      probe = cfg.probeFrames;
-    }
+    if (frames >= cfg.blockFrames) endBlock();
     return scale;
   }
 
@@ -348,6 +517,7 @@ export function createResolutionScaler(options = {}) {
 
   return {
     sample,
+    observe,
     setMinScale,
     restart,
     reset,
@@ -357,6 +527,9 @@ export function createResolutionScaler(options = {}) {
     get minScale() { return minScale; },
     /** How many times the scale has moved since creation. */
     get changes() { return changes; },
-    get holding() { return holdMs > 0; },
+    /** True while it has given up lowering the resolution for now. */
+    get holding() { return denseHold > 0 || sparseHold > 0; },
+    /** The frame time it currently treats as on time, in ms. */
+    get budget() { return budget; },
   };
 }

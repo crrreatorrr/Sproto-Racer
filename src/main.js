@@ -20,7 +20,7 @@ import {createItemFx,cueIconType} from './item-fx.js';
 import {createRaceFX} from './race-fx.js';
 import {createSession,DEFAULT_TEST,timeText} from './session.js';
 import {createPerfMonitor} from './perf.js';
-import {TIERS,TIER_IDS,basePixelRatio,createResolutionScaler,loadTier,minScaleFor,saveTier,setActiveTier} from './quality.js';
+import {TIERS,TIER_IDS,basePixelRatio,createResolutionScaler,loadTier,minScaleFor,saveTier,tierFor} from './quality.js';
 import {lerpAngle} from './sim/math.js';
 import {laneCeiling,lapOf,nextCell} from './sim/sky.js';
 import {createTrackSample} from './sim/track-core.js';
@@ -36,7 +36,7 @@ const perf=createPerfMonitor();
 // Graphics tier: the ?quality= override, then the saved choice, then Auto.
 let storage=null;
 try{storage=window.localStorage;}catch{}
-let gfx=setActiveTier(loadTier(storage,location.search));
+let gfx=loadTier(storage,location.search);
 // Antialiasing is a WebGL context attribute, so a tier change reaches it on the next page load.
 const bootAntialias=gfx.antialias;
 const scaler=createResolutionScaler();
@@ -48,13 +48,13 @@ catch(error){$('hero-canvas').innerHTML='<div class="unavailable">WebGL 2 is una
 let seenDpr=0,pixelRatio=basePixelRatio(gfx,window.devicePixelRatio),debugFrameMs=0;
 renderer.setPixelRatio(pixelRatio);perf.noteQuality(gfx.id,pixelRatio,1);
 function setGraphics(id){
-  gfx=setActiveTier(id);saveTier(storage,gfx.id);
+  gfx=tierFor(id);saveTier(storage,gfx.id);
   scaler.reset();seenDpr=0;
 }
 if(perf.enabled)window.__sprotoQuality={
   // Test hook, ?perf=1 only: feed the scaler this frame time instead of the real one (0 = real).
   simulateFrameMs(ms){debugFrameMs=ms>0?ms:0;},
-  state:()=>({tier:gfx.id,pixelRatio,scale:scaler.scale,level:scaler.level,levels:scaler.levels,changes:scaler.changes,holding:scaler.holding,
+  state:()=>({tier:gfx.id,pixelRatio,scale:scaler.scale,level:scaler.level,levels:scaler.levels,changes:scaler.changes,holding:scaler.holding,budgetMs:scaler.budget,
     canvas:[renderer.domElement.width,renderer.domElement.height],antialias:renderer.getContextAttributes().antialias}),
 };
 renderer.outputColorSpace=THREE.SRGBColorSpace;
@@ -691,6 +691,8 @@ function frame(now){
    // Resizing clears the canvas, and a paused race does not draw: repaint it once.
    if(screen==='game'&&w&&h&&(modal||controllerOpen||feedbackHold.held()))renderer.render(world,camera);
  }
+ // Frames outside a running race only teach the scaler how fast this screen refreshes.
+ if(screen!=='game'||modal||controllerOpen||feedbackHold.held())scaler.observe(rawDt*1000);
  if(feedbackHold.held()){accumulator=0;requestAnimationFrame(frame);return;}
  const c=input.poll();
  if(controllerOpen){menuPad();requestAnimationFrame(frame);return;}

@@ -84,7 +84,7 @@ describe('local race runner', () => {
     assert.equal(hud.laps, 1);
     assert.ok(sectors.size >= 10, 'the sector readout followed the lap');
     assert.ok(hud.split && hud.split.seconds > 0);
-    assert.equal(runner.results().length, 6);
+    assert.equal(runner.results().standings.length, 6);
     assert.equal(runner.correction(0), null);
     assert.equal(runner.net, null);
 
@@ -195,5 +195,75 @@ describe('online race runner', () => {
     }
     assert.notEqual(hostEvents[0], hostEvents[1], 'each player has their own seat');
     assert.equal(match.host.stats.rejectedRate + match.host.stats.rejectedSeat, 0);
+  });
+});
+
+describe('race results', () => {
+  const ROW = ['car', 'driver', 'finishUs', 'human', 'name', 'place', 'seat'];
+
+  function assertResultsShape(results, racers) {
+    assert.deepEqual(Object.keys(results).sort(), ['hash', 'standings', 'tick']);
+    assert.equal(typeof results.tick, 'number');
+    assert.match(results.hash, /^[0-9a-f]{16}$/);
+    assert.equal(results.standings.length, racers);
+    results.standings.forEach((row, index) => {
+      assert.deepEqual(Object.keys(row).sort(), ROW);
+      assert.equal(row.place, index + 1);
+      assert.equal(typeof row.seat, 'number');
+      assert.equal(typeof row.car, 'string');
+      assert.equal(typeof row.driver, 'string');
+      assert.equal(typeof row.human, 'boolean');
+      assert.equal(typeof row.name, 'string');
+      assert.ok(row.finishUs === null || Number.isInteger(row.finishUs));
+    });
+  }
+
+  it('has the same shape offline and online', () => {
+    // Offline: one lap against one AI.
+    const local = createLocalRaceRunner({ courseId: 'track01', seed: 8, laps: 1, seats: [{ kind: 'local' }, { kind: 'ai' }] });
+    const driver = createScriptedDriver();
+    const proxy = { world: local.world, localSeat: 0 };
+    assert.equal(local.results(), null, 'no results before the finish');
+    while (local.phase !== 'finished' && local.world.state.tick < 60 * 200) local.tick(driver.controls(local.world.state.tick, proxy));
+    const offline = local.results();
+    assertResultsShape(offline, 2);
+    assert.equal(offline.tick, local.world.state.tick);
+    assert.equal(offline.hash, stateHash(local.world));
+    assert.deepEqual(offline.standings.map((r) => r.human).sort(), [false, true]);
+    assert.ok(offline.standings.find((r) => r.human).finishUs > 0);
+
+    // Online: the same kind of race through a host.
+    const net = createSimNet({ seed: 4 });
+    const match = createLoopbackMatch({ net, host: { courseId: 'track01', seed: 8, laps: 1, seatCount: 2, startDelayTicks: 60 } });
+    const ep = match.open('solo', { latencyMs: 30 });
+    const runner = createOnlineRaceRunner({ transport: ep.transport, now: net.now, hello: { car: 'apex', driver: 'sproto', name: 'Solo' } });
+    const onlineDriver = createScriptedDriver();
+    net.every(1000 / 60, 2, () => runner.advance(1 / 60, (tick) => onlineDriver.controls(tick, runner.client)));
+    net.runFor(1200);
+    assert.equal(runner.results(), null);
+    runner.setReady(true);
+    for (let i = 0; i < 400 && runner.phase !== 'finished'; i++) net.runFor(500);
+    net.runFor(500);
+    assert.equal(runner.phase, 'finished');
+    const online = runner.results();
+    assertResultsShape(online, 2);
+    assert.deepEqual(online, match.host.results);
+    assert.equal(online.standings.find((r) => r.human).name, 'Solo');
+  });
+});
+
+describe('local runner step size', () => {
+  it('tick(controls, dt) passes the step size to the world and defaults to 1/60 s', () => {
+    const a = createLocalRaceRunner({ courseId: 'track01', seed: 2 });
+    const b = createLocalRaceRunner({ courseId: 'track01', seed: 2 });
+    const c = createLocalRaceRunner({ courseId: 'track01', seed: 2 });
+    for (let t = 0; t < 200; t++) {
+      a.tick(tickControls(t));
+      b.tick(tickControls(t), 1 / 60);
+      c.tick(tickControls(t), 1 / 120);
+    }
+    assert.equal(stateHash(a.world), stateHash(b.world));
+    assert.ok(Math.abs(c.world.state.countdown - (3 - 200 / 120)) < 1e-6, 'half-size steps: the countdown is still running');
+    assert.equal(a.world.state.countdown, 0);
   });
 });

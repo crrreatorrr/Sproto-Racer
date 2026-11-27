@@ -91,7 +91,8 @@ export function createOnlineRaceRunner(options = {}) {
       return w ? view.read(w, Math.max(0, client.localSeat)) : null;
     },
     drainEvents: () => client.drainEvents(),
-    results: () => client.results,
+    // The host's result message, in the same shape as the local runner's (race-results.js).
+    results: () => (client.phase === 'finished' ? client.results : null),
     dispose() {
       for (const off of unsubscribe) {
         if (typeof off === 'function') off();

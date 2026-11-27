@@ -136,7 +136,7 @@ export function createTestMatch(options = {}) {
     const record = { id: 'p' + index, driver, events: [], hashChecks: [], ep: null };
     record.ep = match.connect(record.id, conditions, {
       hello: { car: extra.car ?? 'apex', driver: 'sproto', name: 'Player ' + index },
-      controls: driver.controls,
+      controls: extra.wrapControls ? extra.wrapControls(driver.controls) : driver.controls,
       frameMs: extra.frameMs,
       frameOffsetMs: 1 + ((index * 5) % 13),
       perfNow: options.perfNow,

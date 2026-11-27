@@ -19,6 +19,7 @@ import { CIRCUITS } from '../sim/track-core.js';
 import { EDGE_BUTTON_MASK, HELD_BUTTON_MASK } from '../sim/intent.js';
 import { racerSetup } from '../roster.js';
 import { MAX_SEATS_LIMIT, NET_VERSION, RACER_SIM_VERSION, validateRacerChoice } from './protocol.js';
+import { buildRaceResults } from '../race-results.js';
 import { chunkBytes, encodeKeyframe, KEYFRAME_CHUNK_BYTES } from './keyframe.js';
 import {
   KEYFRAME_REASON,
@@ -169,8 +170,8 @@ export function createSeatInputQueue(options = {}) {
   };
 }
 
-function defaultValidateHello(playerId, payload) {
-  return validateRacerChoice({ car: payload.car, driver: payload.driver }, []);
+function defaultValidateHello(playerId, choice) {
+  return validateRacerChoice({ car: choice.car, driver: choice.driver }, []);
 }
 
 export function createMatchHost(options = {}) {
@@ -215,6 +216,8 @@ export function createMatchHost(options = {}) {
     keyframeBytes: 0,
     batchesSent: 0,
     heldTicks: 0,
+    keyframesDeferred: 0,
+    rejectedThrown: 0,
   };
 
   function send(playerId, op, data) {
@@ -314,6 +317,7 @@ export function createMatchHost(options = {}) {
         car: setup.car,
         driver: setup.driver,
         gridIndex: order[i],
+        lastKeyframeTick: -1e9,
         queue: createSeatInputQueue(cfg),
       });
       if (p) p.seat = i;
@@ -394,19 +398,36 @@ export function createMatchHost(options = {}) {
     keyframeId = (keyframeId + 1) & 0xffff;
     for (let i = 0; i < chunks.length; i++) send(player.id, NET_OP.KEYFRAME, chunks[i]);
     player.lastKeyframeTick = serverTick;
+    player.keyframeOwed = 0;
+    if (player.seat != null && seats[player.seat]) seats[player.seat].lastKeyframeTick = serverTick;
     stats.keyframesSent++;
     stats.keyframeBytes += payload.length;
     return true;
   }
 
+  /**
+   * Sends a keyframe now, or as soon as the per-player limit allows. A request is never
+   * dropped: a client waiting on a keyframe would otherwise wait for ever. The limit is
+   * kept per seat as well, so leaving and rejoining does not get around it.
+   */
+  function requestKeyframeFor(player, reason) {
+    const seat = player.seat != null ? seats[player.seat] : null;
+    const last = Math.max(player.lastKeyframeTick, seat ? seat.lastKeyframeTick : -1e9);
+    if (serverTick - last >= cfg.keyframeMinIntervalTicks) return sendKeyframe(player, reason);
+    if (!player.keyframeOwed) stats.keyframesDeferred++;
+    player.keyframeOwed = reason;
+    return true;
+  }
+
   // ---- Presence ----
 
-  function join(playerId, meta = {}) {
+  function join(playerId, meta) {
     let player = players.get(playerId);
     if (!player) {
+      const given = meta && typeof meta.name === 'string' && meta.name ? meta.name : null;
       player = {
         id: playerId,
-        name: String(meta.name ?? playerId).slice(0, 24),
+        name: (given ?? (typeof playerId === 'string' ? playerId : 'Player')).slice(0, 24),
         car: null,
         driver: null,
         ready: false,
@@ -415,6 +436,7 @@ export function createMatchHost(options = {}) {
         inputTokens: cfg.inputBurst,
         controlTokens: cfg.controlBurst,
         lastKeyframeTick: -1e9,
+        keyframeOwed: 0,
       };
       players.set(playerId, player);
     }
@@ -449,10 +471,15 @@ export function createMatchHost(options = {}) {
   function onHello(player, data) {
     const payload = decodeJson(data);
     if (!payload) return sendError(player.id, 'bad_hello');
-    if (String(payload.v) !== NET_VERSION) return sendError(player.id, 'version_mismatch');
-    if (String(payload.sim) !== RACER_SIM_VERSION) return sendError(player.id, 'sim_version_mismatch');
-    const choice = validateHello(player.id, payload);
-    if (!choice || !choice.ok) return sendError(player.id, (choice && choice.error) || 'invalid_choice');
+    // Every field is checked for its type before it is used: this is untrusted input.
+    if (typeof payload.v !== 'string' || payload.v !== NET_VERSION) return sendError(player.id, 'version_mismatch');
+    if (typeof payload.sim !== 'string' || payload.sim !== RACER_SIM_VERSION) return sendError(player.id, 'sim_version_mismatch');
+    if (typeof payload.car !== 'string') return sendError(player.id, 'invalid_car');
+    if (typeof payload.driver !== 'string') return sendError(player.id, 'invalid_driver');
+    const choice = validateHello(player.id, { car: payload.car, driver: payload.driver });
+    if (!choice || choice.ok !== true || !choice.value || typeof choice.value.car !== 'string' || typeof choice.value.driver !== 'string') {
+      return sendError(player.id, choice && typeof choice.error === 'string' ? choice.error : 'invalid_choice');
+    }
     if (typeof payload.name === 'string' && payload.name) player.name = payload.name.slice(0, 24);
 
     if (phase === 'lobby') {
@@ -486,7 +513,7 @@ export function createMatchHost(options = {}) {
       seat.queue.reset();
     }
     welcome(player, seat.id);
-    sendKeyframe(player, KEYFRAME_REASON.JOIN);
+    requestKeyframeFor(player, KEYFRAME_REASON.JOIN);
     broadcastLobby();
     return undefined;
   }
@@ -525,9 +552,7 @@ export function createMatchHost(options = {}) {
     }
   }
 
-  function receive(playerId, op, data) {
-    const player = players.get(playerId);
-    if (!player) return false;
+  function handle(player, op, data) {
     if (op === NET_OP.INPUT) {
       onInput(player, data);
       return true;
@@ -543,26 +568,58 @@ export function createMatchHost(options = {}) {
         return true;
       case NET_OP.READY: {
         const payload = decodeJson(data);
-        if (!payload || phase !== 'lobby' || !player.inLobby) return false;
-        player.ready = payload.ready !== false;
+        if (!payload || typeof payload.ready !== 'boolean' || phase !== 'lobby' || !player.inLobby) {
+          stats.rejectedMalformed++;
+          return false;
+        }
+        player.ready = payload.ready;
         broadcastLobby();
         maybeStart();
         return true;
       }
       case NET_OP.PING: {
         const ping = decodePing(asBytes(data));
-        if (!ping) return false;
+        if (!ping) {
+          stats.rejectedMalformed++;
+          return false;
+        }
         send(player.id, NET_OP.PONG, encodePong(ping.clientMs, serverTick));
         return true;
       }
       case NET_OP.KEYFRAME_REQ: {
         const req = decodeKeyframeRequest(asBytes(data));
-        if (!req || !world || player.seat == null || phase === 'lobby') return false;
-        if (serverTick - player.lastKeyframeTick < cfg.keyframeMinIntervalTicks) return false;
-        return sendKeyframe(player, req.reason === KEYFRAME_REASON.DESYNC ? KEYFRAME_REASON.DESYNC : KEYFRAME_REASON.REQUEST);
+        if (!req || !world || player.seat == null || phase === 'lobby') {
+          stats.rejectedMalformed++;
+          return false;
+        }
+        return requestKeyframeFor(player, req.reason === KEYFRAME_REASON.DESYNC ? KEYFRAME_REASON.DESYNC : KEYFRAME_REASON.REQUEST);
       }
       default:
+        stats.rejectedMalformed++;
         return false;
+    }
+  }
+
+  /**
+   * Handles one message from a client. It cannot throw: this runs inside the server's
+   * match loop, where an uncaught error would end the match for everyone. Anything
+   * malformed is dropped and counted in `stats`.
+   */
+  function receive(playerId, op, data) {
+    const player = players.get(playerId);
+    if (!player) return false;
+    try {
+      return handle(player, op, data);
+    } catch (err) {
+      stats.rejectedThrown++;
+      if (cfg.onError) {
+        try {
+          cfg.onError(err, playerId, op);
+        } catch {
+          /* a faulty reporter must not take the match down either */
+        }
+      }
+      return false;
     }
   }
 
@@ -570,20 +627,7 @@ export function createMatchHost(options = {}) {
 
   function finishRace() {
     flushBatch();
-    const table = world.standings();
-    results = {
-      tick: world.state.tick,
-      hash: stateHash(world),
-      standings: table.map((row) => ({
-        place: row.place,
-        seat: row.seat,
-        car: row.car,
-        driver: row.driver,
-        finishUs: row.finishUs,
-        human: seats[row.seat].owner != null,
-        name: seats[row.seat].name,
-      })),
-    };
+    results = buildRaceResults(world, (seat) => ({ human: seats[seat].owner != null, name: seats[seat].name }));
     phase = 'finished';
     broadcast(NET_OP.RESULT, encodeJson(results));
   }
@@ -623,6 +667,13 @@ export function createMatchHost(options = {}) {
   function tick() {
     if (phase === 'starting' && serverTick >= startTick) phase = 'race';
     if (phase === 'race') stepRace();
+    // Keyframes that had to wait for the per-player limit.
+    for (const player of players.values()) {
+      if (!player.keyframeOwed || !world || player.seat == null) continue;
+      const seat = seats[player.seat];
+      const last = Math.max(player.lastKeyframeTick, seat ? seat.lastKeyframeTick : -1e9);
+      if (serverTick - last >= cfg.keyframeMinIntervalTicks) sendKeyframe(player, player.keyframeOwed);
+    }
     const inputRefill = cfg.inputRatePerSecond / 60;
     const controlRefill = cfg.controlRatePerSecond / 60;
     for (const player of players.values()) {

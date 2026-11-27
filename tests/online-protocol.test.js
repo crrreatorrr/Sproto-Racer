@@ -434,8 +434,116 @@ describe('match host', () => {
     assert.equal(host.receive('ann', NET_OP.KEYFRAME_REQ, request), true);
     const first = count('ann', NET_OP.KEYFRAME);
     assert.ok(first >= 1);
-    assert.equal(host.receive('ann', NET_OP.KEYFRAME_REQ, request), false, 'too soon');
-    assert.equal(count('ann', NET_OP.KEYFRAME), first);
+    host.receive('ann', NET_OP.KEYFRAME_REQ, request);
+    assert.equal(count('ann', NET_OP.KEYFRAME), first, 'too soon: held back');
+  });
+
+  it('never throws on hostile messages: every bad one is dropped and counted', () => {
+    const { host, hello, last } = createHostRig();
+    host.join('ann');
+    host.join('eve');
+    hello('ann');
+
+    // The reported crash: a version field that cannot be turned into a string.
+    assert.doesNotThrow(() => host.receive('eve', NET_OP.HELLO, '{"v":{"toString":1},"sim":{"valueOf":2}}'));
+    assert.equal(decodeJson(last('eve', NET_OP.ERROR).data).error, 'version_mismatch');
+
+    let seed = 12345;
+    const random = () => ((seed = (Math.imul(seed, 1103515245) + 12345) >>> 0) / 4294967296);
+    const pick = (list) => list[Math.floor(random() * list.length)];
+    const nasty = [
+      null, true, 0, -1, 1e308, 'x', '', [], {}, { toString: 1 }, { valueOf: 1 }, { length: -5 }, [[[[]]]],
+      { __proto__: null }, 'a'.repeat(5000), { car: { toString: 1 }, driver: [] }, -0,
+    ];
+    const junkJson = () => {
+      const o = {};
+      for (const key of ['v', 'sim', 'car', 'driver', 'name', 'ready', 'seat', 'tick', 'constructor', 'toString']) {
+        if (random() < 0.6) o[key] = pick(nasty);
+      }
+      return random() < 0.1 ? JSON.stringify(pick(nasty)) ?? 'null' : JSON.stringify(o);
+    };
+    const junkBytes = () => {
+      const bytes = new Uint8Array(Math.floor(random() * 80));
+      for (let i = 0; i < bytes.length; i++) bytes[i] = Math.floor(random() * 256);
+      return bytes;
+    };
+    const payloads = [
+      junkJson, junkBytes,
+      () => '{', () => '', () => 'null', () => '[1,2,3]', () => '"str"', () => '{"v":2,"sim":null}',
+      () => undefined, () => null, () => 42, () => ({ length: 3 }), () => new ArrayBuffer(7), () => new Uint8Array(0),
+      () => `{"v":"${NET_VERSION}","sim":"${RACER_SIM_VERSION}","car":{"toString":1},"driver":"sproto"}`,
+      () => `{"v":"${NET_VERSION}","sim":"${RACER_SIM_VERSION}","car":"apex","driver":"sproto","name":{"slice":1}}`,
+    ];
+    const ops = [...Object.values(NET_OP), 0, -1, 255, 1e9, NaN, 'INPUT', null, undefined, {}];
+    const senders = ['ann', 'eve', 'nobody', null, undefined, 7, {}];
+
+    const blast = (rounds) => {
+      for (let i = 0; i < rounds; i++) {
+        const sender = pick(senders);
+        const op = pick(ops);
+        const data = pick(payloads)();
+        assert.doesNotThrow(() => host.receive(sender, op, data), `receive(${String(sender)}, ${String(op)}, …) threw`);
+        if (i % 5 === 0) host.tick();
+      }
+    };
+    blast(1500); // lobby
+    assert.doesNotThrow(() => host.join('odd', { name: { toString: 1 } }));
+    assert.doesNotThrow(() => host.join('odd2', null));
+    host.receive('ann', NET_OP.READY, encodeJson({ ready: true }));
+    for (let i = 0; i < 60 && host.phase !== 'race'; i++) host.tick();
+    if (host.phase !== 'race') {
+      // The fuzz may have readied or unreadied someone; force the start.
+      host.start();
+      for (let i = 0; i < 60; i++) host.tick();
+    }
+    assert.equal(host.phase, 'race');
+    const before = host.raceTick;
+    blast(2500); // racing
+    assert.equal(host.phase, 'race');
+    assert.equal(host.raceTick, before + 500, 'the race kept ticking through the flood');
+    assert.ok(host.stats.rejectedRate + host.stats.rejectedMalformed + host.stats.rejectedSeat > 100, 'bad messages were counted');
+    assert.equal(host.stats.rejectedThrown, 0, 'nothing relied on the catch-all');
+  });
+
+  it('limits keyframes per player even when HELLO is repeated, and still delivers the one that is owed', () => {
+    const { host, hello, count } = createHostRig({ controlRatePerSecond: 600, controlBurst: 600 });
+    host.join('ann');
+    hello('ann');
+    host.receive('ann', NET_OP.READY, encodeJson({ ready: true }));
+    for (let i = 0; i < 100; i++) host.tick();
+    assert.equal(host.phase, 'race');
+    const sentBefore = host.stats.keyframesSent;
+    // Ten seconds of a client saying HELLO four times a tick.
+    for (let i = 0; i < 600; i++) {
+      for (let j = 0; j < 4; j++) hello('ann');
+      host.tick();
+    }
+    const sent = host.stats.keyframesSent - sentBefore;
+    assert.ok(sent >= 9 && sent <= 11, `one keyframe a second at most (${sent} in 10 s)`);
+
+    // A request inside the minimum interval is not dropped: it is answered when allowed.
+    for (let i = 0; i < 120; i++) host.tick();
+    const request = new Uint8Array([4, 0, 0, 0, 0]);
+    host.receive('ann', NET_OP.KEYFRAME_REQ, request);
+    const chunksAfterFirst = count('ann', NET_OP.KEYFRAME);
+    for (let i = 0; i < 5; i++) host.tick();
+    host.receive('ann', NET_OP.KEYFRAME_REQ, request);
+    assert.equal(count('ann', NET_OP.KEYFRAME), chunksAfterFirst, 'not yet');
+    for (let i = 0; i < 70; i++) host.tick();
+    assert.ok(count('ann', NET_OP.KEYFRAME) > chunksAfterFirst, 'the owed keyframe arrived');
+    const settled = count('ann', NET_OP.KEYFRAME);
+    for (let i = 0; i < 200; i++) host.tick();
+    assert.equal(count('ann', NET_OP.KEYFRAME), settled, 'and only once');
+
+    // Leaving and coming straight back does not reset the limit for that seat.
+    const sentBeforeCycle = host.stats.keyframesSent;
+    for (let i = 0; i < 300; i++) {
+      host.leave('ann');
+      host.join('ann');
+      hello('ann');
+      host.tick();
+    }
+    assert.ok(host.stats.keyframesSent - sentBeforeCycle <= 6, 'reconnect cycling is limited too');
   });
 
   it('is deterministic: the same joins and inputs give the same race', () => {

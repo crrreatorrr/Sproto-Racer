@@ -23,11 +23,14 @@
 //                        last call. Returns how many new ticks were simulated. Offline
 //                        this is a fixed 60 Hz accumulator; online the pace follows the
 //                        server and `dt` only feeds smoothing.
-//   tick(controls)       simulate exactly one tick now (tools and tests; offline only
-//                        makes sense online when the caller owns the clock).
+//   tick(controls)       simulate exactly one tick now (tools and tests). The local
+//                        runner also accepts a step size, tick(controls, dt), which
+//                        defaults to 1/60 s; online the step is always 1/60 s.
 //   alpha                0..1: how far the frame is between the previous tick and the
 //                        current one, for interpolation.
 //   previousKart(seat)   that seat's kart fields one tick ago (interpolate from here).
+//                        A shallow copy: its `fall` object is shared with the live
+//                        kart, so read `fall` from the live kart, never from here.
 //   correction(seat)     { s, x, y, yaw } to add when drawing that seat, or null. Online
 //                        it eases a kart to its corrected place after a rollback;
 //                        offline it is always null.
@@ -41,7 +44,10 @@
 //                        followed by { type: 'cancel', event }, and one that only shows
 //                        up after a rollback carries late: true. 'finish' is only ever
 //                        delivered once it is final.
-//   results()            final standings once phase is 'finished', else null.
+//   results()            once phase is 'finished':
+//                        { tick, hash, standings: [{ place, seat, car, driver, finishUs,
+//                          human, name }] } (see race-results.js); null before that.
+//                        Online it is the host's result, so it is null until that arrives.
 //   net                  null offline; online { rttMs, leadTicks, predictedTicks, stalled, synced }.
 //
 // Not provided yet (the single-player move onto this interface has to add or keep them):
@@ -56,6 +62,7 @@
 import { createSimWorld, SIM_DT } from './sim/world.js';
 import { controlsToIntentFrame } from './sim/intent.js';
 import { createTrackSample } from './sim/track-core.js';
+import { buildRaceResults } from './race-results.js';
 
 /**
  * Lap, sector, split and position for one seat. `world.state.lap` and `.sector` follow
@@ -114,13 +121,14 @@ function copyKarts(world, into) {
  * Offline race: one human seat, AI rivals, no network. A thin shell over `createSimWorld`.
  *
  * Options are passed to `createSimWorld` (courseId, seed, laps, seats, mode, settings,
- * track, play, finishRule). Controls go through the same quantised input frame the
+ * track, play, finishRule). `name` is the player's name in the results. Controls go through the same quantised input frame the
  * online game sends, so an offline lap and an online lap respond identically; pass
  * `quantize: false` to feed raw controls instead.
  */
 export function createLocalRaceRunner(options = {}) {
   const localSeat = options.localSeat ?? 0;
   const quantize = options.quantize !== false;
+  const playerName = typeof options.name === 'string' && options.name ? options.name : 'Player';
   const world = options.world ?? createSimWorld({ finishRule: 'primary', ...options });
   const view = createSeatView();
   const previous = [];
@@ -128,11 +136,11 @@ export function createLocalRaceRunner(options = {}) {
   const seatInputs = Object.create(null);
   let accumulator = 0;
 
-  function tick(controls) {
+  function tick(controls, dt = SIM_DT) {
     copyKarts(world, previous);
     const t = world.state.tick;
     seatInputs[localSeat] = quantize ? controlsToIntentFrame(t, controls || {}) : controls || {};
-    const produced = world.step(seatInputs);
+    const produced = world.step(seatInputs, dt);
     for (let i = 0; i < produced.length; i++) {
       const ev = { ...produced[i], tick: t };
       events.push(ev);
@@ -174,7 +182,12 @@ export function createLocalRaceRunner(options = {}) {
     drainEvents() {
       return events.splice(0, events.length);
     },
-    results: () => (world.state.done ? world.standings() : null),
+    results: () => (world.state.done
+      ? buildRaceResults(world, (seat) => {
+        const human = world.state.actors[seat].kind !== 'ai';
+        return { human, name: human ? playerName : 'CPU' };
+      })
+      : null),
     /** Starts the same race again (or another mode/seed through `startOptions`). */
     restart(startOptions) {
       world.reset(startOptions);

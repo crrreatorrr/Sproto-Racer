@@ -4,6 +4,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
+import { NET_OP } from '../src/net/index.js';
 import { createTestMatch } from './net-harness.js';
 
 const STALLS = { stallChance: 0.0004, stallMinMs: 200, stallMaxMs: 600 };
@@ -270,5 +271,154 @@ describe('rollback netcode: recovery', () => {
     assert.equal(client.stats.keyframesApplied, 0, 'late is not lost: no keyframe needed');
     assertHashesMatch(m, p);
     assertHashesMatch(m, m.players[1]);
+  });
+
+  // Each of these used to leave the client waiting for a keyframe that never came.
+  function tamper(link, change) {
+    const deliver = link.deliver;
+    link.deliver = (message) => {
+      const out = change(message);
+      if (out) deliver(out);
+    };
+  }
+
+  it('asks again when a keyframe arrives damaged', () => {
+    const m = createTestMatch({ humans: 1, seatCount: 4, conditions: { latencyMs: 60, jitterMs: 10 } });
+    m.start();
+    m.net.runFor(7000);
+    const late = m.addPlayer(1, { latencyMs: 60, jitterMs: 10 });
+    let damaged = 0;
+    tamper(late.ep.down, (message) => {
+      // First chunk of the first keyframe: flip a bit of the hash it carries.
+      if (message.op === NET_OP.KEYFRAME && damaged === 0 && message.data[2] === 0) {
+        damaged++;
+        const data = message.data.slice();
+        data[4 + 6] ^= 0x10;
+        return { op: message.op, data };
+      }
+      return message;
+    });
+    m.net.runFor(8000);
+    const client = late.ep.client;
+    assert.equal(damaged, 1);
+    assert.equal(client.stats.keyframeFailures, 1, 'the damaged keyframe was refused');
+    assert.equal(client.stats.keyframesApplied, 1, 'a second one was fetched');
+    assert.equal(client.phase, 'racing');
+    assert.ok(client.synced);
+    m.settle();
+    assert.equal(client.stats.hashMismatches, 0);
+    assert.ok(late.hashChecks.length > 5);
+    assert.ok(m.host.raceTick - client.frontier <= 12);
+  });
+
+  it('resyncs after a gap in the stream, even right after a keyframe', () => {
+    const m = createTestMatch({ humans: 1, seatCount: 4, conditions: { latencyMs: 60, jitterMs: 10 } });
+    m.start();
+    m.net.runFor(7000);
+    const late = m.addPlayer(1, { latencyMs: 60, jitterMs: 10 });
+    let keyframeSeen = false;
+    let dropped = 0;
+    tamper(late.ep.down, (message) => {
+      if (message.op === NET_OP.KEYFRAME) keyframeSeen = true;
+      // Lose the third batch after the first keyframe, well inside the host's one-second limit.
+      if (message.op === NET_OP.INPUTS && keyframeSeen && ++dropped === 3) return null;
+      return message;
+    });
+    m.net.runFor(8000);
+    const client = late.ep.client;
+    assert.equal(client.stats.streamGaps, 1);
+    assert.equal(client.stats.keyframesApplied, 2);
+    assert.ok(client.synced, 'not stuck waiting');
+    assert.equal(client.phase, 'racing');
+    m.settle();
+    assert.equal(client.stats.hashMismatches, 0);
+    assert.ok(m.host.raceTick - client.frontier <= 12);
+  });
+
+  it('says hello again when the first hello after a reconnect is lost', () => {
+    const m = createTestMatch({ humans: 2, seatCount: 4, conditions: { latencyMs: 60, jitterMs: 10 } });
+    m.start();
+    m.net.runFor(7000);
+    const p = m.players[0];
+    const seat = p.ep.client.localSeat;
+    p.ep.disconnect();
+    m.net.runFor(2000);
+    let lost = 0;
+    tamper(p.ep.up, (message) => {
+      if (message.op === NET_OP.HELLO && lost === 0) {
+        lost++;
+        return null;
+      }
+      return message;
+    });
+    p.ep.reconnect();
+    m.net.runFor(1000);
+    assert.equal(lost, 1);
+    assert.equal(p.ep.client.synced, false, 'still waiting');
+    m.net.runFor(6000);
+    assert.ok(p.ep.client.synced, 'the retry got through');
+    assert.equal(m.host.seats[seat].human, true);
+    assert.equal(p.ep.client.stats.keyframesApplied, 1);
+    m.settle();
+    assert.equal(p.ep.client.stats.hashMismatches, 0);
+  });
+
+  it('retries the very first hello too', () => {
+    const m = createTestMatch({ humans: 0, seatCount: 2, conditions: { latencyMs: 20 } });
+    const net = m.net;
+    // Open the player by hand so the first HELLO can be lost on the way up.
+    const p = m.addPlayer(0, { latencyMs: 20 });
+    p.ep.up.clear();
+    net.runFor(1000);
+    assert.equal(p.ep.client.phase, 'idle');
+    net.runFor(2500);
+    assert.equal(p.ep.client.phase, 'lobby', 'hello was sent again');
+  });
+
+  it('does not report a desync when the race ends earlier than this client predicted', () => {
+    // Each driver brakes just before the finish line and floors it again eight ticks
+    // out. The other client is still predicting "braking", so in its guess the race runs
+    // a little longer than it really does. A hash on every tick makes the true final
+    // tick a hash tick: the client must compare the final hash with the corrected state,
+    // not with one taken along the abandoned guess.
+    const brakeThenGo = (drive) => (tick, client) => {
+      const controls = drive(tick, client);
+      const world = client.world;
+      const kart = world.state.actors[client.localSeat].kart;
+      const left = world.track.length * world.state.laps - kart.s;
+      if (left > 0 && left < 28) {
+        const go = left <= kart.speed * (8 / 60) || kart.speed < 8;
+        controls.throttle = go ? 1 : 0;
+        controls.brake = go ? 0 : 1;
+      }
+      return controls;
+    };
+    let predictedLonger = 0;
+    for (const seed of [5, 6, 7]) {
+      const m = createTestMatch({
+        courseId: 'track01',
+        seed,
+        laps: 1,
+        humans: 2,
+        seatCount: 2,
+        host: { hashIntervalTicks: 1, finishGraceSeconds: 120 },
+        conditions: { latencyMs: 120, jitterMs: 20 },
+        playerOptions: [{ wrapControls: brakeThenGo }, { wrapControls: brakeThenGo }],
+      });
+      m.start();
+      assert.ok(m.runRace(300), 'the race finished');
+      const results = m.host.results;
+      for (const p of m.players) {
+        const client = p.ep.client;
+        assert.equal(client.phase, 'finished');
+        assert.equal(client.stats.hashMismatches, 0, `${p.id}: no false desync at the finish (seed ${seed})`);
+        assert.equal(client.stats.keyframeRequests, 0);
+        assert.ok(p.hashChecks.some((c) => c[0] === results.tick), 'the final hash was checked');
+        // One hash rides on each two-tick batch, so about every second tick is checked.
+        assert.ok(p.hashChecks.length > results.tick / 2 - 200, 'hashes were checked all race long');
+        if (client.present > results.tick) predictedLonger++;
+      }
+    }
+    assert.ok(predictedLonger >= 1, 'at least one client had predicted past the real end of the race');
   });
 });

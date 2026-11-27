@@ -109,6 +109,8 @@ export function createRollbackClient(options = {}) {
   let lastNowMs = 0;
   let lastUpdateMs = NaN;
   let lastKeyframeRequestMs = -Infinity;
+  // A hello that has not been answered yet: { choice, sentMs }.
+  let pendingHello = null;
   let sampledThrough = -1;
   let sentThrough = -1;
   let finalCursor = 0;
@@ -160,6 +162,8 @@ export function createRollbackClient(options = {}) {
     keyframeRequests: 0,
     keyframesApplied: 0,
     keyframeFailures: 0,
+    helloRetries: 0,
+    keyframeRetries: 0,
     stalledUpdates: 0,
     streamGaps: 0,
     eventsEmitted: 0,
@@ -298,6 +302,10 @@ export function createRollbackClient(options = {}) {
       applySeatEvents(t);
       if (t === frontier || t % cfg.checkpointEveryTicks === 0) saveCheckpoint(t);
       if (t % hashInterval === 0) localHashes.set(t, stateHash(world));
+    } else {
+      // The race has ended before this tick in this timeline: any hash kept for it
+      // belongs to an abandoned one.
+      localHashes.delete(t);
     }
     const ring = t & RING_MASK;
     const base = ring * SEATS;
@@ -360,6 +368,10 @@ export function createRollbackClient(options = {}) {
     emitted = kept;
 
     restoreSnapshot(world, base.snap);
+    // Hashes taken along the abandoned timeline are void. The replay takes them again.
+    for (const tick of localHashes.keys()) {
+      if (tick >= base.tick) localHashes.delete(tick);
+    }
     resimulating = true;
     for (let t = base.tick; t < present; t++) {
       if (t === present - 1 && options.onBeforeTick) options.onBeforeTick(world, t);
@@ -468,9 +480,12 @@ export function createRollbackClient(options = {}) {
         p.fall = k.fall;
       }
     }
+    const lastGood = captureSnapshot(world);
     restoreSnapshot(world, snap);
     if (stateHash(world) !== kf.hash) {
-      // The state did not survive the trip: wrong build or a codec fault. Ask again.
+      // The state did not survive the trip: wrong build or a codec fault. Put back what
+      // was on screen and ask again; `update` keeps asking until a good one arrives.
+      restoreSnapshot(world, lastGood);
       stats.keyframeFailures++;
       lastKeyframeRequestMs = -Infinity;
       awaitingKeyframe = true;
@@ -640,12 +655,15 @@ export function createRollbackClient(options = {}) {
       case NET_OP.WELCOME: {
         const msg = decodeJson(data);
         if (!msg) break;
+        pendingHello = null;
         room = msg.room ?? room;
         lobby = msg.players ?? lobby;
         if (msg.race) {
           setupRace(msg.race, msg.you);
           // A keyframe follows on the same ordered channel; ignore the stream until then.
+          // If it has not come within the retry time, `update` asks for it.
           awaitingKeyframe = true;
+          lastKeyframeRequestMs = lastNowMs;
           phase = msg.phase === 'finished' ? 'finished' : 'starting';
         } else {
           phase = 'lobby';
@@ -667,21 +685,27 @@ export function createRollbackClient(options = {}) {
       }
       case NET_OP.RESULT: {
         const msg = decodeJson(data);
-        if (msg) {
+        if (msg && Number.isInteger(msg.tick) && typeof msg.hash === 'string' && Array.isArray(msg.standings)) {
           results = msg;
-          if (typeof msg.hash === 'string' && world && !awaitingKeyframe) hostHashes.set(msg.tick, msg.hash);
+          if (world && !awaitingKeyframe) hostHashes.set(msg.tick, msg.hash);
         }
         break;
       }
       case NET_OP.ERROR: {
         const msg = decodeJson(data);
-        error = (msg && msg.error) || 'error';
+        pendingHello = null;
+        error = (msg && typeof msg.error === 'string' && msg.error) || 'error';
         phase = 'error';
         break;
       }
       default:
         break;
     }
+  }
+
+  function sendHello(choice) {
+    pendingHello = { choice, sentMs: options.now ? options.now() : lastNowMs };
+    send(NET_OP.HELLO, encodeJson({ v: NET_VERSION, sim: RACER_SIM_VERSION, car: choice.car, driver: choice.driver, name: choice.name }));
   }
 
   // ---- Outgoing inputs ----
@@ -724,6 +748,19 @@ export function createRollbackClient(options = {}) {
 
     const token = clock.pingDue(nowMs);
     if (token >= 0) send(NET_OP.PING, encodePing(token));
+    // Nothing the client waits for may be lost for good: an unanswered hello is said
+    // again, and a keyframe that has not arrived is asked for again.
+    if (pendingHello) {
+      if (nowMs - pendingHello.sentMs >= cfg.keyframeRetryMs) {
+        stats.helloRetries++;
+        sendHello(pendingHello.choice);
+      }
+    } else if (awaitingKeyframe && world && phase !== 'error') {
+      if (nowMs - lastKeyframeRequestMs >= cfg.keyframeRetryMs) {
+        stats.keyframeRetries++;
+        requestKeyframe(KEYFRAME_REASON.BEHIND);
+      }
+    }
     if (!world || awaitingKeyframe || phase === 'error' || phase === 'idle' || phase === 'lobby') return 0;
 
     if (rollbackTo < present) rollback(rollbackTo);
@@ -788,7 +825,7 @@ export function createRollbackClient(options = {}) {
         awaitingKeyframe = true;
         assembler.reset();
       }
-      send(NET_OP.HELLO, encodeJson({ v: NET_VERSION, sim: RACER_SIM_VERSION, car: choice.car, driver: choice.driver, name: choice.name }));
+      sendHello(choice);
     },
     setReady(ready = true) {
       send(NET_OP.READY, encodeJson({ ready }));

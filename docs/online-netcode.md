@@ -22,6 +22,7 @@ The server is the referee: its simulation is the result. Twice a second it sends
 | `src/net/restore.js` | Exact snapshot restore (works around two snapshot-restore defects, see the end). |
 | `src/net/sim-net.js` | A simulated network and an in-process match, for tests and for building the UI without a server. |
 | `src/race-runner.js`, `src/net/online-runner.js` | One interface for the game loop, with an offline and an online implementation. |
+| `src/race-results.js` | The final results in one shape for both. |
 
 Nothing is wired into `src/main.js` or the UI, and there is no Nakama match handler yet.
 
@@ -104,14 +105,18 @@ Saved states are `captureSnapshot` checkpoints, taken every 4 new ticks and at t
 
 A keyframe is the complete `captureSnapshot` state in a compact binary form: strings and object layouts are written once and referenced, integers are variable-length, floats are stored exactly (32-bit when that loses nothing, 64-bit otherwise). It restores bit-identically, including `Infinity`, which JSON turns into `null`. The codec walks whatever the snapshot contains, so new simulation fields need no change here.
 
-Keyframes are split into chunks of at most 4,096 bytes so every message stays under Nakama's 8,192-byte limit after base64 and the envelope (5.6 KB per chunk on the socket). Sizes are in the tables below. A keyframe carries the host's hash for that tick; the client verifies it after applying and asks again if it does not match.
+Keyframes are split into chunks of at most 4,096 bytes so every message stays under Nakama's 8,192-byte limit after base64 and the envelope (5.6 KB per chunk on the socket). Sizes are in the tables below. A keyframe carries the host's hash for that tick; the client verifies it after applying, and if it does not match it puts back the state it had and asks again.
+
+Nothing the client waits for can be lost for good. While it is waiting for a keyframe it asks again every 1.5 s, and a hello that gets no answer is sent again on the same timer. On the host a keyframe request that comes too soon after the last one is not dropped: it is answered as soon as the limit allows.
 
 ## Input validation on the host
 
 - The sender must own the seat named in the packet.
 - The packet must be exactly `2 + 12 × count` bytes with 1 to 4 frames.
 - Each frame's tick must be no more than 60 ticks ahead and no more than 120 behind the tick the host is about to run.
-- Rate limit per player: 72 input messages a second with a burst of 240 (a stalled connection delivers everything it held at once, so the burst covers four seconds of honest input), and 5 control messages a second with a burst of 10. A keyframe can be requested at most once a second.
+- Rate limit per player: 72 input messages a second with a burst of 240 (a stalled connection delivers everything it held at once, so the burst covers four seconds of honest input), and 5 control messages a second with a burst of 10.
+- At most one keyframe a second per player and per seat, however it is asked for (a request, a repeated `HELLO`, or leaving and rejoining). One that has to wait is sent when the second is up.
+- `host.receive()` cannot throw. Every field of every client message is type-checked before use, anything malformed is dropped and counted in `host.stats`, and a catch-all guards the rest, because an uncaught error in the server's match loop would end the match for everyone. A fuzz test feeds it thousands of hostile messages.
 - `HELLO` must carry the current network and simulation versions and a valid car and driver (`validateRacerChoice`; the caller can supply the player's Relics through `validateHello`).
 
 ## Protocol
@@ -125,7 +130,7 @@ Opcodes 1 to 13 are unchanged from `src/net/protocol.js`. JSON for rare messages
 | 3 | READY | client to host | JSON `{ready}` |
 | 4 | START | host to client | JSON `{serverTick, you, race: {courseId, laps, seed, startTick, seats, ...}}` |
 | 5 | INPUT | client to host | `[u8 seat][u8 count][count × 12-byte intent frame]`, newest first (the existing frame from `src/sim/intent.js`) |
-| 7 | RESULT | host to clients | JSON `{tick, hash, standings}` |
+| 7 | RESULT | host to clients | JSON `{tick, hash, standings: [{place, seat, car, driver, finishUs, human, name}]}` |
 | 9 | LOBBY | host to clients | JSON `{phase, players}` |
 | 10 | PING | client to host | `[u32 token]` |
 | 11 | PONG | host to client | `[u32 token][u32 serverTick]` |
@@ -140,7 +145,7 @@ Opcodes 1 to 13 are unchanged from `src/net/protocol.js`. JSON for rare messages
 
 `src/race-runner.js` documents the `RaceRunner` interface and provides `createLocalRaceRunner` (one human seat, AI rivals, no network: a thin shell over `createSimWorld`). `src/net/online-runner.js` provides `createOnlineRaceRunner` (the rollback client behind the same interface). A game loop calls `runner.advance(dt, sampleControls)`, draws `runner.world`, and reads `runner.hud()` and `runner.drainEvents()`.
 
-A test confirms the claim "one engine": an online race with one human and the same race run offline with the same seats and inputs end in the same state hash.
+A test confirms the claim "one engine": an online race with one human and the same race run offline with the same seats and inputs end in the same state hash. `results()` has the same shape in both (`src/race-results.js`), and that is tested too.
 
 Checked against what `src/main.js` reads from `session.state` today. The interface does not provide, and the single-player move will have to add or keep:
 

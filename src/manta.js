@@ -303,7 +303,7 @@ function createLight(){
   // spotlights had; the pool brightens whatever ground it lies on by that share.
   const poolW=64,poolH=128,poolPixels=new Uint8Array(poolW*poolH*4);
   const lampTint=new T.Color(0xc5faff),beam=new T.Vector3(),reach=new T.Vector3();
-  const coneEdge=Math.cos(.52),coneCore=Math.cos(.52*(1-.84)),daylight=5.8;
+  const coneEdge=Math.cos(.52),coneCore=Math.cos(.52*(1-.84)),daylight=7.5;
   for(let y=0;y<poolH;y++)for(let x=0;x<poolW;x++){
     const across=((x+.5)/poolW-.5)*poolSize[0],along=(y+.5)/poolH,ahead=poolStart+along*poolSize[1];
     let light=0;

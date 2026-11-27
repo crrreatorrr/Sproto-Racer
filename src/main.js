@@ -464,7 +464,7 @@ function syncWorld(dt,alpha){
   track.setSkyCollected?.(pk.skyLane,play.skyGot(state.player),pk.skyBoxKey===boxKey?pk.skyBoxGot:0);
   cameraRescues=k.rescues;
   updateRivalVisibility(camera,models,dt);
-  updateKartDetail(models,camera);
+  if(updateKartDetail(models,camera))for(const m of models)if(m?.userData.low)renderer.compile(m,camera,world);
 }
 const map=$('minimap'),ctx=map.getContext('2d');
 const mapBgCanvas=document.createElement('canvas');

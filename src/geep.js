@@ -353,9 +353,12 @@ export function attachGeep(body,wheels){
   const built=templates[kartDetail()]??=(()=>{
     initMaterials();
     const wheel=makeWheel();
-    // The sidewall lettering is too fine to read from the switch distance; without it
-    // all four tires are one wheel at two sizes and draw as a single batch.
-    if(lowDetail())return {body:makeBody(),front:wheel,rear:wheel};
+    // The sidewall lettering cannot be read from the switch distance, only seen as a pale
+    // arc: with one print on all four, the tires are one wheel at two sizes in one batch.
+    if(lowDetail()){
+      const printed=[...wheel,...tireLettering(false)];
+      return {body:makeBody(),front:printed,rear:printed};
+    }
     return {body:makeBody(),front:[...wheel,...tireLettering(false)],rear:[...wheel,...tireLettering(true)]};
   })();
   function attach(group,parts,flip=false,radius=0){

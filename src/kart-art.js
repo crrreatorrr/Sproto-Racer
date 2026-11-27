@@ -26,7 +26,7 @@ import {HIT_STUN_SECONDS,TRICK_SECONDS} from './driving.js';
 import {CARS,DRIVERS} from './roster.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import {FULL,LOW,kartDetail,reduceGeometry,withKartDetail} from './kart-detail.js';
-import {flattenKart,mountLowDetail,syncLowDetail,disposeLowDetail} from './kart-lod.js';
+import {flattenKart,mountLowDetail,syncLowDetail,disposeLowDetail,followAnchor} from './kart-lod.js';
 
 const palette = new Map();
 function paint(color, roughness=.65) {
@@ -357,16 +357,23 @@ let forced=null;
 export function forceKartDetail(mode) {
   forced=mode==='low'?true:mode==='full'?false:null;
 }
-/** Once per frame, after the camera has moved: pick each rival's build by distance. */
+/**
+ * Once per frame, after the camera has moved: pick each rival's build by distance.
+ * Returns true on the rare frame a distant build picked up a late-loading reflection
+ * map, so the caller can compile that shader before it is first drawn.
+ */
 export function updateKartDetail(models,camera) {
+  let reflectionsChanged=false;
   for(let i=1;i<models.length;i++){
     const model=models[i],low=model?.userData.low;
     if(!low)continue;
+    if(followAnchor(low.lit))reflectionsChanged=true;
     const distance=camera.position.distanceTo(model.position);
     // A rival fading out in front of the camera is close by definition: keep it full.
     const far=forced??distance>(low.active?KART_LOD_NEAR:KART_LOD_FAR);
     setKartDetail(model,far&&!kartIsFaded(model));
   }
+  return reflectionsChanged;
 }
 /** Meshes, triangles and draw calls of what a kart currently shows. For tests and reports. */
 export function kartRenderStats(g) {

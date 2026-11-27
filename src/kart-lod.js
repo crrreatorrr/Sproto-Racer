@@ -42,12 +42,14 @@ function litFor(anchor){
   }
   return litByAnchor.get(key);
 }
-function followAnchor(material){
+// Some cars swap in a studio reflection map once it has downloaded. True when the shared
+// material just followed such a swap (its shader then needs compiling again).
+export function followAnchor(material){
   const anchor=material.userData.anchor;
-  if(anchor?.envMap&&material.envMap!==anchor.envMap){
-    material.envMap=anchor.envMap;
-    material.envMapRotation.copy(anchor.envMapRotation);
-  }
+  if(!anchor?.envMap||material.envMap===anchor.envMap)return false;
+  material.envMap=anchor.envMap;
+  material.envMapRotation.copy(anchor.envMapRotation);
+  return true;
 }
 let unlitRaw;
 const unlit=()=>unlitRaw??=Object.assign(new T.MeshBasicMaterial({vertexColors:true,side:T.DoubleSide,toneMapped:false}),{name:'kart-lod-unlit'});
@@ -291,6 +293,7 @@ export function mountLowDetail(kart,template,driver=template.driver){
   }
   a.body.add(group);
   const low={group,lamp,driverParts,batches,lit,active:false};
+  followAnchor(lit);
   syncLowDetail(a,low);
   // Suspension and steering move the wheels a little: one generous bound covers them.
   for(const {mesh} of batches){
@@ -312,7 +315,6 @@ export function syncLowDetail(a,low,lampLit=false){
     mesh.instanceMatrix.needsUpdate=true;
   }
   if(low.lamp)low.lamp.visible=lampLit;
-  followAnchor(low.lit);
 }
 
 export function disposeLowDetail(low){

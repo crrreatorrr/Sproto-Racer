@@ -1,4 +1,4 @@
-import { Color, WebGLRenderTarget } from 'three';
+import { BackSide, BufferAttribute, BufferGeometry, Color, DataTexture, DoubleSide, FrontSide, Group, InstancedMesh, Mesh, MeshBasicMaterial, Vector3, WebGLRenderTarget } from 'three';
 import { withKartFadeMaterials } from './kart-visibility.js';
 
 // The browser compiles a shader the first time a material is drawn, and the game
@@ -140,6 +140,71 @@ let scratchTarget = null;
  * textures to the graphics card. With a shadow map and large scenery both cost tens of
  * milliseconds mid-race. This pays for all of it in one frame while the race loads.
  */
+/**
+ * A row of tiny shadow casters that makes the shadow pass build every depth shader it can need.
+ *
+ * Three draws all shadows with one shared depth material, onto which it copies each
+ * caster's texture. It picks a new shader for that material only when a caster differs from
+ * the previous one in kind (instanced or not, instance colours or not), and the shader it
+ * picks then also depends on whether that caster happens to be textured, which side it
+ * shows and whether its model has surface normals. So which depth shaders exist after a draw depends on the order things were drawn
+ * in, and a later frame with a different set of casters in view can need one more, mid-race.
+ * These casters put every combination next to a change of kind, in one draw.
+ *
+ * They sit behind the camera, so the picture's own pass culls them and builds nothing for
+ * them; the widened shadow camera still sees them.
+ */
+function depthShaderProbes(camera) {
+  const group = new Group();
+  // The shader also depends on whether the model carries surface normals: one shape of each.
+  const shapes = [true, false].map((normals) => {
+    const shape = new BufferGeometry();
+    shape.setAttribute('position', new BufferAttribute(new Float32Array([0, 0, 0, 0.01, 0, 0, 0, 0.01, 0]), 3));
+    shape.setAttribute('uv', new BufferAttribute(new Float32Array([0, 0, 1, 0, 0, 1]), 2));
+    if (normals) shape.setAttribute('normal', new BufferAttribute(new Float32Array([0, 0, 1, 0, 0, 1, 0, 0, 1]), 3));
+    return shape;
+  });
+  let geometry = shapes[0];
+  const texel = new DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1);
+  texel.needsUpdate = true;
+  const materials = [];
+  const add = (instanced, coloured, textured, side) => {
+    const material = new MeshBasicMaterial({ map: textured ? texel : null, side });
+    materials.push(material);
+    const mesh = instanced ? new InstancedMesh(geometry, material, 1) : new Mesh(geometry, material);
+    if (instanced && coloured) mesh.setColorAt(0, white);
+    mesh.castShadow = true;
+    group.add(mesh);
+  };
+  for (const shape of shapes) for (const side of [FrontSide, BackSide, DoubleSide]) {
+    geometry = shape;
+    // Every instanced caster follows a plain one and the other way round, so each is a change of kind.
+    add(false, false, false, side);
+    add(true, false, false, side);
+    add(false, false, true, side);
+    add(true, false, true, side);
+    add(false, false, false, side);
+    add(true, true, false, side);
+    add(false, false, false, side);
+    add(true, true, true, side);
+    add(false, false, false, side);
+  }
+  camera.updateMatrixWorld();
+  const behind = new Vector3();
+  camera.getWorldDirection(behind);
+  group.position.copy(camera.getWorldPosition(new Vector3())).addScaledVector(behind, -400);
+  return {
+    group,
+    dispose() {
+      group.removeFromParent();
+      for (const child of group.children) child.dispose?.();
+      for (const shape of shapes) shape.dispose();
+      texel.dispose();
+      for (const material of materials) material.dispose();
+    },
+  };
+}
+
 function drawEverythingOnce(renderer, scene, camera) {
   const hidden = [], culled = [];
   let sun = null;
@@ -151,6 +216,9 @@ function drawEverythingOnce(renderer, scene, camera) {
   const film = sun?.shadow.camera;
   const bounds = film && [film.left, film.right, film.top, film.bottom, film.near, film.far];
   const previousTarget = renderer.getRenderTarget();
+  // Added after the walk above, so these stay culled from the picture's own pass.
+  const probes = film ? depthShaderProbes(camera) : null;
+  if (probes) scene.add(probes.group);
   try {
     if (film) {
       film.left = film.bottom = -1e4;
@@ -164,6 +232,7 @@ function drawEverythingOnce(renderer, scene, camera) {
     renderer.setRenderTarget(scratchTarget);
     renderer.render(scene, camera);
   } finally {
+    probes?.dispose();
     renderer.setRenderTarget(previousTarget);
     for (const object of hidden) object.visible = false;
     for (const object of culled) object.frustumCulled = true;

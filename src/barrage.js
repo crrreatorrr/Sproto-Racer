@@ -1,5 +1,6 @@
 import * as T from 'three';
 import {alloyReflections} from './kart-assembly.js';
+import {kartDetail,lowDetail,reduceGeometry} from './kart-detail.js';
 import liveryUrl from './assets/barrage-livery.webp';
 import {mergeGeometries} from 'three/addons/utils/BufferGeometryUtils.js';
 import {barrageAxles,barrageHalfTrack,barrageDriver,barrageMuzzle,barragePerimeter,barrageTireWidth,barrageWing} from './barrage-layout.js';
@@ -24,12 +25,16 @@ function atlasUV(tile,u,v){
   const [x,y,w,h]=tiles[tile];
   return [(x+2+(w-4)*u)/2048,1-(y+2+(h-4)*v)/2048];
 }
-const master=new Map();
+const masters=[];
+let dressed=false;
+const contactPlane=new T.PlaneGeometry(3.55/1.32,5.35/2);
 
 // Bake the rigid pieces once. Every garage preview and racer reuses the same buffers.
 function assembly(){
   const groups=new Map();
   function add(geometry,color,material=enamel){
+    geometry=reduceGeometry(geometry,{keepUV:!!material.map});
+    if(!geometry)return;
     const part=geometry.index?geometry.toNonIndexed():geometry;
     if(part!==geometry)geometry.dispose();
     if(!part.hasAttribute('normal'))part.computeVertexNormals();
@@ -221,7 +226,8 @@ function wheel(radius){
   const p=assembly(),w=barrageTireWidth/2;
   // A continuous slick with shallow circumferential grooves and a printed shoulder.
   const profile=[[-1,.76],[-1,.87],[-.86,.97],[-.70,1]];
-  for(const offset of [-.43,0,.43]){
+  // The three shallow grooves are left off the distant tire.
+  if(!lowDetail())for(const offset of [-.43,0,.43]){
     profile.push([offset-.045,1],[offset-.027,.981],[offset+.027,.981],[offset+.045,1]);
   }
   profile.push([.70,1]);
@@ -259,7 +265,8 @@ function wheel(radius){
     p.disc(0xc0c8c8,w+.056,radius*.18*Math.cos(a),radius*.18*Math.sin(a),.014,.014,'x',alloy);
   }
   p.disc(0xc56637,w+.049,0,0,radius*.12,.022,'x',alloy);
-  p.disc(0x4fdacc,w+.061,0,0,radius*.072,.008,'x',luminous);
+  // The glowing hub cap is under four pixels wide from the switch distance.
+  if(!lowDetail())p.disc(0x4fdacc,w+.061,0,0,radius*.072,.008,'x',luminous);
   return p.finish();
 }
 
@@ -284,20 +291,23 @@ function groundShadow(shadow){
     for(const [z,r] of barrageAxles)for(const side of [-1,1])patch(side*barrageHalfTrack,z,.43,r*1.35,.98);
     contactMap=new T.CanvasTexture(c);
   }
-  shadow.geometry.dispose();
-  shadow.geometry=new T.PlaneGeometry(3.55/1.32,5.35/2);
+  shadow.geometry=contactPlane;
   shadow.material.alphaMap=contactMap;
   shadow.material.opacity=.72;
 }
 
 export function attachBarrage(body,wheels,shadow){
-  if(!master.size){
+  if(!dressed){
+    dressed=true;
     initMaterials();
     const reflections=alloyReflections();
     for(const material of [enamel,alloy,graphics])material.envMap=reflections;
     const map=new T.TextureLoader().load(liveryUrl);
     map.colorSpace=T.SRGBColorSpace;map.anisotropy=8;
     graphics.map=sidewall.map=map;
+  }
+  const master=masters[kartDetail()]??=new Map();
+  if(!master.size){
     master.set('body',bodywork());
     for(const [,radius] of barrageAxles)master.set(radius,wheel(radius));
   }

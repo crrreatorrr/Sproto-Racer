@@ -1,6 +1,7 @@
 import * as T from 'three';
 import {RoundedBoxGeometry} from 'three/addons/geometries/RoundedBoxGeometry.js';
 import {assembly,alloyReflections} from './kart-assembly.js';
+import {kartDetail,lowDetail} from './kart-detail.js';
 import {concepts as tracks} from './concepts/track.mjs';
 import {concepts as terrain} from './concepts/terrain.mjs';
 import {concepts as oddballs} from './concepts/oddballs.mjs';
@@ -9,7 +10,7 @@ import {concepts as construction} from './concepts/construction.mjs';
 export const conceptArt = [...tracks,...terrain,...oddballs,...construction];
 const byId = new Map(conceptArt.map(c=>[c.id,c]));
 export const conceptFor = id => byId.get(id);
-const cache = new Map();
+const caches = [new Map(),new Map()];
 const studio=alloyReflections();
 const solid = new T.MeshStandardMaterial({vertexColors:true,roughness:.59,metalness:.03,envMap:studio,envMapIntensity:.18});
 const coat = new T.MeshPhysicalMaterial({vertexColors:true,roughness:.32,metalness:.10,
@@ -50,7 +51,8 @@ function model(body=false){
   const glass=(color,p,size,bevel=.03,q=[0,0,0])=>rounded(color,p,size,bevel,q,'glass');
   const pipe=(color,p,q,r,r2=r,n=12)=>a.pipe(color,p,q,r,solid,r2,n);
   const sphere=(color,p,[x,y,z],q=[0,0,0],type='solid')=>mesh(color,new T.SphereGeometry(1,16,12).scale(x,y,z),p,q,type);
-  return {T,mesh,box,pipe,sphere,glass,finish:a.finish};
+  // `low` lets a spec's own shape helpers pick their coarse form for the distant build.
+  return {T,mesh,box,pipe,sphere,glass,finish:a.finish,low:lowDetail()};
 }
 function makeWheel(spec,car){
   const h=model(),{r,width,style,x}=spec,n=style==='ring'?40:24, side=Math.sign(x)||1;
@@ -144,6 +146,7 @@ function makeWheel(spec,car){
   return h.finish();
 }
 function blueprint(spec){
+  const cache=caches[kartDetail()];
   if(!cache.has(spec.id)){
     const h=model(true);
     if(spec.seat!==false){
@@ -152,17 +155,28 @@ function blueprint(spec){
       h.box('#49362d',[x,y+.34*s,z+.52*s],[.92*s,.93*s,.21*s],.10*s,[.09,0,0]);
     }
     spec.build(h);
-    cache.set(spec.id,{shell:h.finish(),rolling:spec.wheels.map(w=>makeWheel(w,spec))});
+    // Mirror-image wheels of the distant build are one right-hand wheel turned half
+    // a turn, so every wheel of the same size can be drawn in a single batch.
+    const made=new Map(),flips=[];
+    const rolling=spec.wheels.map((w,i)=>{
+      if(!lowDetail())return makeWheel(w,spec);
+      flips[i]=w.x<0;
+      const key=[w.r,w.width,w.style,w.tire,w.rim,w.rimPads].join('|');
+      if(!made.has(key))made.set(key,makeWheel({...w,x:Math.abs(w.x)||1},spec));
+      return made.get(key);
+    });
+    cache.set(spec.id,{shell:h.finish(),rolling,flips});
   }
   return cache.get(spec.id);
 }
-function clonePart(part,group){
+function clonePart(part,group,flip=false){
   const mesh=part.clone();
   mesh.userData.sharedKartPart=true;
+  if(flip)mesh.rotation.y=Math.PI;
   group.add(mesh);
 }
 export function attachConcept(body,wheels,spec){
-  const {shell,rolling}=blueprint(spec);
+  const {shell,rolling,flips}=blueprint(spec);
   for(const part of shell)clonePart(part,body);
   for(let i=0;i<spec.wheels.length;i++){
     const w=spec.wheels[i];
@@ -171,9 +185,9 @@ export function attachConcept(body,wheels,spec){
     axle.userData={rideHeight:w.r,steer:!!w.steer,spinAxis:w.axis??'x'};
     if(w.axis==='z'){
       const roll=new T.Group();roll.rotation.y=Math.PI/2;axle.add(roll);
-      for(const part of rolling[i])clonePart(part,roll);
+      for(const part of rolling[i])clonePart(part,roll,flips[i]);
       axle.userData.conceptParts=roll.children;
-    }else for(const part of rolling[i])clonePart(part,axle);
+    }else for(const part of rolling[i])clonePart(part,axle,flips[i]);
     body.add(axle);wheels.push(axle);
   }
 }

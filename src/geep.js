@@ -5,6 +5,7 @@ export {geepScale,geepAxles} from './geep-layout.js';
 import bonnetUrl from './assets/geep-bonnet.webp';
 import wingsUrl from './assets/geep-wings.webp';
 import {assembly,surface} from './kart-assembly.js';
+import {kartDetail,lowDetail,once} from './kart-detail.js';
 
 export const geepDriver = {x: -.456, y: 1.255, z: .183, scale: .59};
 const tau = Math.PI * 2;
@@ -19,7 +20,7 @@ function initMaterials(){
   glass = new T.MeshBasicMaterial({color:'#80bc49', transparent:true, opacity:.34,
     side:T.DoubleSide, depthWrite:false, toneMapped:false, forceSinglePass:true});
 }
-let templates;
+const templates=[];
 
 function canvasMap(width,height,draw) {
   const canvas = document.createElement('canvas');
@@ -82,13 +83,13 @@ function badge(part,material,x,y,z,w,h,rx=0,ry=0) {
 }
 
 function makeBody(){
-  const p=assembly(hardware),paint=makeLivery();
+  const p=assembly(hardware),paint=once('geep:livery',makeLivery);
   function referencePaint(url){
     const map=new T.TextureLoader().load(url);
     map.colorSpace=T.SRGBColorSpace;map.anisotropy=8;
     return new T.MeshStandardMaterial({map,roughness:.54,metalness:.04,side:T.DoubleSide});
   }
-  const bonnetPaint=referencePaint(bonnetUrl),wingPaint=referencePaint(wingsUrl);
+  const bonnetPaint=once('geep:bonnet',()=>referencePaint(bonnetUrl)),wingPaint=once('geep:wings',()=>referencePaint(wingsUrl));
   // The bonnet curls down into the bumper. The wings stay broad as the bonnet narrows.
   const stations=[
     // longitudinal position, half-width, crown height, shoulder drop, artwork row
@@ -168,6 +169,7 @@ function makeBody(){
     p.box('#c79746',[side*1.078,1.412,-1.440],[.073,.043,.010],.004);
   }
   // The little kick-up over each rear wheel carries the diamond APEX marking.
+  const marking=once('geep:quarter-mark',()=>{
   const quarterMark=canvasMap(256,192,ctx=>{
     polygon(ctx,'#273422',[[6,96],[128,5],[250,96],[128,187]]);
     polygon(ctx,'#ece2aa',[[16,96],[128,13],[240,96],[128,179]]);
@@ -175,7 +177,8 @@ function makeBody(){
     polygon(ctx,'#a34032',[[67,133],[128,169],[184,133],[126,144]]);
     ctx.fillStyle='#22291f';ctx.font='900 58px Arial';ctx.textAlign='center';ctx.fillText('APEX',128,116);
   });
-  const marking=new T.MeshStandardMaterial({map:quarterMark,alphaTest:.42,roughness:.68});
+  return new T.MeshStandardMaterial({map:quarterMark,alphaTest:.42,roughness:.68});
+  });
   for(const side of [-1,1]){
     const profile=[[.93,1.36,.72],[.98,1.51,1.075],[1.029,1.828,1.46],
       [1.038,1.905,1.61],[1.052,1.75,1.80],[1.064,1.575,1.94],[1.036,1.50,1.67]];
@@ -278,11 +281,13 @@ function makeWheel(){
     [.169,.248],[.158,.248],[.099,.224],[.091,.210]],'#808573',steel);
   // Sculpt the tire crown in cross-section. Each groove runs continuously around the
   // tire in a zigzag, as on the narrow vintage all-terrain tread in the illustration.
-  const pts=[],indices=[],steps=96;
+  // From the switch distance the zigzag grooves blur into the crown: a plain one remains.
+  const low=lowDetail(),pts=[],indices=[],steps=low?24:96;
   let rowSize=0;
   for(let k=0;k<=steps;k++){
     const angle=k*tau/steps, section=[[-.171,.420],[-.151,.452],[-.128,.467]];
-    for(let band=-2;band<=2;band++){
+    if(low)section.push([-.09,.4752],[0,.480],[.09,.4752]);
+    else for(let band=-2;band<=2;band++){
       const phase=(k+Math.abs(band))%4, offset=[-.006,.001,.006,-.001][phase];
       const x=band*.049+offset;
       const r=.480-.010*(x/.13)**2;
@@ -313,7 +318,7 @@ function makeWheel(){
     hole.quadraticCurveTo(...point(.135,-.30),...point(.119,-.21));
     disk.holes.push(hole);
   }
-  const dish=new T.ExtrudeGeometry(disk,{depth:.015,bevelEnabled:true,bevelThickness:.004,bevelSize:.004,bevelSegments:1,curveSegments:8});
+  const dish=new T.ExtrudeGeometry(disk,{depth:.015,bevelEnabled:!low,bevelThickness:.004,bevelSize:.004,bevelSegments:1,curveSegments:low?3:8});
   p.add(dish,steel,'#626756',[.092,0,0],[0,Math.PI/2,0]);
   p.pipe('#40453b',[.106,0,0],[.142,0,0],.095,steel,.087,16);
   p.pipe('#757666',[.142,0,0],[.196,0,0],.051,steel,.043,12);
@@ -326,6 +331,7 @@ function makeWheel(){
 
 function tireLettering(rear){
   const p=assembly(hardware);
+  const print=once('geep:tire-print:'+rear,()=>{
   const lettering=canvasMap(512,512,(ctx,w,h)=>{
     ctx.translate(w/2,h/2); ctx.fillStyle='#d5cba8';ctx.font='900 34px Arial';
     ctx.textAlign='center';ctx.textBaseline='middle';
@@ -337,16 +343,21 @@ function tireLettering(rear){
       });
     }
   });
-  badge(p,new T.MeshStandardMaterial({map:lettering,alphaTest:.35,roughness:.94}),.187,0,0,.96,.96,0,Math.PI/2);
+  return new T.MeshStandardMaterial({map:lettering,alphaTest:.35,roughness:.94});
+  });
+  badge(p,print,.187,0,0,.96,.96,0,Math.PI/2);
   return p.finish();
 }
 
 export function attachGeep(body,wheels){
-  if(!templates){
+  const built=templates[kartDetail()]??=(()=>{
     initMaterials();
     const wheel=makeWheel();
-    templates={body:makeBody(),front:[...wheel,...tireLettering(false)],rear:[...wheel,...tireLettering(true)]};
-  }
+    // The sidewall lettering is too fine to read from the switch distance; without it
+    // all four tires are one wheel at two sizes and draw as a single batch.
+    if(lowDetail())return {body:makeBody(),front:wheel,rear:wheel};
+    return {body:makeBody(),front:[...wheel,...tireLettering(false)],rear:[...wheel,...tireLettering(true)]};
+  })();
   function attach(group,parts,flip=false,radius=0){
     for(const source of parts){
       const mesh=new T.Mesh(source.geometry,source.material);
@@ -359,6 +370,6 @@ export function attachGeep(body,wheels){
       group.add(mesh);
     }
   }
-  attach(body,templates.body);
-  for(const axle of wheels)attach(axle,axle.position.z<0?templates.front:templates.rear,axle.position.x<0,axle.userData.rideHeight);
+  attach(body,built.body);
+  for(const axle of wheels)attach(axle,axle.position.z<0?built.front:built.rear,axle.position.x<0,axle.userData.rideHeight);
 }

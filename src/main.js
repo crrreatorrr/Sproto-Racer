@@ -8,7 +8,7 @@ import {controllerIsOpen,openController} from './controller.js';
 import {attachFeedbackSdk,createFeedbackHold,installRaceFeedback,raceBreadcrumbs} from './feedback.js';
 import {createPaddock,lightScene} from './paddock.js';
 import {updateRivalVisibility} from './kart-visibility.js';
-import {makeKart,animateKart,disposeKart,resetKartWingPose} from './kart-art.js';
+import {makeKart,animateKart,disposeKart,resetKartWingPose,updateKartDetail,forceKartDetail} from './kart-art.js';
 import {createGarage} from './garage.js';
 import {carById,driverById} from './roster.js';
 import {createChaseCamera} from './chase-camera.js';
@@ -98,10 +98,16 @@ function syncModel(old,id,setup,ghost=false){
     if(ghost)old.traverse(mesh=>{if(mesh.isMesh)mesh.material=mesh.userData.originalPaint;});
     disposeKart(old);
   }
-  const m=makeKart(id,car,driver,ghost,{flightWings:true});
+  // Rivals carry a cheaper build for when they are far from the camera (kart-lod.js).
+  const m=makeKart(id,car,driver,ghost,{flightWings:true,lowDetail:!ghost&&id!==0});
   if(ghost)m.traverse(mesh=>{if(mesh.isMesh){mesh.userData.originalPaint=mesh.material;mesh.material=ghostPaint;}});
-  world.add(m);return m;
+  world.add(m);
+  // Compile both builds' shaders now, while the race loads, not at the first switch.
+  if(m.userData.low)renderer.compile(m,camera,world);
+  return m;
 }
+// ?kartlod=low or ?kartlod=full pins every rival to one build, for side-by-side checks.
+forceKartDetail(new URLSearchParams(location.search).get('kartlod'));
 let screen='lobby',selected='race',modal='',controllerOpen=false,muted=false,config={...DEFAULT_TEST};
 try{muted=localStorage.getItem('sproto.mute')==='1';}catch{}
 fx.mute(muted);
@@ -458,6 +464,7 @@ function syncWorld(dt,alpha){
   track.setSkyCollected?.(pk.skyLane,play.skyGot(state.player),pk.skyBoxKey===boxKey?pk.skyBoxGot:0);
   cameraRescues=k.rescues;
   updateRivalVisibility(camera,models,dt);
+  updateKartDetail(models,camera);
 }
 const map=$('minimap'),ctx=map.getContext('2d');
 const mapBgCanvas=document.createElement('canvas');

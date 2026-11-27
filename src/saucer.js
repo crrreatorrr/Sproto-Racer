@@ -1,9 +1,11 @@
 import * as T from 'three';
 import {assembly,alloyReflections} from './kart-assembly.js';
+import {kartDetail,lowDetail,once} from './kart-detail.js';
 import {saucerProfile,saucerCockpitRadius,saucerLipHeight,saucerSeatBack,screenPoint} from './saucer-layout.js';
 
-const segments=144, fullTurn=2*Math.PI;
-let templates;
+const fullTurn=2*Math.PI;
+let segments=144;
+const templates=[];
 
 function lathe(profile){
   return new T.LatheGeometry(profile.map(([r,y])=>new T.Vector2(r,y)),segments);
@@ -30,7 +32,7 @@ function machinedFinish(){
   return texture;
 }
 
-function buildSaucer(){
+function createFinishes(){
   const envMap=alloyReflections();
   const skin=new T.MeshStandardMaterial({color:0xd1d4d6,metalness:.88,roughness:.47,roughnessMap:machinedFinish(),envMap});
   const fittings=new T.MeshStandardMaterial({vertexColors:true,metalness:.72,roughness:.29,envMap});
@@ -39,6 +41,14 @@ function buildSaucer(){
   const light=new T.MeshStandardMaterial({color:0xffbc52,emissive:0xff8619,emissiveIntensity:.77,roughness:.18,metalness:.14,envMap});
   const glass=new T.MeshPhysicalMaterial({color:0xc9e6ea,roughness:.09,transparent:true,opacity:.26,
     envMap,side:T.DoubleSide,depthWrite:false,forceSinglePass:true});
+  return {skin,fittings,interior,lift,light,glass};
+}
+
+function buildSaucer(){
+  const {skin,fittings,interior,lift,light,glass}=once('saucer:finishes',createFinishes);
+  // The disc is four metres across: 24 sides keep its rim within a pixel at the switch distance.
+  const low=lowDetail();
+  segments=low?48:144;
   const a=assembly(fittings);
   a.add(lathe(saucerProfile),skin);
   function ring(r,y,tube,material,color){
@@ -88,9 +98,10 @@ function buildSaucer(){
       [.115,h-.065*outer,.13],.055,.13,interior);
   }
   a.box('#242a2c',[0,1.003,-.624],[.62,.15,.13],.04,-.17,interior);
-  const windscreen=new T.PlaneGeometry(1,1,48,1);
+  const panes=low?12:48;
+  const windscreen=new T.PlaneGeometry(1,1,panes,1);
   const pos=windscreen.attributes.position;
-  for(let j=0;j<2;j++)for(let i=0;i<=48;i++)pos.setXYZ(j*49+i,...screenPoint(i/24-1,j===0));
+  for(let j=0;j<2;j++)for(let i=0;i<=panes;i++)pos.setXYZ(j*(panes+1)+i,...screenPoint(2*i/panes-1,j===0));
   windscreen.computeVertexNormals();
   a.add(windscreen,glass);
   const edge=(t,top)=>new T.Vector3(...screenPoint(t,top));
@@ -105,8 +116,8 @@ function buildSaucer(){
 }
 
 export function attachSaucer(body){
-  templates??=buildSaucer();
-  for(const source of templates){
+  const built=templates[kartDetail()]??=buildSaucer();
+  for(const source of built){
     const mesh=source.clone();mesh.userData.sharedKartPart=true;body.add(mesh);
   }
 }

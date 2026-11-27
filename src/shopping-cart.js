@@ -1,5 +1,6 @@
 import * as T from 'three';
 import {assembly,alloyReflections,surface} from './kart-assembly.js';
+import {kartDetail,once} from './kart-detail.js';
 import {basketPoint,cartHandle,cartHalfTrack,cartDriver,cartAxles} from './shopping-cart-layout.js';
 
 // One mipmapped enamel print is shared by the four basket plates.
@@ -28,10 +29,15 @@ function marketEnamel(){
   return new T.MeshStandardMaterial({map:texture,alphaTest:.5,metalness:.13,roughness:.34,envMap:alloyReflections()});
 }
 
-function createParts(){
+function createFinishes(){
   const alloy=new T.MeshStandardMaterial({vertexColors:true,metalness:.86,roughness:.21,envMap:alloyReflections(),envMapIntensity:1.15});
   const plastic=new T.MeshStandardMaterial({vertexColors:true,roughness:.41});
   const rubber=new T.MeshStandardMaterial({vertexColors:true,roughness:.83});
+  return {alloy,plastic,rubber,enamel:marketEnamel()};
+}
+
+function createParts(){
+  const {alloy,plastic,rubber,enamel}=once('shopping-cart:finishes',createFinishes);
   const chrome='#e1e8e9',steel='#9cafbb',red='#ee4432',darkRed='#ab2832',ivory='#fff3d5';
   const teal='#138384',petrol='#194650',gold='#ffb343';
   const frame=assembly(alloy);
@@ -56,7 +62,6 @@ function createParts(){
     pipe(steel,basketPoint(x,0,0),basketPoint(x,1,0),.013,alloy,.013,8);
   }
 
-  const enamel=marketEnamel();
   function badge(point){
     const corners=[point(0,0),point(1,0),point(1,1),point(0,1)];
     frame.add(surface(corners,[0,1,2,0,2,3],[[0,0],[1,0],[1,1],[0,1]]),enamel);
@@ -187,9 +192,9 @@ function createParts(){
   return {frame:frame.finish(),wheel:wheel.finish(),fork:fork.finish()};
 }
 
-let parts;
+const built=[];
 export function attachShoppingCart(body,axles){
-  parts??=createParts();
+  const parts=built[kartDetail()]??=createParts();
   function attach(parent,templates){
     for(const template of templates){
       const mesh=new T.Mesh(template.geometry,template.material);

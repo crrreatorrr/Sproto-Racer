@@ -1,4 +1,5 @@
 import * as T from 'three';
+import {loadTexture} from './texture-budget.js';
 import {alloyReflections} from './kart-assembly.js';
 import {kartDetail,lowDetail,reduceGeometry} from './kart-detail.js';
 import liveryUrl from './assets/barrage-livery.webp';
@@ -302,7 +303,7 @@ export function attachBarrage(body,wheels,shadow){
     initMaterials();
     const reflections=alloyReflections();
     for(const material of [enamel,alloy,graphics])material.envMap=reflections;
-    const map=new T.TextureLoader().load(liveryUrl);
+    const map=loadTexture(liveryUrl);
     map.colorSpace=T.SRGBColorSpace;map.anisotropy=8;
     graphics.map=sidewall.map=map;
   }

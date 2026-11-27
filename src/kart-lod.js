@@ -179,7 +179,7 @@ function relativeTo(frame,object){
  * Reduce an assembled kart to the template of its distant build. `skip` lists the
  * animated extras that stay on the kart for both builds (exhaust flames, crystal, wake).
  */
-export function flattenKart(kart,{skip=[],idleLamp=0x411e18,plate=null}={}){
+export function flattenKart(kart,{skip=[],idleLamp=0x411e18}={}){
   const a=kart.userData,{body,driver,wheels}=a,skipped=new Set(skip);
   kart.updateMatrixWorld(true);
   const forks=wheels.map(w=>w.userData.fork??null);
@@ -196,7 +196,7 @@ export function flattenKart(kart,{skip=[],idleLamp=0x411e18,plate=null}={}){
     else if(object.isMesh){
       const relative=relativeTo(frame,object);
       if(object.material===a.timingLamp)lampParts.push({mesh:object,relative});
-      else if(object.userData.kartPlate)owner.push(...plateParts(object,relative,plate));
+      else if(object.userData.kartPlate)owner.push(...plateParts(object,relative));
       else{owner.push({mesh:object,relative});sources.push(object);}
     }
     for(const child of object.children)walk(child,owner,frame);
@@ -246,8 +246,8 @@ export function flattenKart(kart,{skip=[],idleLamp=0x411e18,plate=null}={}){
 }
 
 // A number plate at this distance is a cream tile with a dark smudge of digits.
-function plateParts(mesh,relative,style){
-  const paper=new T.Color(style?.paper??'#f4eaca'),ink=new T.Color(style?.ink??'#18282b');
+function plateParts(mesh,relative){
+  const paper=new T.Color('#f4eaca'),ink=new T.Color('#18282b');
   const digits=paper.clone().lerp(ink,.62);
   const nudge=new T.Matrix4().makeTranslation(0,-.01*mesh.geometry.parameters.height,.003);
   const inner=new T.Matrix4().multiplyMatrices(relative,nudge).multiply(new T.Matrix4().makeScale(.64,.56,1));
@@ -323,9 +323,4 @@ export function disposeLowDetail(low){
   for(const mesh of low.driverParts)mesh.removeFromParent();
   low.group.removeFromParent();
   low.group.clear();
-}
-
-/** The shared materials of the distant builds, for a shader warm-up before the race. */
-export function lowDetailMaterials(){
-  return [...litByAnchor.values(),unlit()];
 }

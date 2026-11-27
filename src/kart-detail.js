@@ -149,12 +149,12 @@ function polyTube(points,radius,radial,closed){
 // Each recipe returns [reference, coarse]: the shape as authored, and its distant build.
 // `s` holds the lengths of the fitted frame's axes, so sizes below are in road metres.
 const RECIPES={
-  CylinderGeometry(p,s,o){
+  CylinderGeometry(p,s){
     const radial=Math.max(s.x,s.z),r=Math.max(p.radiusTop,p.radiusBottom)*radial,h=p.height*s.y;
     if(r<THIN_RADIUS)return null;
     const n=rodSides(r,p.radialSegments,p.thetaLength);
     // Long thin rods lose their end caps; nothing wider than a wire does.
-    const open=p.openEnded||(!o.keepCaps&&r<.03&&h>8*r);
+    const open=p.openEnded||(r<.03&&h>8*r);
     return new T.CylinderGeometry(p.radiusTop,p.radiusBottom,p.height,n,1,open,p.thetaStart,p.thetaLength);
   },
   ConeGeometry(p,s){
@@ -174,7 +174,7 @@ const RECIPES={
     return new T.TorusGeometry(p.radius,p.tube,Math.min(p.radialSegments,tube<.03?3:tube<.08?4:6),
       sides((p.radius+p.tube)*scale,p.tubularSegments,6,p.arc),p.arc);
   },
-  LatheGeometry(p,s,o){
+  LatheGeometry(p,s){
     const radial=Math.max(s.x,s.z);
     let r=0;for(const point of p.points)r=Math.max(r,Math.abs(point.x));
     // The profile is kept point for point: trim rings sit a millimetre proud of the
@@ -242,12 +242,12 @@ const box=new T.Box3(),extent=new T.Vector3();
  * part is too small to see from the switch distance. At FULL detail it is the identity.
  * `keepUV` protects parts whose texture follows the shape's own UV layout.
  */
-export function reduceGeometry(geometry,{keepUV=false,keepCaps=false,keepSmall=false}={}){
+export function reduceGeometry(geometry,{keepUV=false}={}){
   if(level===FULL)return geometry;
   const position=geometry.attributes.position;
   if(!position?.count)return geometry;
   box.setFromBufferAttribute(position).getSize(extent);
-  if(!keepSmall&&Math.max(extent.x,extent.y,extent.z)*mounted<DROP_SIZE){geometry.dispose();return null;}
+  if(Math.max(extent.x,extent.y,extent.z)*mounted<DROP_SIZE){geometry.dispose();return null;}
   const recipe=RECIPES[geometry.type],parameters=geometry.parameters;
   if(!recipe||!parameters)return geometry;
   const reference=REBUILD[geometry.type](parameters);
@@ -258,7 +258,7 @@ export function reduceGeometry(geometry,{keepUV=false,keepCaps=false,keepSmall=f
   if(!matrix)return geometry;
   const e=matrix.elements;
   const scale=new T.Vector3(Math.hypot(e[0],e[1],e[2]),Math.hypot(e[4],e[5],e[6]),Math.hypot(e[8],e[9],e[10])).multiplyScalar(mounted);
-  const coarse=recipe(parameters,scale,{keepUV,keepCaps});
+  const coarse=recipe(parameters,scale,{keepUV});
   if(coarse===undefined)return geometry;
   geometry.dispose();
   if(coarse===null)return null;

@@ -46,7 +46,8 @@ function createFinishes(){
 
 function buildSaucer(){
   const {skin,fittings,interior,lift,light,glass}=once('saucer:finishes',createFinishes);
-  // The disc is four metres across: 24 sides keep its rim within a pixel at the switch distance.
+  // The disc is four metres across. The distant build asks for 48 sides and the detail
+  // rules settle on 24, which keeps the rim within a pixel at the switch distance.
   const low=lowDetail();
   segments=low?48:144;
   const a=assembly(fittings);

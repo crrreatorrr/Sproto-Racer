@@ -99,6 +99,13 @@ function createMotor() {
     osc.connect(env); env.connect(master);
     osc.onended=()=>{osc.disconnect();env.disconnect();};
     osc.start(now);osc.stop(now+duration+.01);
+    // For a sound that turns out not to have happened (an online race took the event back).
+    return ()=>{
+      try{
+        const t=context.currentTime;
+        env.gain.cancelScheduledValues(t);env.gain.setTargetAtTime(.0001,t,.008);osc.stop(t+.04);
+      }catch{ /* already ended */ }
+    };
   }
   return {unlock,pause,mute,update,tone};
 }
@@ -228,7 +235,8 @@ export function createRaceFX(scene,track) {
       puff(tire,frame,actor.boost.tier===2?colors.super:colors.spark,true);
     }
   }
-  function update(dt,actors,enabled=true,revving=false) {
+  // `listener` is the kart whose engine is heard: the one this player drives.
+  function update(dt,actors,enabled=true,revving=false,listener=null) {
     if(!enabled){group.visible=false;motor.pause();return;}
     group.visible=true;clock+=dt;
     const start=markCursor;
@@ -254,7 +262,7 @@ export function createRaceFX(scene,track) {
     }
     dust.count=count;
     if(count) {dust.instanceMatrix.needsUpdate=true;dust.instanceColor.needsUpdate=true;}
-    motor.update(dt,actors.find(a=>a.isPlayer)||actors[0],revving);
+    motor.update(dt,listener||actors.find(a=>a.isPlayer)||actors[0],revving);
   }
   reset();
   return {setTrack(next){track=next;reset();},reset,update,unlock:motor.unlock,mute:motor.mute,tone:motor.tone,pause:motor.pause};

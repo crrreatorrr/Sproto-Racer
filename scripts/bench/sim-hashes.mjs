@@ -163,9 +163,10 @@ for (const course of CIRCUITS) {
   }
 }
 
-// Single player runs on src/session.js, a second race loop over the same shared modules. It is
-// driven here the way the game drives it: a track without the multiplayer-only fast lookups
-// (the render track does not pass them on) and items drawn from Math.random, seeded for the run.
+// Single player: src/session.js, which since the single-engine move is a thin layer over the
+// same createSimWorld (before it, a second race loop over the same shared modules). It is driven
+// here the way the game drives it: a track without the fast lookups the render track does not
+// pass on, and Math.random seeded for the run (the session draws its item seed from it).
 {
   const { createSession } = await load('src/session.js');
   const { createTrackCore } = await load('src/sim/track-core.js');

@@ -20,6 +20,8 @@ await A.runRace();          // repeat until it reports finished: true
 A.summary();
 ```
 
+The game's tab has to be the selected tab in its window. A tab behind another one gets no animation frames at all, and the harness needs one to take over the loop; if `A.start()` returns and nothing moves, that is why.
+
 `runRace()` stops after 24 seconds of real time so that a console call cannot hang; call it again to continue the same race. Reload the page before each new race. Shader compilation is only "cold" on the first run after the browser starts, because the browser keeps compiled shaders on disk.
 
 ## What `A.summary()` reports

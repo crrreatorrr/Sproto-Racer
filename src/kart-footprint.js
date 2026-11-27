@@ -99,6 +99,44 @@ function orient(shape,yaw){
     axes:shape.axes.map(n=>({...rotate(n.s,n.x,c,sn),lo:n.lo,hi:n.hi}))};
 }
 
+// The same turn as orient(), written into a hull a kart already owns. A kart's heading changes
+// every tick, so this runs for every kart on every tick: it must not allocate once the hull has
+// reached its size. The arithmetic and its order match rotate() and span() exactly, so the
+// numbers are the same bit for bit.
+function emptyHull(){
+  return {points:[],along:{lo:0,hi:0},across:{lo:0,hi:0},axes:[]};
+}
+
+function orientInto(hull,shape,c,sn){
+  const from=shape.points,count=from.length,points=hull.points;
+  let alongLo=Infinity,alongHi=-Infinity,acrossLo=Infinity,acrossHi=-Infinity;
+  for(let i=0;i<count;i++){
+    const p=from[i];
+    let q=points[i];
+    if(q===undefined)q=points[i]={s:0,x:0};
+    const s=p.s*c-p.x*sn,x=p.s*sn+p.x*c;
+    q.s=s;q.x=x;
+    const along=s*1+x*0,across=s*0+x*1;
+    if(along<alongLo)alongLo=along;
+    if(along>alongHi)alongHi=along;
+    if(across<acrossLo)acrossLo=across;
+    if(across>acrossHi)acrossHi=across;
+  }
+  if(points.length!==count)points.length=count;
+  hull.along.lo=alongLo;hull.along.hi=alongHi;
+  hull.across.lo=acrossLo;hull.across.hi=acrossHi;
+  const normals=shape.axes,normalCount=normals.length,axes=hull.axes;
+  for(let i=0;i<normalCount;i++){
+    const n=normals[i];
+    let a=axes[i];
+    if(a===undefined)a=axes[i]={s:0,x:0,lo:0,hi:0};
+    a.s=n.s*c-n.x*sn;a.x=n.s*sn+n.x*c;
+    a.lo=n.lo;a.hi=n.hi;
+  }
+  if(axes.length!==normalCount)axes.length=normalCount;
+  return hull;
+}
+
 function horizontalDisc(radius){
   const points=Array.from({length:48},(_,i)=>{
     const t=i*PI/24;
@@ -295,6 +333,10 @@ function getTables(){
     ironhideShapes:Object.create(null),
     mantaShapes:Object.create(null),
     skipperShapes:Object.create(null),
+    // What a car's outline is made of, before it is turned to the kart's heading.
+    // Keyed by car id, then by quantised steering for cars whose wheels move the outline.
+    sources:Object.create(null),
+    stockSource:null,
   };
   return tables;
 }
@@ -420,65 +462,158 @@ function skipperShape(t,curvature){
   return {outline:polygon(convexHull(allPoints)),bands};
 }
 
-export function kartFootprint(kart){
-  const t=getTables();
-  const id=kart.tuning?.id,yaw=kart.yaw||0,concept=conceptCarById(id);
-  const steering=!concept&&id!=='saucer'&&id!=='shopping-cart'&&hasShapedBody(kart)?Math.round((kart.steer||0)*fullLockCurvature(kart)*512):0;
-  const old=kart._fp;
-  if(old && old.yaw===yaw && old.steering===steering && old.id===id)return old;
-  let body,bands;
+// One height band of a car: a flat outline (`shape`) that applies between `low` and `high`.
+// `body` marks the band whose outline is the whole-car outline; `fixed` is an outline that never
+// turns (the saucer's discs).
+const part=(shape,low,high)=>({shape,low,high,body:false,fixed:null});
+const bodyPart=(low,high)=>({shape:null,low,high,body:true,fixed:null});
+const fixedPart=(hull,low,high)=>({shape:null,low,high,body:false,fixed:hull});
+const partsOf=bands=>bands.map(({shape,low,high})=>part(shape,low,high));
+
+function buildSource(t,id,steering,concept){
   if(concept){
     const [w,minZ,maxZ]=concept.bounds;
-    body=orient(bodySection([[minZ,w*.78],[minZ*.78,w],[maxZ*.78,w],[maxZ,w*.78]]),yaw);
-    bands=[{hull:body,low:concept.hover?.18:0,high:concept.height}];
-  }else if(id==='shopping-cart'){
-    body=orient(t.shoppingCart.outline,yaw);
-    bands=t.shoppingCart.bands.map(({shape,low,high})=>({hull:orient(shape,yaw),low,high}));
-  }else if(id==='saucer'){
-    body=t.saucerOutline;
-    bands=t.saucerBands.concat(t.saucerUpper.map(({shape,low,high})=>({hull:orient(shape,yaw),low,high})));
-  }else if(id==='manta'||id==='skipper'){
+    return {outline:bodySection([[minZ,w*.78],[minZ*.78,w],[maxZ*.78,w],[maxZ,w*.78]]),fixedBody:null,
+      parts:[bodyPart(concept.hover?.18:0,concept.height)]};
+  }
+  if(id==='shopping-cart')return {outline:t.shoppingCart.outline,fixedBody:null,parts:partsOf(t.shoppingCart.bands)};
+  if(id==='saucer'){
+    return {outline:null,fixedBody:t.saucerOutline,
+      parts:t.saucerBands.map(({hull,low,high})=>fixedPart(hull,low,high)).concat(partsOf(t.saucerUpper))};
+  }
+  if(id==='manta'||id==='skipper'){
     const shapes=id==='skipper'?t.skipperShapes:t.mantaShapes;
     if(!shapes[steering])shapes[steering]=id==='skipper'?skipperShape(t,steering/512):mantaShape(t,steering/512);
-    const shape=shapes[steering];
-    body=orient(shape.outline,yaw);
-    bands=shape.bands.map(({shape:sh,low,high})=>({hull:orient(sh,yaw),low,high}));
-  }else if(id==='crestline'){
-    body=orient(tourerOutline(t,steering),yaw);
-    bands=[{hull:body,low:0,high:1.08},{hull:orient(t.tourerBonnet,yaw),low:1.08,high:1.33},
-      {hull:orient(t.tourerSpare,yaw),low:1.08,high:1.32},{hull:orient(t.tourerCabin,yaw),low:1.33,high:crestlineRoof.top}];
-  }else if(id==='barrage'||id==='ironhide'){
+    return {outline:shapes[steering].outline,fixedBody:null,parts:partsOf(shapes[steering].bands)};
+  }
+  if(id==='crestline'){
+    return {outline:tourerOutline(t,steering),fixedBody:null,parts:[bodyPart(0,1.08),part(t.tourerBonnet,1.08,1.33),
+      part(t.tourerSpare,1.08,1.32),part(t.tourerCabin,1.33,crestlineRoof.top)]};
+  }
+  if(id==='barrage'||id==='ironhide'){
     const shapes=id==='ironhide'?t.ironhideShapes:t.barrageShapes;
     if(!shapes[steering])shapes[steering]=id==='ironhide'?ironhideShape(steering/512):barrageShape(t,steering/512);
-    const shape=shapes[steering];
-    body=orient(shape.outline,yaw);
-    bands=shape.bands.map(({shape:sh,low,high})=>({hull:orient(sh,yaw),low,high}));
-  }else if(id==='geep'){
-    if(!t.geepShapes[steering])t.geepShapes[steering]=polygon(geepOutline(steering/512));
-    body=orient(t.geepShapes[steering],yaw);
-    bands=[{hull:body,low:0,high:geepLowerHeight},{hull:orient(t.cabin,yaw),low:geepLowerHeight,high:geepOverallHeight}];
-  }else{
-    body=orient(t.stock,yaw);
-    bands=[{hull:body,low:0,high:1.4}];
+    return {outline:shapes[steering].outline,fixedBody:null,parts:partsOf(shapes[steering].bands)};
   }
-  const result={yaw,steering,id,body,bands};
-  Object.defineProperty(kart,'_fp',{value:result,writable:true,configurable:true,enumerable:false});
-  return result;
+  if(id==='geep'){
+    if(!t.geepShapes[steering])t.geepShapes[steering]=polygon(geepOutline(steering/512));
+    return {outline:t.geepShapes[steering],fixedBody:null,
+      parts:[bodyPart(0,geepLowerHeight),part(t.cabin,geepLowerHeight,geepOverallHeight)]};
+  }
+  return {outline:t.stock,fixedBody:null,parts:[bodyPart(0,1.4)]};
+}
+
+// The furthest any point of the car is from its center. Turning the car cannot move a point
+// further out than this, so it bounds every band at every heading.
+function reachOf(source){
+  let reach=0;
+  const cover=points=>{
+    for(let i=0;i<points.length;i++)reach=Math.max(reach,hypot(points[i].s,points[i].x));
+  };
+  cover((source.fixedBody||source.outline).points);
+  for(let i=0;i<source.parts.length;i++){
+    const from=source.parts[i];
+    if(!from.body)cover((from.fixed||from.shape).points);
+  }
+  return reach;
+}
+
+function sourceFor(t,id,steering,concept,shaped){
+  let source;
+  if(!shaped)source=t.stockSource;
+  else source=(t.sources[id]||(t.sources[id]=Object.create(null)))[steering];
+  if(!source){
+    source=buildSource(t,id,steering,concept);
+    source.reach=reachOf(source);
+    if(shaped)t.sources[id][steering]=source;
+    else t.stockSource=source;
+  }
+  return source;
+}
+
+// A band of one kart's footprint. `hull` is turned to the kart's heading the first time it is read
+// after the heading changes: most ticks only the body outline is needed (rail limits), and the
+// bands only when another kart, a hazard or an item is close enough to test against.
+function Band(footprint){
+  this.low=0;this.high=0;
+  this.footprint=footprint;
+  this.shape=null;this.fixed=null;
+  this.own=null;this.turn=-1;
+}
+Object.defineProperty(Band.prototype,'hull',{get(){
+  if(this.fixed!==null)return this.fixed;
+  const fp=this.footprint;
+  if(this.turn!==fp.turn){
+    orientInto(this.own||(this.own=emptyHull()),this.shape,fp.cos,fp.sin);
+    this.turn=fp.turn;
+  }
+  return this.own;
+},enumerable:true,configurable:true});
+
+function createFootprint(){
+  return {yaw:NaN,steering:0,id:undefined,body:null,bands:[],reach:0,
+    source:null,ownBody:emptyHull(),cos:1,sin:0,turn:0};
+}
+
+// The oriented outline of a kart: `body` is the whole-car outline, `bands` its height slices.
+// The result belongs to the kart and is refreshed in place when its heading, steering or car
+// changes, so read it before the next call for the same kart rather than holding on to it.
+export function kartFootprint(kart){
+  const id=kart.tuning?.id,yaw=kart.yaw||0,concept=conceptCarById(id);
+  const shaped=hasShapedBody(kart);
+  const steering=!concept&&id!=='saucer'&&id!=='shopping-cart'&&shaped?Math.round((kart.steer||0)*fullLockCurvature(kart)*512):0;
+  let fp=kart._fp;
+  if(fp && fp.yaw===yaw && fp.steering===steering && fp.id===id)return fp;
+  if(!fp){
+    fp=createFootprint();
+    // Not enumerable: snapshots, hashes and copies of the kart never see the cache.
+    Object.defineProperty(kart,'_fp',{value:fp,writable:true,configurable:true,enumerable:false});
+  }
+  const source=sourceFor(getTables(),id,steering,concept,shaped);
+  fp.yaw=yaw;fp.steering=steering;fp.id=id;
+  fp.cos=cos(yaw);fp.sin=sin(yaw);
+  fp.turn++;
+  fp.body=source.fixedBody||orientInto(fp.ownBody,source.outline,fp.cos,fp.sin);
+  if(fp.source!==source){
+    fp.source=source;
+    fp.reach=source.reach;
+    const parts=source.parts,bands=fp.bands;
+    for(let i=0;i<parts.length;i++){
+      const from=parts[i],band=bands[i]||(bands[i]=new Band(fp));
+      band.low=from.low;band.high=from.high;
+      band.shape=from.shape;
+      band.fixed=from.body?fp.body:from.fixed;
+      band.turn=-1;
+    }
+    if(bands.length!==parts.length)bands.length=parts.length;
+  }
+  return fp;
 }
 
 // Minimum separating translation, pointing from the first footprint to the second.
 export function footprintContact(a,b,ds,dx,tie=1){
   let depth=Infinity,normalS=0,normalX=0;
-  for(const shape of [a,b])for(const axis of shape.axes){
-    const {s,x}=axis,other=span(shape===a?b.points:a.points,s,x);
-    const aLo=shape===a?axis.lo:other.lo,aHi=shape===a?axis.hi:other.hi;
-    const bLo=shape===a?other.lo:axis.lo,bHi=shape===a?other.hi:axis.hi;
-    const offset=ds*s+dx*x,positive=aHi-bLo-offset,negative=bHi+offset-aLo;
-    const overlap=Math.min(positive,negative);
-    if(overlap<=.0001)return null;
-    if(overlap<depth){
-      const sign=positive===negative?tie:positive<negative?1:-1;
-      depth=overlap;normalS=s*sign;normalX=x*sign;
+  // Each shape's edge normals in turn: project the other shape onto the normal and compare spans.
+  for(let pass=0;pass<2;pass++){
+    // `first` follows the shape, not the pass: two saucers share one fixed disc, so a can be b.
+    const shape=pass===0?a:b,first=shape===a,axes=shape.axes,points=first?b.points:a.points;
+    for(let i=0;i<axes.length;i++){
+      const axis=axes[i],s=axis.s,x=axis.x;
+      let lo=Infinity,hi=-Infinity;
+      for(let j=0;j<points.length;j++){
+        const p=points[j],d=p.s*s+p.x*x;
+        if(d<lo)lo=d;
+        if(d>hi)hi=d;
+      }
+      const aLo=first?axis.lo:lo,aHi=first?axis.hi:hi;
+      const bLo=first?lo:axis.lo,bHi=first?hi:axis.hi;
+      const offset=ds*s+dx*x,positive=aHi-bLo-offset,negative=bHi+offset-aLo;
+      const overlap=Math.min(positive,negative);
+      if(overlap<=.0001)return null;
+      if(overlap<depth){
+        const sign=positive===negative?tie:positive<negative?1:-1;
+        depth=overlap;normalS=s*sign;normalX=x*sign;
+      }
     }
   }
   return {depth,normalS,normalX};

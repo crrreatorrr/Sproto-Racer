@@ -201,3 +201,76 @@ describe('race-start picture warm-up', () => {
     track.dispose();
   });
 });
+
+describe('race-start shadow shader warm-up', () => {
+  it('puts every kind of shadow caster next to a change of kind for the one warm-up draw, out of the picture', async () => {
+    const { scene, track, play, itemFx, camera, player, rival } = raceScene();
+    const sun = new THREE.DirectionalLight();
+    sun.castShadow = true;
+    scene.add(sun, sun.target);
+    const film = sun.shadow.camera;
+    const before = [film.left, film.right, film.top, film.bottom, film.near, film.far];
+    const childrenBefore = scene.children.length;
+
+    let probes = null, widened = null, target = 'screen';
+    const renderer = {
+      ...fakeRenderer(),
+      shadowMap: { needsUpdate: false },
+      getRenderTarget: () => null,
+      setRenderTarget(next) { target = next ? 'offscreen' : 'screen'; },
+      render(drawn) {
+        expect(target).toBe('offscreen');
+        widened = [film.left, film.right, film.near, film.far];
+        const last = drawn.children[drawn.children.length - 1];
+        last.updateMatrixWorld(true);
+        const forward = camera.getWorldDirection(new THREE.Vector3());
+        const offset = last.getWorldPosition(new THREE.Vector3()).sub(camera.getWorldPosition(new THREE.Vector3()));
+        probes = {
+          behindCamera: offset.dot(forward) < -100,
+          culledFromPicture: last.children.every((mesh) => mesh.frustumCulled),
+          casters: last.children.map((mesh) => ({
+            instanced: !!mesh.isInstancedMesh,
+            coloured: !!mesh.instanceColor,
+            textured: !!mesh.material.map,
+            side: mesh.material.side,
+            normals: !!mesh.geometry.attributes.normal,
+            casts: mesh.castShadow,
+          })),
+        };
+      },
+    };
+
+    await warmRaceShaders(renderer, scene, camera, { built: [track, player, rival], rivals: [rival], play, itemFx });
+
+    expect(probes, 'the warm-up draw did not happen').toBeTruthy();
+    expect(widened).toEqual([-1e4, 1e4, -1e4, 1e4]);
+    expect(probes.behindCamera).toBe(true);
+    expect(probes.culledFromPicture).toBe(true);
+    expect(probes.casters.every((caster) => caster.casts)).toBe(true);
+    // Three picks a new depth shader only when a caster's kind differs from the one before it,
+    // so every instanced caster must follow a plain one and every plain one an instanced one.
+    for (let i = 1; i < probes.casters.length; i++) {
+      const a = probes.casters[i - 1], b = probes.casters[i];
+      const sameBlock = a.side === b.side && a.normals === b.normals;
+      if (sameBlock) expect(a.instanced, `casters ${i - 1} and ${i} are the same kind`).not.toBe(b.instanced);
+    }
+    // Every combination the scene can show is there.
+    const kinds = new Set(probes.casters.map((c) => [c.instanced, c.coloured, c.textured, c.side, c.normals].join()));
+    for (const normals of [true, false]) for (const side of [THREE.FrontSide, THREE.BackSide, THREE.DoubleSide]) {
+      for (const textured of [true, false]) {
+        expect(kinds.has([false, false, textured, side, normals].join())).toBe(true);
+        expect(kinds.has([true, false, textured, side, normals].join())).toBe(true);
+        expect(kinds.has([true, true, textured, side, normals].join())).toBe(true);
+      }
+    }
+    // Nothing is left behind, and the shadow camera is back as it was with a redraw asked for.
+    expect(scene.children.length).toBe(childrenBefore);
+    expect([film.left, film.right, film.top, film.bottom, film.near, film.far]).toEqual(before);
+    expect(renderer.shadowMap.needsUpdate).toBe(true);
+    expect(target).toBe('screen');
+
+    disposeKart(player);
+    disposeKart(rival);
+    track.dispose();
+  });
+});

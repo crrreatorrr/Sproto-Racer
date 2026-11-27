@@ -45,6 +45,49 @@ func must(v goja.Value, err error) goja.Value {
 	return v
 }
 
+// replayHost feeds a recorded match (every join, leave, message and tick the server's match
+// handler would pass on) to the match host in the bundle, and times each tick. The summary
+// line must equal the one host-transcript.mjs prints for the same transcript in Node.
+func replayHost(vm *goja.Runtime, transcriptPath string) {
+	driver, err := os.ReadFile("../host-replay.js")
+	if err != nil {
+		panic(err)
+	}
+	transcript, err := os.ReadFile(transcriptPath)
+	if err != nil {
+		panic(err)
+	}
+	must(vm.RunString(string(driver)))
+	load, _ := goja.AssertFunction(vm.Get("hostReplayLoad"))
+	next, _ := goja.AssertFunction(vm.Get("hostReplayNext"))
+	summary, _ := goja.AssertFunction(vm.Get("hostReplaySummary"))
+	calls := must(load(goja.Undefined(), vm.ToValue(string(transcript)))).ToInteger()
+	d := make([]float64, 0, calls)
+	other := 0.0
+	for {
+		t0 := time.Now()
+		kind := must(next(goja.Undefined())).String()
+		ms := float64(time.Since(t0).Nanoseconds()) / 1e6
+		if kind == "" {
+			break
+		}
+		if kind == "t" {
+			d = append(d, ms)
+		} else {
+			other += ms
+		}
+	}
+	sort.Float64s(d)
+	sum := 0.0
+	for _, v := range d {
+		sum += v
+	}
+	fmt.Printf("replayed %d calls, %d ticks in Goja\n", calls, len(d))
+	fmt.Printf("host tick in Goja: mean %.3f ms, p95 %.3f ms, p99 %.3f ms, max %.2f ms; handling all messages took %.0f ms in total\n",
+		sum/float64(len(d)), d[int(float64(len(d))*0.95)], d[int(float64(len(d))*0.99)], d[len(d)-1], other)
+	fmt.Println("summary " + must(summary(goja.Undefined())).String())
+}
+
 func main() {
 	courses := flag.String("courses", "track01,track02,track03", "comma-separated course ids")
 	configs := flag.String("configs", "6:0,8:0,12:0", "comma-separated seats:humans pairs")
@@ -52,6 +95,7 @@ func main() {
 	warmup := flag.Int("warmup", 480, "untimed ticks first (countdown is 180)")
 	profile := flag.String("profile", "", "write a Goja CPU profile (pprof) to this file")
 	dump := flag.String("dump", "", "write every tick's cost in ms, one per line, to this file (last config run)")
+	hostTranscript := flag.String("host", "", "replay a match transcript (from host-transcript.mjs) against the bundled match host instead")
 	flag.Parse()
 	if flag.NArg() != 1 {
 		fmt.Fprintln(os.Stderr, "usage: gojabench [flags] path/to/racer-sim.js")
@@ -63,6 +107,10 @@ func main() {
 	}
 	vm := goja.New()
 	must(vm.RunString(string(src)))
+	if *hostTranscript != "" {
+		replayHost(vm, *hostTranscript)
+		return
+	}
 	must(vm.RunString(setup))
 	mk, _ := goja.AssertFunction(vm.Get("mk"))
 	step1, _ := goja.AssertFunction(vm.Get("step1"))

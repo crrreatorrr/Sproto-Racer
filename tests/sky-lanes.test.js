@@ -7,10 +7,10 @@ import { captureSnapshot, applySnapshot } from '../src/sim/snapshot.js';
 import { stateHash } from '../src/sim/hash.js';
 import { controlsToIntentFrame, intentFrameToControls } from '../src/sim/intent.js';
 import {
-  CRUISE_SPEED, SKY_MAX_SPEED, SKY_TIER_SPEED, createKart, startFlight, stepKart,
+  CRUISE_SPEED, SKY_MAX_SPEED, SKY_TIER_SPEED, createKart, startFlight, stepKart, tumbleKart,
 } from '../src/driving.js';
 import { createBoost, grantCell, stepBoost, stepSkyChain, SKY_TIER_CHAIN } from '../src/boost.js';
-import { catapultCrossed, partPose, sweepCells, sweepObstacles } from '../src/sim/sky.js';
+import { catapultCrossed, laneFloor, partPose, sweepCells, sweepObstacles } from '../src/sim/sky.js';
 
 const DT = 1 / 60;
 
@@ -161,8 +161,30 @@ describe('Sky Lane speed', () => {
       world.step({ 0: {} });
       peak = Math.max(peak, k.speed);
     }
-    assert.ok(peak <= SKY_MAX_SPEED * CRUISE_SPEED + 1e-9, `capped at 2.2x, got ${peak / CRUISE_SPEED}`);
-    assert.ok(peak > 2.15 * CRUISE_SPEED, 'tier 3 reaches the ceiling');
+    // The stock car is an All-rounder, so its ceiling is 2.2x its own Speed stat.
+    const tuning = k.tuning.speed;
+    assert.ok(peak <= SKY_MAX_SPEED * CRUISE_SPEED * tuning + 1e-9, `capped at 2.2x, got ${peak / CRUISE_SPEED}`);
+    assert.ok(peak > 2.15 * CRUISE_SPEED * tuning, 'tier 3 reaches the ceiling');
+  });
+
+  it("the ceiling scales with the car's Speed stat", () => {
+    const world = testWorld(CIRCUITS[0], { seats: [{ kind: 'local', car: 'manta' }] });
+    const index = mainLane(world.track);
+    emptyLayouts(world.track, index);
+    const lane = world.track.sky.lanes[index];
+    const a = world.state.player;
+    const tuning = a.kart.tuning.speed;
+    assert.ok(tuning > 1.005, 'a Speedster');
+    const k = fly(world, a, index, lane.start + 30, 0, 12);
+    let peak = 0;
+    for (let t = 0; t < 240; t++) {
+      Object.assign(a.boost, { skyTier: 3, skyChain: 10, skyTimer: 2.5, reserve: 2 });
+      k.towing = 1;
+      world.step({ 0: {} });
+      peak = Math.max(peak, k.speed);
+    }
+    assert.ok(peak <= SKY_MAX_SPEED * CRUISE_SPEED * tuning + 1e-9, `capped at 2.2x its speed stat, got ${peak / CRUISE_SPEED}`);
+    assert.ok(peak > SKY_MAX_SPEED * CRUISE_SPEED + 0.5, 'a Speedster flies past the stock ceiling');
   });
 
   it('eases down from flight speed after landing instead of stopping hard', () => {
@@ -249,7 +271,7 @@ describe('Boost Cells', () => {
 });
 
 describe('Floating item boxes', () => {
-  function boxRun(mode, held) {
+  function boxRun(mode, held, reserve = null) {
     const world = createSimWorld({ course: CIRCUITS[1], mode, settings: { sector: 1, speed: 'cruise', lap: 1, rivals: 'solo' }, seats: [{ kind: 'local' }] });
     const index = mainLane(world.track);
     const layout = world.track.sky.lanes[index].layouts[0];
@@ -257,6 +279,7 @@ describe('Floating item boxes', () => {
     const box = layout.boxes[1];
     const a = world.state.player;
     a.held = held;
+    a.reserve = reserve;
     a.unlimited = false;
     fly(world, a, index, box.s - 1.2, box.x, box.y);
     world.state.countdown = 0;
@@ -282,8 +305,14 @@ describe('Floating item boxes', () => {
     assert.notEqual(k.skyBoxGot, 0);
   });
 
-  it('a full slot or a Time Trial leaves the box alone', () => {
-    const full = boxRun('race', 0);
+  it('one held item still leaves room for a box in the second slot', () => {
+    const one = boxRun('race', 0);
+    assert.ok(one.a.roulette, 'the box starts the roulette for the second slot');
+    assert.equal(one.a.held, 0);
+  });
+
+  it('both slots full or a Time Trial leaves the box alone', () => {
+    const full = boxRun('race', 0, 2);
     assert.equal(full.a.roulette, null);
     assert.equal(full.k.skyBoxGot, 0);
     const trial = boxRun('trial', null);
@@ -376,6 +405,26 @@ describe('Sky Lane combat', () => {
     }
   });
 
+  it('a hit at the floor drops a kart out mid-lane, but lands it on the run-in to the deck', () => {
+    for (const [where, falls] of [['mid', true], ['run-in', false]]) {
+      const world = testWorld(CIRCUITS[0]);
+      const index = mainLane(world.track);
+      emptyLayouts(world.track, index);
+      const lane = world.track.sky.lanes[index];
+      const local = where === 'mid' ? (lane.start + lane.end) / 2 : lane.end - 25;
+      const a = world.state.player;
+      const floor = laneFloor(lane, local, world.track.length);
+      const k = fly(world, a, index, local, 0, floor + 0.05);
+      tumbleKart(k, 0.8, floor);
+      let fell = false;
+      for (let t = 0; t < 240 && !fell; t++) {
+        world.step({ 0: {} });
+        fell = !!k.fall;
+      }
+      assert.equal(fell, falls, `${where}: ${falls ? 'knocked out of the lane' : 'lands on the deck'}`);
+    }
+  });
+
   it('a barrel roll into a kart alongside rams it out of a tier', () => {
     const world = testWorld(CIRCUITS[1], { rivals: 'alongside', seats: [{ kind: 'local' }, { kind: 'local' }] });
     const index = mainLane(world.track);
@@ -432,7 +481,9 @@ describe('Rivals in Sky Lanes', () => {
   it('an all-rival race finishes three laps with every rival clearing every lane', () => {
     for (const course of CIRCUITS.slice(0, 2)) {
       const seats = Array.from({ length: 6 }, (_, i) => ({ kind: 'ai', gridIndex: i }));
-      const world = createSimWorld({ course, seed: 11, finishRule: 'all_racers', seats });
+      // A long finish grace: a rival rescued at one of Test Track 01's fixed spots (pre-existing)
+      // can trail by more than the usual 25 s, which is not what this test checks.
+      const world = createSimWorld({ course, seed: 11, finishRule: 'all_racers', seats, finishGraceSeconds: 120 });
       const flights = world.state.actors.map(() => 0);
       const was = world.state.actors.map(() => false);
       let falls = 0;

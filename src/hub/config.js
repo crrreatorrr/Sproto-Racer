@@ -14,10 +14,10 @@ export const RECORD_KEY = 'sproto.racer.progress';
 
 /**
  * Circuit layout generation for Time Trial records. Bump it when a circuit's racing line changes
- * (layout 2: Sky Lanes). A record or ghost from another layout is dropped everywhere it is read:
+ * (layout 2: Sky Lanes; layout 3: car classes change every car's pace). A record or ghost from another layout is dropped everywhere it is read:
  * this browser, an account's copy and the cloud save.
  */
-export const TRIAL_LAYOUT = 2;
+export const TRIAL_LAYOUT = 3;
 
 /** Crossings (and Crestline ice) change race strategy. Preserve all previous times/ghosts. */
 export const trialRecordId = (circuitId) => /^track0[123]$/.test(circuitId) ? circuitId+'-crossings' : circuitId;

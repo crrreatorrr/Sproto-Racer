@@ -724,6 +724,17 @@ export function createGameplay(scene, track, { onVisualCue } = {}) {
     syncAll(core.objects, core.elapsed);
   }
 
+  // Race-load shader warm-up: one of every item visual, in the scene until the returned function runs.
+  function warmVisuals() {
+    const kinds = [...Object.keys(FLIGHT), 'pulse', 'cable', 'beam', 'shield', 'slip', 'box', 'strip', 'puck', 'broom']
+      .map((type) => ({ type }));
+    for (const itemType of Object.keys(FLAIR)) kinds.push({ type: 'flair', itemType });
+    kinds.push({ type: 'attached', itemType: 'box' });
+    const built = kinds.map((o) => buildEntry(o, poolKey(o)));
+    for (const e of built) root.add(e.group);
+    return () => { for (const e of built) disposeEntry(e); };
+  }
+
   function dispose() {
     if (disposed) return;
     disposed = true;
@@ -750,5 +761,6 @@ export function createGameplay(scene, track, { onVisualCue } = {}) {
     hitHazard: core.hitHazard,
     skyGot: core.skyGot,
     syncFromCore,
+    warmVisuals,
   };
 }

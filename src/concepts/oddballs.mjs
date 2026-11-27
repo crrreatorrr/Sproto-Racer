@@ -37,6 +37,7 @@ function build(h){
   // Each length station is [z, half-width, crown-y, depth-half-height, lateral offset].
   // Rounded-rect cross-sections are used for pressed body skins, narrower ovals for pontoons.
   function hull(c,stations,mat=SHELL,{facets=24,squareness=1}={}){
+    if(h.low)facets=Math.max(8,2*Math.ceil(facets/4));
     const v=[],ix=[];
     const p=n=>Math.sign(n)*Math.pow(Math.abs(n),squareness);
     for(const [z,w,y,ht,x=0] of stations)for(let j=0;j<facets;j++){
@@ -58,6 +59,7 @@ function build(h){
     add(mesh,c,[0,0,0],[0,0,0],[1,1,1],mat);
   }
   function patch(c,side,def,mat=SHELL,nx=12,ny=8){
+    if(h.low){nx=Math.ceil(nx/2);ny=Math.ceil(ny/2);}
     const v=[],ix=[];
     for(let i=0;i<=ny;i++)for(let j=0;j<=nx;j++)v.push(...def(j/nx,i/ny));
     for(let i=0;i<ny;i++)for(let j=0;j<nx;j++){

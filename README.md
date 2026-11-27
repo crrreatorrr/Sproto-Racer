@@ -85,7 +85,7 @@ Every lane ends on straight road. The corridor funnels down onto the landing dec
 | Carve | Hold Q | Hold Drift |
 | Barrel roll | Tap Q with A or D held | Tap Drift while steering |
 
-Rivals chase Cells, steer for a box when their item slot is empty, read the obstacles ahead, ram and dodge. Some take the Sky Gate.
+Rivals chase Cells, steer for a box while they have a free item slot (karts carry two items), read the obstacles ahead, ram and dodge. Some take the Sky Gate.
 
 Equipped karts unfold side wings on launch: a short mount slide clears the chassis, then the panels swing out and settle. On exit the assemblies reverse the move and disappear into the stock silhouette. Wings are visual only: handling, hitboxes, and boost are unchanged. The 48 non-saucer karts use vehicle-specific wing assemblies, including the revised Ironhide tilt-fans, Crestline Eight crown wings, and Golden Switchback split foils. Silver Saucer and Violet Orbit use their native flying silhouettes. A Test Drive checkpoint already inside a lane starts with wings deployed. With reduced motion enabled, wings switch directly between poses. New local Time Trial ghosts record flight mode; older ghosts still play normally without opening wings.
 
@@ -100,30 +100,33 @@ Item boxes start about 42 m from the line on every circuit. Each row has two or 
 ## Modes
 
 - **Quick Race** runs three laps against five AI karts with item pickups.
-- **Time Trial** records the fastest completed three-lap run. On this browser the ghost is saved with it. Signed in to the hub, the time follows that account to other devices; the ghost stays on the browser that set it. A subsequent run shows the saved ghost when this browser still has it. Records carry the circuit layout they were set on. Sky Lanes started layout 2, so earlier times and ghosts are no longer shown and the first run on the new layout sets the record. To reset them again after a layout change, bump `TRIAL_LAYOUT` in `src/hub/config.js`.
+- **Time Trial** records the fastest completed three-lap run. On this browser the ghost is saved with it. Signed in to the hub, the time follows that account to other devices; the ghost stays on the browser that set it. A subsequent run shows the saved ghost when this browser still has it. Records carry the circuit layout they were set on. Sky Lanes started layout 2 and car classes layout 3, so earlier times and ghosts are no longer shown and the first run on the current layout sets the record. To reset them again after a layout change, bump `TRIAL_LAYOUT` in `src/hub/config.js`.
 - **Test Drive** offers all twenty items with unlimited supply. Select a section, entry speed, rivals, and lap state before driving. Test tools can reload those conditions during play. Choose a full pack to try area attacks or one rival ahead to practice aimed shots.
 
 ## Garage
 
 Choose a circuit and mode, pick Sproto, Pip, Miso, or Rook, then select a car. The preview shows the exact driver and chassis used in the race. Use **Rear view** to inspect the chase-side silhouette. Your browser remembers the last confirmed pairing. A locked car or character stays on screen and cannot be confirmed. The line above the choices names the Relics this account owns.
 
-| Car | Driving style |
-| --- | --- |
-| Apex | Baseline speed, acceleration, and turn rate |
-| Needle | Highest top speed, slowest acceleration |
-| Pogo | Quickest acceleration, slightly lower speed and turn rate |
-| Gecko | Tightest turn radius, lower straight-line speed |
-| Relay | Extra speed and acceleration, widest turns |
-| Ironhide | Hardtop off-road truck with a full-width windshield, open cargo bed and black all-terrain tires |
-| Crestline Eight | Black touring saloon with whitewall wire wheels and a three-window passenger cabin |
-| Skipper | Single-bow boat racer with exposed steering wheels, a raised pilothouse and a stern outboard |
-| Geep | Two-seat camo rally buggy with baseline handling |
-| Barrage | Open-cockpit armored supercar with baseline handling and twin pulse blasters |
-| Manta Speedster | Single-seat pearl speedster with recessed cyan headlights and baseline handling |
-| Hexshift | Plum-and-ivory lunar roadster with baseline handling |
-| Shopping Cart | Chrome wire basket with a red folding seat, four casters, and Apex handling |
+### Car classes and stats
 
-The garage displays each chassis’s changes relative to Apex. All four drivers can race any chassis. Character choice is cosmetic. The D-pad moves focus, A / Cross selects, Menu / Options advances, and B / Circle goes back.
+Every car belongs to one of six classes, and the class sets its five stats. Each stat shows as 1–10 bars in the garage. Every class has 26 bars in total, so a strength always costs something somewhere else. Five bars is the stock handling every car had before classes.
+
+| Class | Speed | Accel | Turning | Boost | Luck | Cars |
+| --- | --- | --- | --- | --- | --- | --- |
+| All-rounder | 5 | 5 | 5 | 5 | 6 | Apex, Crestline Eight, Mud Marauder, Amber Beetle, Quarry Dumper, Sky Mixer |
+| Speedster | 6 | 3 | 5 | 6 | 6 | Needle, Ironhide, Manta Speedster, Pepper Seed, Glass Dart, Windskiff, Rail Ghost, Market Dragster |
+| Sprinter | 5 | 9 | 6 | 3 | 3 | Pogo, Geep, Shopping Cart, Ringrunner, Tarmac Press, Ramp Tug, Bumper Bolt, Vermilion Loader, Forklift Rat |
+| Drifter | 5 | 4 | 9 | 5 | 3 | Gecko, Skipper, Golden Switchback, Violet Drift, Arctic Skip, Twin Current, Groove Racer, Reed Skimmer, Mint Digger |
+| Booster | 5 | 5 | 4 | 9 | 3 | Relay, Barrage, Whitewall Wasp, Twin-Plug, Volt Fork, Solar Cushion, Steam Sprint, Bone Wyrm |
+| Lucky | 6 | 6 | 5 | 3 | 6 | Hexshift, Silver Saucer, Bamboo Trike, Violet Orbit, Sunny Sidecar, Tiki Barrel, Ice-Cream Van, Bronze Bell, Violet Marble, Boom Crane |
+
+- **Speed:** top speed on the ground and in the Sky Lanes, from −2.4% at 1 bar to +3% at 10. A Speed bar is worth the most lap time, so it moves the least.
+- **Acceleration:** engine thrust, from −24% to +30%.
+- **Turning:** steering rate, lock and drift angle, from −17.6% to +22%.
+- **Boost:** the drift meter's GOOD and PERFECT windows open earlier, and every boost lasts longer: drift, launch, air, tricks, pads, boost items and Boost Cells, from −12% to +15%. At 10 bars the GOOD window is 0.38 s and PERFECT is 0.14 s (stock: 0.20 s and 0.10 s). The race meter shows your car's own drift windows; the launch revs in the countdown use the same windows for every car.
+- **Luck:** item boxes roll as if you were further back in the pack, by up to 30% of the field at 10 bars, so you see stronger items more often. Below 5 bars, rolls come out slightly as if you were further ahead.
+
+The numbers live in `src/car-classes.js`. `qa/car-classes.mjs` races AI-only packs of each class on every circuit, plus mixed packs with one kart of each class in every grid order. It checks that every class's pace is within 1.5% of the average, that no class wins more than 30% of mixed races or averages more than 0.4 places from 3.5th, and that no class is fastest on every circuit. Set `QA_SEED_OFFSET` to run it on other seeds. Tuned on three seed sets pooled (offsets 0, 100, 200) plus a run with rivals' drift timing error widened to ±0.15 to mimic a person: average places 3.41–3.67, wins 14–21%, pace within 0.1% (retuned after the two-item slots landed). Rivals drive the 14 original cars, which cover all six classes, and they time their drifts to their own car's windows. All four drivers can race any car. Character choice is cosmetic. The D-pad moves focus, A / Cross selects, Menu / Options advances, and B / Circle goes back.
 
 ## Controls
 
@@ -134,7 +137,7 @@ The garage displays each chassis’s changes relative to Apex. All four drivers 
 | Hop / drift | Q | RB / R1 | LB / L1 |
 | Activate drift boost | E | Left stick click / L3 | RB / R1 |
 | Reverse at low speed | Hold S / Down | Pull the left stick back | Pull the left stick back |
-| Use item | Space | B / Circle | A / Cross |
+| Use item (tap) · swap your two items (hold) | Space | B / Circle | A / Cross |
 | Fire Barrage blasters (hold, Quick Race or Test Drive) | F | D-pad up | D-pad up |
 | Previous / next test item | Z / X (or I for next) | LB / View (L1 / Share) | D-pad left / right |
 | Select test item directly | 1–0 for slots 1–10, Shift + 1–0 for slots 11–20 | — | — |
@@ -193,7 +196,9 @@ Hold brake while firing the Bumper Ball, Ricochet Disc, or Confetti Fan to aim b
 - **Rendering & Cold Boot**:
   - Static paddock geometry is merged into a single vertex-colored mesh (`src/paddock.js`), circuit signs are shelf-packed into a `2048×2048` canvas atlas with 16 px mipmap gutters (`src/track.js`), treasure chests animate in the vertex shader (`uTime` uniform with dirty-only instance matrix uploads), and custom car materials initialize lazily on first use.
   - Circuit visual meshes mount asynchronously after the first lobby frame (`deferVisuals` / `mountVisuals`), Rival line-of-sight fading uses cached per-car compound AABBs in body-local space (`src/kart-visibility.js`), and active projectiles/traps use detached scene-graph free-lists (`src/gameplay.js`).
-  - Append `?perf=1` to the URL to show the frame-time / sim-time / WebGL draw-call HUD (`src/perf.js`).
+  - Graphics quality (`src/quality.js`): the pause panel and the paddock's Graphics button offer Auto, High, Medium and Low. A tier sets the pixel-ratio range, antialiasing and whether the sunlight shadow map is drawn (the last two apply on the next page load, because they are set up when the renderer is created). Auto and High render up to 2.5 device pixels per CSS pixel within a 6-megapixel frame; Low has no shadow map. Auto renders like High and lowers the race's pixel ratio in steps when frames run late for the screen's own refresh rate, keeps a lower step only while it measurably reduces late frames, and raises it again; the rules are documented above the scaler and have not yet been tuned on a low-end device. The choice is saved under `sproto.quality`.
+  - Append `?perf=1` to the URL to show the frame-time / sim-time / WebGL draw-call HUD, plus the graphics tier, pixel ratio and canvas size (`src/perf.js`). `?quality=low|medium|high|auto` overrides the saved tier for that page load.
+  - Rival karts carry two builds from the same construction code. Beyond 26 m from the camera a rival shows its distant build (`src/kart-detail.js` lowers segment counts within a one-pixel tolerance, `src/kart-lod.js` folds the result into a handful of draw calls with instanced wheels) and returns to the full model inside 22 m. The player, the Time Trial ghost and the garage always use the full model. Append `?kartlod=low` or `?kartlod=full` to pin every rival to one build for a side-by-side check; `qa/kart-detail-levels.test.js` holds the triangle budgets.
 - **Deterministic 60 Hz Simulation (`src/sim/` & `build/racer-sim.js`)**:
   - `src/sim/` runs the full 60 Hz driving, drift-boost, track spline, fixture, hazard, 20-item projectile/trap, and AI simulation with zero Three.js, DOM, timer, or `Math.random` dependencies, using polynomial Cody-Waite/Horner transcendentals (`src/sim/math.js`) and seeded `sfc32` PRNG (`src/sim/rng.js`) for bit-identical execution across browser JS engines and Nakama's Goja VM.
   - Run `npm run build:server-sim` to regenerate `build/racer-sim.js`, `build/racer-sim.pin.json`, and `src/sim/version.js` (`npm run check:server-sim` verifies freshness and Nakama `Object.freeze` compatibility in CI).

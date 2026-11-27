@@ -238,6 +238,8 @@ function createFade(kart) {
   const parts = [];
   kart.traverse((mesh) => {
     if (!mesh.isMesh && !mesh.isPoints) return;
+    // A rival's distant build is never shown while it fades (see kartIsFaded).
+    if (mesh.userData.lowDetail) return;
     const source = mesh.material;
     if (!materials.has(source)) {
       const faded = source.clone();
@@ -255,6 +257,34 @@ function createFade(kart) {
 function restore(state) {
   for (const { mesh, source } of state.parts) mesh.material = source;
   state.opacity = 1;
+}
+
+/** True while a rival is partly faded, so its distant build must stay hidden. */
+export function kartIsFaded(kart) {
+  const state = fades.get(kart);
+  return !!state && state.opacity < 1;
+}
+
+/**
+ * Race-load shader warm-up. Puts the fade's own transparent copies on the kart
+ * while `whileFaded` runs, then puts back whatever was showing. The copies stay
+ * cached, so the first real fade draws materials that are already compiled.
+ * Copies are taken afresh unless a fade is on screen, so they match the kart's
+ * materials as they are now (a reflection map can arrive after the kart is built).
+ */
+export function withKartFadeMaterials(kart, whileFaded) {
+  const current = fades.get(kart);
+  const outdated = current?.opacity === 1 ? current : null;
+  const state = current && !outdated ? current : createFade(kart);
+  const showing = state.parts.map(({ mesh }) => mesh.material);
+  for (const { mesh, faded } of state.parts) mesh.material = faded;
+  try {
+    whileFaded();
+  } finally {
+    for (let i = 0; i < state.parts.length; i++) state.parts[i].mesh.material = showing[i];
+    // Release the old copies last: shared shader programs then stay alive.
+    if (outdated) for (const faded of outdated.materials.values()) faded.dispose();
+  }
 }
 
 export function releaseKartFade(kart) {

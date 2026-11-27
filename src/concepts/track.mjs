@@ -34,7 +34,7 @@ function trackPainter(h){
   }
   function block(col,p,d,round=.025,mode='paint',rot=null){
     // Six planar fields with curved bevels, avoiding the old triangular chamfer reflections.
-    if(round>=.010 && Math.min(...d)>=.027 && Math.max(...d)>=.13){
+    if(!h.low && round>=.010 && Math.min(...d)>=.027 && Math.max(...d)>=.13){
       const [w,hh,l]=d,b=Math.min(round,w*.25,hh*.46,l*.27);
       const G=h.RoundedBoxGeometry;
       if(G){geometry(new G(...d,2,b),col,mode,p,rot);return;}
@@ -107,7 +107,7 @@ function trackPainter(h){
     res.push(rows.at(-1));return res;
   }
   function loft(col,stations,mode='paint'){
-    const rows=densify(stations);
+    const rows=h.low?stations:densify(stations);
     const cross=([z,w,b,t,c=0,shape=.78])=>{
       const hi=t-b,n=w*shape,u=w-n;
       // Soft low shoulder, then an almost-flat crown allows clean inlaid livery.

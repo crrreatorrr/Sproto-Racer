@@ -88,6 +88,8 @@ export function stateHash(world) {
     hash.int(b.chainClosed ? 1 : 0);
     hash.int(a.held == null ? -1 : a.held);
     hash.int(a.charges);
+    hash.int(a.reserve == null ? -1 : a.reserve);
+    hash.int(a.reserveCharges ?? 0);
     hash.int(a.roulette ? a.roulette.item : -1);
     hash.int(a.finishUs == null ? -1 : a.finishUs);
     hash.int(k.flying ? k.skyLane : -1);

@@ -20,11 +20,13 @@ import {attachBarrage} from './barrage.js';
 import {barrageDriver,barrageAxles,barrageHalfTrack,barrageTail} from './barrage-layout.js';
 import {attachGeep,geepDriver} from './geep.js';
 import {geepAxles,geepScale,geepHalfTrack} from './geep-layout.js';
-import {releaseKartFade} from './kart-visibility.js';
+import {releaseKartFade,kartIsFaded} from './kart-visibility.js';
 import {createKartWings,updateKartWings,setKartWingsDeployed,disposeKartWings} from './kart-wings.js';
 import {HIT_STUN_SECONDS,TRICK_SECONDS} from './driving.js';
 import {CARS,DRIVERS} from './roster.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import {FULL,LOW,kartDetail,reduceGeometry,withKartDetail} from './kart-detail.js';
+import {flattenKart,mountLowDetail,syncLowDetail,disposeLowDetail,followAnchor} from './kart-lod.js';
 
 const palette = new Map();
 function paint(color, roughness=.65) {
@@ -39,7 +41,7 @@ function piece(group,geometry,material,x,y,z,w,h,d) {
 }
 const cube=(g,col,x,y,z,w,h,d)=>piece(g,box,paint(col),x,y,z,w,h,d);
 const blob=(g,col,x,y,z,w,h,d)=>piece(g,ball,paint(col),x,y,z,w,h,d);
-const decals=new Map();
+const decals=new Map(),plateShape=new THREE.PlaneGeometry(1,1);
 function plate(group,text,x,y,z,w,h,rotY=0) {
   if(!decals.has(text)){
     const c=document.createElement('canvas'); c.width=192;c.height=112;
@@ -48,33 +50,60 @@ function plate(group,text,x,y,z,w,h,rotY=0) {
     const tex=new THREE.CanvasTexture(c);tex.colorSpace=THREE.SRGBColorSpace;
     decals.set(text,new THREE.MeshBasicMaterial({map:tex,side:THREE.DoubleSide}));
   }
-  const m=new THREE.Mesh(new THREE.PlaneGeometry(w,h),decals.get(text));m.position.set(x,y,z);m.rotation.y=rotY;group.add(m);return m;
+  const m=new THREE.Mesh(plateShape,decals.get(text));m.position.set(x,y,z);m.scale.set(w,h,1);m.rotation.y=rotY;
+  m.userData.kartPlate=true;m.userData.sharedKartPart=true;group.add(m);return m;
 }
 // Wheels, driver and chassis animate separately. Fold the rigid colored pieces of
 // each into a vertex-colored draw call so a packed grid stays inexpensive.
 const solidParts=new THREE.MeshStandardMaterial({vertexColors:true,roughness:.65,flatShading:true});
-function batchParts(group) {
-  const originals=group.children.filter(m=>m.isMesh&&m.material.isMeshStandardMaterial&&!m.material.map);
-  if(originals.length<2)return;
-  const pieces=originals.map(m=>{
-    m.updateMatrix();
-    const g=m.geometry.index?m.geometry.toNonIndexed():m.geometry.clone();
-    g.applyMatrix4(m.matrix);
-    g.deleteAttribute('uv');
-    const n=g.attributes.position.count,colors=new Float32Array(n*3);
-    for(let i=0;i<n;i++)m.material.color.toArray(colors,i*3);
-    g.setAttribute('color',new THREE.BufferAttribute(colors,3));
-    return g;
-  });
-  const combined=mergeGeometries(pieces);
-  if(combined){group.remove(...originals);group.add(new THREE.Mesh(combined,solidParts));}
-  pieces.forEach(g=>g.dispose());
+// The folded geometry depends only on the car, the driver or the wheel, so every kart
+// with the same one shares it. `key` names what was folded; `fill` adds the loose pieces.
+const batches=new Map();
+function batchParts(group,key,fill) {
+  const id=kartDetail()+':'+key;
+  if(batches.get(id)===false){fill();return null;}
+  if(!batches.has(id)){
+    fill();
+    const originals=group.children.filter(m=>m.isMesh&&m.material.isMeshStandardMaterial&&!m.material.map);
+    // A lone piece stays as it is, as it always has.
+    if(originals.length<2){batches.set(id,false);return null;}
+    const pieces=[];
+    for(const m of originals){
+      m.updateMatrix();
+      // The distant build takes a coarser stand-in for each piece, or leaves it out.
+      const shaped=reduceGeometry(m.geometry.clone().applyMatrix4(m.matrix));
+      if(!shaped)continue;
+      const g=shaped.index?shaped.toNonIndexed():shaped;
+      if(g!==shaped)shaped.dispose();
+      g.deleteAttribute('uv');
+      const n=g.attributes.position.count,colors=new Float32Array(n*3);
+      for(let i=0;i<n;i++)m.material.color.toArray(colors,i*3);
+      g.setAttribute('color',new THREE.BufferAttribute(colors,3));
+      pieces.push(g);
+    }
+    group.remove(...originals);
+    batches.set(id,pieces.length?mergeGeometries(pieces):null);
+    pieces.forEach(g=>g.dispose());
+  }
+  const combined=batches.get(id);
+  if(!combined)return null;
+  const mesh=new THREE.Mesh(combined,solidParts);
+  mesh.userData.sharedKartPart=true;
+  group.add(mesh);
+  return mesh;
 }
 const ink='#202c32',metal='#809397',white='#f8edcc';
 const steering=new THREE.TorusGeometry(.29,.048,6,16);
 const pipeShape=new THREE.CylinderGeometry(1,1,1,8);
 const tuftShape=new THREE.ConeGeometry(1,1,3);
-const sharedGeometry=new Set([box,ball,tire,steering,pipeShape,tuftShape]);
+const blobShape=new THREE.CircleGeometry(1,24);
+const sharedGeometry=new Set([box,ball,tire,steering,pipeShape,tuftShape,plateShape,blobShape]);
+// One contact-shadow material per car model; each car module styles its own.
+const shadowPaints=new Map();
+function shadowPaint(carId){
+  if(!shadowPaints.has(carId))shadowPaints.set(carId,new THREE.MeshBasicMaterial({color:0x142638,alphaMap:softContact,transparent:true,opacity:.34,depthWrite:false,polygonOffset:true,polygonOffsetFactor:-2}));
+  return shadowPaints.get(carId);
+}
 function rod(group,color,a,b,radius) {
   const start=new THREE.Vector3(...a),end=new THREE.Vector3(...b);
   const axis=end.clone().sub(start);
@@ -203,9 +232,19 @@ const softContact=new THREE.DataTexture(contactTexels,contactSize,contactSize);
 softContact.minFilter=THREE.LinearFilter;softContact.magFilter=THREE.LinearFilter;
 softContact.needsUpdate=true;
 
-export function makeKart(id=0,car=CARS[0],person=DRIVERS[0],ghost=false,{flightWings=false}={}) {
+/**
+ * `lowDetail` gives the kart a second, cheaper build for when it is a distant rival
+ * (see updateKartDetail). The player, the ghost and the garage never ask for it.
+ */
+export function makeKart(id=0,car=CARS[0],person=DRIVERS[0],ghost=false,{flightWings=false,lowDetail=false}={}) {
+  const g=withKartDetail(FULL,()=>assembleKart(id,car,person,ghost,flightWings));
+  if(lowDetail&&!ghost)addLowDetail(g,car,person);
+  return g;
+}
+function assembleKart(id,car,person,ghost,flightWings) {
   const g=new THREE.Group(),body=new THREE.Group();g.add(body);
-  const shadow=new THREE.Mesh(new THREE.CircleGeometry(1,32),new THREE.MeshBasicMaterial({color:0x142638,alphaMap:softContact,transparent:true,opacity:.34,depthWrite:false,polygonOffset:true,polygonOffsetFactor:-2}));
+  const shadow=new THREE.Mesh(blobShape,shadowPaint(car.id));
+  shadow.userData.sharedKartPart=true;
   shadow.rotation.x=-Math.PI/2;shadow.scale.set(1.32,2,1);shadow.position.y=.025;g.add(shadow);
   const geep=car.id==='geep',hexshift=car.id==='hexshift',barrage=car.id==='barrage';
   const manta=car.id==='manta',crestline=car.id==='crestline';
@@ -215,7 +254,7 @@ export function makeKart(id=0,car=CARS[0],person=DRIVERS[0],ghost=false,{flightW
   const ironhide=car.id==='ironhide',customShell=concept||cart||skipper||saucer||manta||crestline||geep||hexshift||barrage||ironhide;
   if(hexshift)styleHexshiftShadow(shadow);
   if(concept)styleConceptShadow(shadow);
-  if(geep)body.scale.setScalar(geepScale);else if(!customShell)buildShell(body,car);
+  if(geep)body.scale.setScalar(geepScale);
   const wheels=[];
   const tailZ=concept?(concept.tail?.[1]??concept.bounds[2]):cart?1.28:skipper?1.69:saucer?1.70:manta?mantaTail:crestline?1.93:ironhide?ironhideTail:geep?1.93:barrage?barrageTail:1.65;
   for(const side of (saucer||concept)?[]:[-1,1]){
@@ -226,35 +265,26 @@ export function makeKart(id=0,car=CARS[0],person=DRIVERS[0],ghost=false,{flightW
       axle.rotation.order='YXZ';
       wheels.push(axle);
       if(customShell)continue;
-      const rubber=piece(axle,tire,paint(ink),0,0,0,radius,.37,radius);rubber.rotation.z=Math.PI/2;
-      const rim=piece(axle,tire,paint(car.trim),side*.19,0,0,radius*.63,.04,radius*.63);rim.rotation.z=Math.PI/2;
-      const hub=piece(axle,tire,paint(ink),side*.22,0,0,.15,.03,.15);hub.rotation.z=Math.PI/2;
-      for(let i=0;i<3;i++){const spoke=cube(axle,car.color,side*.241,0,0,.025,.40,.05);spoke.rotation.x=i*Math.PI/3;}
+      // One right-hand wheel per size; a left wheel is the same wheel turned half a turn.
+      const wheel=batchParts(axle,'wheel:'+car.id+':'+radius,()=>{
+        const rubber=piece(axle,tire,paint(ink),0,0,0,radius,.37,radius);rubber.rotation.z=Math.PI/2;
+        const rim=piece(axle,tire,paint(car.trim),.19,0,0,radius*.63,.04,radius*.63);rim.rotation.z=Math.PI/2;
+        const hub=piece(axle,tire,paint(ink),.22,0,0,.15,.03,.15);hub.rotation.z=Math.PI/2;
+        for(let i=0;i<3;i++){const spoke=cube(axle,car.color,.241,0,0,.025,.40,.05);spoke.rotation.x=i*Math.PI/3;}
+      });
+      if(side<0)wheel.rotation.y=Math.PI;
     }
-  }
-  if(!customShell){
-    cube(body,ink,0,.61,.14,.98,.22,.95);
-    const back=cube(body,ink,0,.875,.67,.96,.52,.15);back.rotation.x=.12;
   }
   const mount=concept?concept.mount:cart?cartDriver:skipper?skipperDriver:saucer?saucerDriver:manta?mantaDriver:crestline?crestlineDriver:ironhide?ironhideDriver:geep?geepDriver:barrage?barrageDriver:hexshift?hexshiftDriver:{x:0,y:.80,z:.12,scale:1};
   const driver=new THREE.Group();
   driver.position.set(mount.x,mount.y,mount.z);driver.scale.setScalar(mount.scale);
   body.add(driver);
-  if(concept)attachConceptDriver(driver,person);else buildDriver(driver,person);
-  if(concept?.controls!==false){
-  const wheelY=mount.y+.33*mount.scale,wheelZ=mount.z-.55*mount.scale;
-  rod(body,metal,[mount.x,wheelY-.47*mount.scale,wheelZ-.09*mount.scale],[mount.x,wheelY,wheelZ],.045*mount.scale);
-  rod(body,ink,[mount.x-.28*mount.scale,wheelY,wheelZ],[mount.x+.28*mount.scale,wheelY,wheelZ],.025*mount.scale);
-  const wheel=new THREE.Mesh(steering,paint(ink));
-  wheel.position.set(mount.x,wheelY,wheelZ);wheel.scale.setScalar(mount.scale);wheel.rotation.x=-.6;body.add(wheel);
-  }
+  if(concept)attachConceptDriver(driver,person);else batchParts(driver,'driver:'+person.id,()=>buildDriver(driver,person));
   const num=String(id+1).padStart(2,'0');
   const plateY=cart?.59:skipper?1.34:manta?.39:crestline?.70:ironhide?.78:geep?.991:barrage?.49:.62;
   const plateZ=cart?1.38:manta?2.13:crestline?1.94:ironhide?2.14:barrage?2.00:tailZ;
-  if(!saucer&&!skipper&&!concept){
-    cube(body,ink,0,plateY,plateZ,.88,.24,.12);
-    if(!crestline)plate(body,num,0,plateY,plateZ+.065,.33,.16);
-  }
+  const plated=!saucer&&!skipper&&!concept;
+  if(plated&&!crestline)plate(body,num,0,plateY,plateZ+.065,.33,.16);
   const timingLamp=new THREE.MeshBasicMaterial({color:0x411e18});
   for(const x of [-.32,.32]){
     if(concept)continue;
@@ -264,9 +294,22 @@ export function makeKart(id=0,car=CARS[0],person=DRIVERS[0],ghost=false,{flightW
     }else if(skipper)piece(body,box,timingLamp,x*2.35,plateY,1.712,.14,.055,.033);
     else piece(body,box,timingLamp,x,plateY+.02,plateZ+.072,.18,.08,.035);
   }
-  for(const w of wheels)batchParts(w);
-  if(!concept)batchParts(driver);
-  batchParts(body);
+  // The stock shell, seat, steering column and plate backing fold into one mesh per car.
+  batchParts(body,'body:'+car.id,()=>{
+    if(!customShell){
+      buildShell(body,car);
+      cube(body,ink,0,.61,.14,.98,.22,.95);
+      const back=cube(body,ink,0,.875,.67,.96,.52,.15);back.rotation.x=.12;
+    }
+    if(concept?.controls!==false){
+      const wheelY=mount.y+.33*mount.scale,wheelZ=mount.z-.55*mount.scale;
+      rod(body,metal,[mount.x,wheelY-.47*mount.scale,wheelZ-.09*mount.scale],[mount.x,wheelY,wheelZ],.045*mount.scale);
+      rod(body,ink,[mount.x-.28*mount.scale,wheelY,wheelZ],[mount.x+.28*mount.scale,wheelY,wheelZ],.025*mount.scale);
+      const wheel=new THREE.Mesh(steering,paint(ink));
+      wheel.position.set(mount.x,wheelY,wheelZ);wheel.scale.setScalar(mount.scale);wheel.rotation.x=-.6;body.add(wheel);
+    }
+    if(plated)cube(body,ink,0,plateY,plateZ,.88,.24,.12);
+  });
   if(concept)attachConcept(body,wheels,concept);
   if(skipper)attachSkipper(body,wheels,shadow);
   if(cart)attachShoppingCart(body,wheels);
@@ -284,6 +327,83 @@ export function makeKart(id=0,car=CARS[0],person=DRIVERS[0],ghost=false,{flightW
   const wings=flightWings?createKartWings(car.id):null;
   if(wings)body.add(wings);
   g.userData={body,wheels,wings,gem,moons,driver,driverHeight:mount.y,flames,shadow,timingLamp,solidMeshes,car:car.id,concept,character:person.id};return g;
+}
+
+// ---- Distant rivals -------------------------------------------------------------
+// Beyond KART_LOD_FAR metres from the camera a rival shows its distant build; it returns
+// to the full model inside KART_LOD_NEAR. The gap keeps a kart hovering at the boundary
+// from flickering between the two.
+export const KART_LOD_NEAR=22,KART_LOD_FAR=26;
+const restingLamp=carId=>carId==='saucer'?0xffad4f:0x411e18;
+const lowCars=new Map(),lowDrivers=new Map();
+function addLowDetail(g,car,person) {
+  const a=g.userData,seat=(a.concept?'concept:':'stock:')+person.id;
+  if(!lowCars.has(car.id)||!lowDrivers.has(seat)){
+    // Assemble the same car from the same code at low detail, fold it, and keep the result.
+    const source=withKartDetail(LOW,()=>assembleKart(1,car,person,false,false)),s=source.userData;
+    const template=flattenKart(source,{
+      skip:[...s.flames.map(f=>f.nozzle),s.gem,...(s.moons??[])].filter(Boolean),
+      idleLamp:restingLamp(car.id),
+    });
+    if(!lowCars.has(car.id))lowCars.set(car.id,template);
+    if(!lowDrivers.has(seat))lowDrivers.set(seat,template.driver);
+    disposeKart(source);
+  }
+  // Exhaust flames, flight wings, the Hexshift crystal and its wake serve both builds.
+  // The crystal's hairline outline is thinner than a pixel from the switch distance.
+  const shared=new Set([a.driver,a.wings,a.gem,...(a.moons??[]),...a.flames.map(f=>f.nozzle)]);
+  a.fullParts=[...a.body.children.filter(part=>!shared.has(part)),...a.driver.children,...(a.gem?.children??[])];
+  a.low=mountLowDetail(g,lowCars.get(car.id),lowDrivers.get(seat));
+}
+/** Show a rival's distant build (`low`) or its full model. A no-op for karts without one. */
+export function setKartDetail(g,low) {
+  const a=g?.userData;
+  if(!a?.low||a.low.active===low)return;
+  a.low.active=low;
+  for(const part of a.fullParts)part.visible=!low;
+  a.low.group.visible=low;
+  for(const part of a.low.driverParts)part.visible=low;
+  if(low)syncLowDetail(a,a.low,a.timingLamp.color.getHex()!==restingLamp(a.car));
+}
+let forced=null;
+/** For inspection: 'low' or 'full' pins every rival to that build, anything else restores the distance rule. */
+export function forceKartDetail(mode) {
+  forced=mode==='low'?true:mode==='full'?false:null;
+}
+/**
+ * Once per frame, after the camera has moved: pick each rival's build by distance.
+ * Returns true on the rare frame a distant build picked up a late-loading reflection
+ * map, so the caller can compile that shader before it is first drawn.
+ */
+export function updateKartDetail(models,camera) {
+  let reflectionsChanged=false;
+  for(let i=1;i<models.length;i++){
+    const model=models[i],low=model?.userData.low;
+    if(!low)continue;
+    if(followAnchor(low.lit))reflectionsChanged=true;
+    const distance=camera.position.distanceTo(model.position);
+    // A rival fading out in front of the camera is close by definition: keep it full.
+    const far=forced??distance>(low.active?KART_LOD_NEAR:KART_LOD_FAR);
+    setKartDetail(model,far&&!kartIsFaded(model));
+  }
+  return reflectionsChanged;
+}
+/** Meshes, triangles and draw calls of what a kart currently shows. For tests and reports. */
+export function kartRenderStats(g) {
+  const materials=new Set();
+  let meshes=0,triangles=0;
+  (function walk(object){
+    if(!object.visible)return;
+    if(object.isMesh||object.isPoints){
+      meshes++;materials.add(object.material);
+      if(object.isMesh){
+        const geometry=object.geometry;
+        triangles+=(geometry.index?geometry.index.count:geometry.attributes.position.count)/3*(object.isInstancedMesh?object.count:1);
+      }
+    }
+    for(const child of object.children)walk(child);
+  })(g);
+  return {meshes,drawCalls:meshes,triangles:Math.round(triangles),materials:materials.size};
 }
 export function resetKartWingPose(g,flying=false) {
   setKartWingsDeployed(g?.userData.wings,!!flying);
@@ -315,7 +435,8 @@ export function animateKart(g,k,b,time,renderDt=0,reduceMotion=false) {
   const driverMotion=a.driver.scale.x**2*(a.concept?.hover?.9:a.concept?.mount?.scale<.85?.55:1);
   a.driver.rotation.z=driverMotion*(Math.sin(time*10)*Math.min(k.speed/450,.045)-slip*.26);
   const meter=k.sliding&&!b.chainClosed?b.meter:0;
-  a.timingLamp.color.setHex(meter>=.9?0xe8ff75:meter>=.7?0xffa247:a.car==='saucer'?0xffad4f:0x411e18);
+  const lampColor=meter>=(k.tuning?.perfectAt??.9)?0xe8ff75:meter>=(k.tuning?.goodAt??.7)?0xffa247:restingLamp(a.car);
+  a.timingLamp.color.setHex(lampColor);
   a.driver.position.y=a.driverHeight+driverMotion*(Math.sin(time*17)*Math.min(k.speed/850,.035)+suspension*.42);
   const rack=(k.steer||0)*fullLockCurvature(k);
   for(const w of a.wheels){
@@ -342,12 +463,14 @@ export function animateKart(g,k,b,time,renderDt=0,reduceMotion=false) {
   animateExhausts(a.flames,b,time,skyTier);
   if(reduceMotion)setKartWingsDeployed(a.wings,!!k.flying);
   else updateKartWings(a.wings,!!k.flying,renderDt);
+  if(a.low?.active)syncLowDetail(a,a.low,lampColor!==restingLamp(a.car));
 }
 
 // Only release resources owned by this instance. Color/number materials are pooled.
 export function disposeKart(kart) {
   releaseKartFade(kart);
   disposeKartWings(kart.userData.wings);
+  disposeLowDetail(kart.userData.low);
   const sharedMaterials=new Set([solidParts,...palette.values(),...decals.values()]);
   const geometries=new Set(),materials=new Set();
   kart.traverse(mesh=>{
@@ -356,7 +479,7 @@ export function disposeKart(kart) {
     if(!sharedMaterials.has(mesh.material))materials.add(mesh.material);
   });
   for(const g of geometries)g.dispose();
-  if(kart.userData.concept)materials.add(kart.userData.timingLamp);
+  materials.add(kart.userData.timingLamp);
   for(const m of materials)m.dispose();
   kart.removeFromParent();
 }

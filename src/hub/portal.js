@@ -32,9 +32,9 @@ export function controlRole(el) {
 }
 
 /**
- * Paddock focus order is tracks, modes, launch, the hub portal, then controller setup.
- * A / Cross activates the focused control. Menu / Options launches, except on the portal
- * and on controller setup, where it activates that control.
+ * Paddock focus order is tracks, modes, launch, the hub portal, controller setup, then graphics.
+ * A / Cross activates the focused control. Menu / Options launches, except on the portal,
+ * controller setup and graphics, where it activates that control.
  */
 export function lobbyPadAction({ edges, index, count, role }) {
   const [confirm, , up, down, left, right, menu] = edges;
@@ -45,6 +45,7 @@ export function lobbyPadAction({ edges, index, count, role }) {
   if (confirm || menu) {
     if (role === 'controls') return { type: 'controller' };
     if (role === 'portal') return { type: 'portal' };
+    if (role === 'graphics') return { type: 'click' };
     if (confirm && role === 'track') return { type: 'click' };
     return { type: 'launch' };
   }

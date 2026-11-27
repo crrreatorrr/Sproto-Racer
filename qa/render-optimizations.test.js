@@ -250,4 +250,18 @@ describe('fast rendering & cold-boot optimizations', () => {
     on.dispose();
     expect(document.getElementById('perf-hud')).toBeNull();
   });
+
+  it('shows the graphics tier, pixel ratio and canvas size in the perf HUD', () => {
+    const off = createPerfMonitor({ enabled: false });
+    expect(() => off.noteQuality('auto', 1.6, 1)).not.toThrow();
+
+    const on = createPerfMonitor({ enabled: true });
+    const renderer = { info: { render: { calls: 1, triangles: 3 } }, domElement: { width: 1958, height: 1224 } };
+    on.recordFrame(16.6, renderer, 1000);
+    expect(document.getElementById('perf-hud').textContent).not.toContain('GFX');
+    on.noteQuality('auto', 1.36, 0.85);
+    on.recordFrame(16.6, renderer, 2000);
+    expect(document.getElementById('perf-hud').textContent).toContain('GFX auto  PR 1.36 (x0.85)  1958x1224');
+    on.dispose();
+  });
 });

@@ -1,6 +1,7 @@
 import * as T from 'three';
 import coachworkUrl from './assets/crestline-coachwork.webp';
 import {assembly,surface} from './kart-assembly.js';
+import {kartDetail,lowDetail} from './kart-detail.js';
 import {crestlineDriver,crestlineRoof,crestlineAxles,crestlineHalfTrack} from './crestline-layout.js';
 
 // A small sky reflection gives black lacquer and polished metal readable curves in
@@ -51,7 +52,9 @@ function enamelBadge(p,r,position,angle){
   for(let i=0;i<coords.count;i++)coords.setXY(i,...uv(patches.badge,coords.getX(i),1-coords.getY(i)));
   p.add(g,painted,null,position,[0,angle,0]);
 }
-let templates,contactShadow;
+const templates=[];
+const contactPlane=new T.PlaneGeometry(3.15/1.32,4.98/2);
+let contactShadow,dressed=false;
 
 // Join successive cross-sections and cap the ends. This keeps the curved coachwork
 // hollow around the wheels and leaves real openings through the passenger cabin.
@@ -91,8 +94,10 @@ function crownedRoof(p){
   // Rounded plan corners carry through the rain gutter to the raised fabric insert.
   const sections=[[crestlineRoof.bottom,.758,1.170],[2.168,.785,1.192],[2.194,.806,1.20],
     [2.235,.808,1.204],[2.280,.790,1.170],[2.316,.746,1.130],[2.337,.688,1.065],[2.344,.56,.93],[crestlineRoof.top,.001,.002]];
-  const ring=(y,x,z)=>Array.from({length:80},(_,i)=>{
-    const a=i*Math.PI/40,c=Math.cos(a),sn=Math.sin(a);
+  // The roof outline is sampled at 28 points on the distant build, 80 up close.
+  const around=lowDetail()?28:80;
+  const ring=(y,x,z)=>Array.from({length:around},(_,i)=>{
+    const a=i*2*Math.PI/around,c=Math.cos(a),sn=Math.sin(a);
     return [x*Math.sign(c)*Math.abs(c)**.32,y,.677+z*Math.sign(sn)*Math.abs(sn)**.32];
   });
   const rings=sections.map(v=>ring(...v).reverse());
@@ -122,7 +127,7 @@ function makeWheel(p,x=0,y=0,z=0,scale=1,side=1,spare=false){
   // between the recessed rim and the raised hub, leaving the dish visible.
   const at=(d,r,a)=>[x+side*d*scale,y+r*scale*Math.cos(a),z+r*scale*Math.sin(a)];
   function turned(profile,color,mat,patch){
-    const g=new T.LatheGeometry(profile.map(([d,r])=>new T.Vector2(r,d)),40);
+    const g=new T.LatheGeometry(profile.map(([d,r])=>new T.Vector2(r,d)),lowDetail()?12:40);
     if(patch){
       const coords=g.attributes.uv,positions=g.attributes.position;
       for(let i=0;i<coords.count;i++)coords.setXY(i,...uv(patch,coords.getX(i),.5+positions.getY(i)/.272));
@@ -214,11 +219,12 @@ function makeBody(){
       [-.71,.69],[-.45,.48],[-.23,.40],[.50,.40],[.71,.48],[.86,.69],[1.03,.92],[1.24,1.03],
       [1.42,1.05],[1.63,.997],[1.80,.86],[1.95,.67]];
     const curve=new T.SplineCurve(profile.map(([z,h])=>new T.Vector2(z,h)));
-    const samples=curve.getPoints(84);
+    // The fender is sampled three times more coarsely on the distant build.
+    const low=lowDetail(),samples=curve.getPoints(low?28:84),every=low?1:3;
     smoothPanel(p,samples.map(({x:z,y:h})=>[pt(.69,h-.04,z),pt(1.16,h-.045,z),pt(1.19,h-.028,z),
       pt(1.185,h-.002,z),pt(1.14,h+.017,z),pt(.98,h+.032,z),pt(.70,h+.012,z)]).map(row=>side<0?row.reverse():row),wing);
-    line(p,brass,samples.filter((_,i)=>i%3===0).map(({x:z,y:h})=>pt(1.146,h+.016,z)),.008);
-    line(p,'#999993',samples.filter((_,i)=>i%3===0).map(({x:z,y:h})=>pt(1.182,h-.018,z)),.009);
+    line(p,brass,samples.filter((_,i)=>i%every===0).map(({x:z,y:h})=>pt(1.146,h+.016,z)),.008);
+    line(p,'#999993',samples.filter((_,i)=>i%every===0).map(({x:z,y:h})=>pt(1.182,h-.018,z)),.009);
     p.box('#303034',pt(.977,.432,.15),[.38,.018,.65],.008);
     for(const x of [.835,.89,.945,1,1.055,1.11])p.pipe(x===.835||x===1.11?brass:silver,
       pt(x,.444,-.15),pt(x,.444,.45),.006,metal);
@@ -345,22 +351,24 @@ function fitShadow(shadow){
     contactShadow=new T.DataTexture(data,width,height);
     contactShadow.magFilter=contactShadow.minFilter=T.LinearFilter;contactShadow.needsUpdate=true;
   }
-  shadow.geometry.dispose();
-  shadow.geometry=new T.PlaneGeometry(3.15/1.32,4.98/2);
+  shadow.geometry=contactPlane;
   shadow.material.map=contactShadow;shadow.material.color.set('#121416');shadow.material.opacity=1;
 }
 export function attachCrestline(body,wheels,shadow){
-  if(!templates){
+  if(!dressed){
+    dressed=true;
     initMaterials();
     const sheet=new T.TextureLoader().load(coachworkUrl);
     sheet.colorSpace=T.SRGBColorSpace;sheet.anisotropy=8;
     painted.map=textile.map=sheet;
     const sky=coachworkSky();painted.envMap=sky;
     lacquer.envMap=sky;metal.envMap=sky;glass.envMap=sky;
+  }
+  const built=templates[kartDetail()]??=(()=>{
     const wheel=assembly(trim);
     makeWheel(wheel);
-    templates={body:makeBody(),wheel:wheel.finish()};
-  }
+    return {body:makeBody(),wheel:wheel.finish()};
+  })();
   function attach(group,parts,flip=false){
     for(const part of parts){
       const mesh=new T.Mesh(part.geometry,part.material);
@@ -370,6 +378,6 @@ export function attachCrestline(body,wheels,shadow){
     }
   }
   fitShadow(shadow);
-  attach(body,templates.body);
-  for(const axle of wheels)attach(axle,templates.wheel,axle.position.x<0);
+  attach(body,built.body);
+  for(const axle of wheels)attach(axle,built.wheel,axle.position.x<0);
 }

@@ -9,8 +9,8 @@ import { crestlineAxles, crestlineHalfTrack } from '../crestline-layout.js';
 import { ironhideAxles, ironhideHalfTrack } from '../ironhide-layout.js';
 import { geepAxles, geepScale, geepHalfTrack } from '../geep-layout.js';
 import { barrageAxles, barrageHalfTrack } from '../barrage-layout.js';
-import { hasShapedBody, isGeep, kartFootprint, footprintBox, footprintContact } from '../kart-footprint.js';
-import { ITEMS, startPickup, settlePickup } from '../items.js';
+import { hasShapedBody, kartFootprint, footprintBox, footprintContact } from '../kart-footprint.js';
+import { ITEMS, startPickup, settlePickup, hasItemRoom, swapItems } from '../items.js';
 import { carById, driverById, racerSetup } from '../roster.js';
 import {
   createKart,
@@ -29,16 +29,14 @@ import { CIRCUITS, courseById, createTrackCore, createTrackSample, gridSlot } fr
 import { grabSkyBox } from './sky.js';
 import { createGameplayCore } from './gameplay-core.js';
 import { intentFrameToControls } from './intent.js';
+import { createRoadIndex, itemsAhead } from './road-index.js';
 
 export const SIM_HZ = 60;
 export const SIM_DT = 1 / SIM_HZ;
 export const MAX_SEATS = 12;
 
-export function chassisContactMetrics(kart) {
-  const id = kart.tuning?.id;
-  const concept = conceptCarById(id);
-  if (concept) return concept.contact;
-  const geep = isGeep(kart);
+function legacyContactMetrics(id) {
+  const geep = id === 'geep';
   if (id === 'shopping-cart') return { halfTrack: cartHalfTrack, front: -cartAxles[0][0], rear: cartAxles[1][0] };
   if (id === 'skipper') return { halfTrack: skipperHalfTrack, front: -skipperAxles[0][0], rear: skipperAxles[1][0] };
   if (id === 'manta') return { halfTrack: mantaHalfTrack, front: -mantaAxles[0][0], rear: mantaAxles[1][0] };
@@ -47,6 +45,18 @@ export function chassisContactMetrics(kart) {
   if (geep) return { halfTrack: geepHalfTrack * geepScale, front: -geepAxles[0][0] * geepScale, rear: geepAxles[1][0] * geepScale };
   if (id === 'barrage') return { halfTrack: barrageHalfTrack, front: -barrageAxles[0][0], rear: barrageAxles[1][0] };
   return { halfTrack: 0.8, front: 1.1, rear: 1.1 };
+}
+
+// One record per car, built on first use (after Nakama's post-init freeze) and then shared:
+// this is read for every grounded kart on every tick. Callers must not change what it returns.
+let contactMetrics = null;
+
+export function chassisContactMetrics(kart) {
+  const id = kart.tuning?.id;
+  const concept = conceptCarById(id);
+  if (concept) return concept.contact;
+  if (!contactMetrics) contactMetrics = Object.create(null);
+  return contactMetrics[id] || (contactMetrics[id] = legacyContactMetrics(id));
 }
 
 export function overlapsTrackHazard(track, sampleScratch, heightAt, k, h) {
@@ -59,9 +69,10 @@ export function overlapsTrackHazard(track, sampleScratch, heightAt, k, h) {
     const shape = kartFootprint(k);
     const along = ds * Math.max(0.55, Math.min(1.65, 1 - (k.x + h.x) * 0.5 * road.curvature));
     for (let i = 0; i < shape.bands.length; i++) {
-      const { hull, low: bLow, high: bHigh } = shape.bands[i];
-      const low = bottom + bLow;
-      const high = bottom + bHigh;
+      // Height first: a band's outline is only turned to the kart's heading when it is read.
+      const band = shape.bands[i];
+      const low = bottom + band.low;
+      const high = bottom + band.high;
       if (low >= h.height || high <= 0) continue;
       let width = h.width / 2;
       if (h.type === 'rollingDrum') {
@@ -69,7 +80,7 @@ export function overlapsTrackHazard(track, sampleScratch, heightAt, k, h) {
         const dy = Math.max(0, low - r, r - high);
         width = Math.sqrt(Math.max(0, r * r - dy * dy));
       }
-      if (footprintContact(hull, footprintBox(h.depth / 2, width), -along, h.x - k.x)) return true;
+      if (footprintContact(band.hull, footprintBox(h.depth / 2, width), -along, h.x - k.x)) return true;
     }
     return false;
   }
@@ -174,8 +185,18 @@ export function createSimWorld(options = {}) {
 
   const sampleScratch = createTrackSample();
   const roadScratch = createTrackSample();
-  const controlScratch = {};
-  const heightAt = (s, x) => (track.heightAt ? track.heightAt(s, x) : track.sampleInto(s, x, sampleScratch).position.y);
+  // Reused every tick, so a step allocates nothing for bookkeeping: decoded controls per seat,
+  // one move record per kart, and each kart's boost pips before the step.
+  const controlScratch = [];
+  const moves = [];
+  const oldPips = [];
+  let stepDt = SIM_DT;
+  // Test Drive can switch track hazards off. Set at reset; every other mode has them on.
+  let hazardsOn = true;
+  const pickupIndex = createRoadIndex(track.pickups, track.length);
+  const heightAt = (s, x) => (
+    track.heightAt ? track.heightAt(s, x) : (track.sampleInto ? track.sampleInto(s, x, sampleScratch) : track.sample(s, x)).position.y
+  );
   const crossedRamp = (s0, x0, s1, x1) => crossedTrackRamp(track, s0, x0, s1, x1);
 
   function makeActor(seatDef, s, x, entrySpeed) {
@@ -190,10 +211,12 @@ export function createSimWorld(options = {}) {
       isPlayer: seatDef.id === 0,
       isHuman,
       kart: { ...createKart(car), s, x, speed: entrySpeed * car.speed },
-      boost: createBoost(),
+      boost: createBoost(car.boostGain),
       held: null,
       roulette: null,
       charges: 0,
+      reserve: null,
+      reserveCharges: 0,
       unlimited: seatDef.id === 0 && state.mode === 'test',
       finish: null,
       finishUs: null,
@@ -226,6 +249,7 @@ export function createSimWorld(options = {}) {
     state.seed = seed;
     state.tick = 0;
     state.mode = mode;
+    hazardsOn = mode !== 'test' || !!settings.hazards;
     state.elapsed = 0;
     state.done = false;
     state.firstFinishAt = null;
@@ -262,6 +286,9 @@ export function createSimWorld(options = {}) {
     }
 
     state.player = state.actors[0] || null;
+    // Build each car's collision outline now. The shape tables are made on first use, which
+    // takes tens of milliseconds on the server and would otherwise land on the first race tick.
+    for (let i = 0; i < state.actors.length; i++) kartFootprint(state.actors[i].kart);
     // A Test Drive sector inside a main Sky Lane starts in flight: its road is gone.
     if (test) {
       const road = { sky: track.sky, length: track.length, heightAt };
@@ -273,7 +300,7 @@ export function createSimWorld(options = {}) {
       state.player.charges = state.player.inventoryCharges[state.player.held];
       if (['turbo', 'super'].includes(settings.speed)) {
         for (let i = 0; i < state.actors.length; i++) {
-          grantBoost(state.actors[i].boost, 5, settings.speed === 'super' ? 2 : 1);
+          grantBoost(state.actors[i].boost, 5, settings.speed === 'super' ? 2 : 1, false);
         }
       }
     }
@@ -290,6 +317,13 @@ export function createSimWorld(options = {}) {
     state.lap = test ? settings.lap : 1;
     track.update(0, 0, base, state.lap);
     return state;
+  }
+
+  // Did a kart that moved `dist` metres forward from `oldS` pass over `o`, in its lane?
+  function crossed(o, oldS, dist, x) {
+    const length = track.length;
+    const offset = (((o.s - oldS) % length) + length) % length;
+    return offset > 0 && offset <= dist && Math.abs(x - o.x) < (o.width ?? 3.2) / 2 + 0.45;
   }
 
   function features(a, oldS, dt, checkHazards = true) {
@@ -313,29 +347,30 @@ export function createSimWorld(options = {}) {
       }
     }
     if (dist <= 0) return;
-    const cross = (o) => {
-      const offset = mod(o.s - oldS, track.length);
-      return offset > 0 && offset <= dist && Math.abs(k.x - o.x) < (o.width ?? 3.2) / 2 + 0.45;
-    };
-    const pads = track.pads || [];
-    for (let i = 0; i < pads.length; i++) {
-      const p = pads[i];
-      if (!k.stunRemaining && cross(p) && k.y < 1.4) {
-        grantBoost(a.boost, p.tier === 2 ? 2.2 : 1.35, p.tier);
+    if (!k.stunRemaining && k.y < 1.4) {
+      const pads = track.pads || [];
+      for (let i = 0; i < pads.length; i++) {
+        const p = pads[i];
+        if (crossed(p, oldS, dist, k.x)) grantBoost(a.boost, p.tier === 2 ? 2.2 : 1.35, p.tier);
       }
     }
     // Floating item boxes in a Sky Lane draw from the same seeded roulette.
-    if (k.flying && state.mode !== 'trial' && a.finish == null && !a.roulette && (a.held == null || a.unlimited)) {
+    if (k.flying && state.mode !== 'trial' && a.finish == null && !a.roulette && (hasItemRoom(a) || a.unlimited)) {
       if (grabSkyBox(track.sky, track.length, k)) {
         if (!a.unlimited) startPickup(a, state.actors, state.elapsed, rng.nextFloat);
         state.events.push({ type: 'skyBox', seat: a.id });
       }
     }
-    if (state.mode !== 'trial' && a.finish == null && !a.roulette && (a.held == null || a.unlimited)) {
+    if (k.y < 2.5 && state.mode !== 'trial' && a.finish == null && !a.roulette && (hasItemRoom(a) || a.unlimited)) {
+      // Only the pickups on the stretch of road covered this tick, lowest array position first,
+      // each put through the same exact test a full scan would use.
       const pickups = track.pickups || [];
-      for (let i = 0; i < pickups.length; i++) {
+      const near = itemsAhead(pickupIndex, oldS, dist);
+      const found = pickupIndex.found;
+      for (let j = 0; j < near; j++) {
+        const i = found[j];
         const p = pickups[i];
-        if (!p.hidden && cross(p) && k.y < 2.5) {
+        if (!p.hidden && crossed(p, oldS, dist, k.x)) {
           if (!a.unlimited) startPickup(a, state.actors, state.elapsed, rng.nextFloat);
           p.hidden = true;
           p.readyAt = state.elapsed + 1.8;
@@ -344,16 +379,17 @@ export function createSimWorld(options = {}) {
         }
       }
     }
-    if (track.switchTrigger && cross(track.switchTrigger)) track.triggerSwitch();
+    if (track.switchTrigger && crossed(track.switchTrigger, oldS, dist, k.x)) track.triggerSwitch();
   }
 
-  function driveActor(a, controls, dt) {
+  function driveActor(a, controls, dt, move) {
     const k = a.kart;
     const old = k.s;
     const road = track.sampleInto ? track.sampleInto(old, k.x, roadScratch) : Object.assign(roadScratch, track.sample(old, k.x));
     road.heightAt = heightAt;
     road.widthAt = track.widthAt;
     road.edgeAt = track.edgeAt;
+    road.edgesAt = track.edgesAt;
     road.dropAt = track.dropAt;
     road.length = track.length;
     const wasFalling = !!k.fall;
@@ -367,12 +403,19 @@ export function createSimWorld(options = {}) {
     road.sky = track.sky;
     stepKart(k, controls, road, a.boost, dt);
     if (k.fall && !wasFalling) {
-      Object.assign(a.boost, createBoost());
+      Object.assign(a.boost, createBoost(a.boost.gain));
       play.withdraw(a);
     }
-    if (wasFalling || k.fall) return { a, recovering: true };
+    move.a = a;
+    move.recovering = wasFalling || !!k.fall;
+    if (move.recovering) return;
     stepBoost(a.boost, k, controls, dt);
-    return { a, controls: { ...controls }, old, s: k.s, x: k.x, recovering: false };
+    // No copy of the controls: each seat's are its own object for the whole tick (see
+    // resolveSeatControls and the gameplay core's decide), and nothing here writes to them.
+    move.controls = controls;
+    move.old = old;
+    move.s = k.s;
+    move.x = k.x;
   }
 
   function resolveSeatControls(a, seatInputs) {
@@ -382,7 +425,7 @@ export function createSimWorld(options = {}) {
       return play.decide(a, state.player, SIM_DT);
     }
     if (provided && typeof provided.tick === 'number' && typeof provided.buttons === 'number') {
-      return intentFrameToControls(provided, controlScratch);
+      return intentFrameToControls(provided, controlScratch[a.id] || (controlScratch[a.id] = {}));
     }
     return provided || {};
   }
@@ -393,14 +436,60 @@ export function createSimWorld(options = {}) {
       if (state.player?.finish !== null) state.done = true;
       return;
     }
-    const humans = state.actors.filter((a) => a.isHuman);
-    const relevant = finishRule === 'all_humans' && humans.length ? humans : state.actors;
-    if (relevant.every((a) => a.finish !== null)) {
+    const actors = state.actors;
+    let humansOnly = false;
+    if (finishRule === 'all_humans') {
+      for (let i = 0; i < actors.length && !humansOnly; i++) humansOnly = actors[i].isHuman;
+    }
+    let allFinished = true;
+    for (let i = 0; i < actors.length && allFinished; i++) {
+      if (humansOnly && !actors[i].isHuman) continue;
+      allFinished = actors[i].finish !== null;
+    }
+    if (allFinished) {
       state.done = true;
       return;
     }
     if (state.firstFinishAt !== null && state.elapsed - state.firstFinishAt >= finishGraceSeconds) {
       state.done = true;
+    }
+  }
+
+  // Runs inside play.update once kart-to-kart contacts are settled: ramps, pads, pickups,
+  // hazards, item use and the finish line for every kart that drove this tick.
+  function afterContacts() {
+    const dt = stepDt;
+    const line = track.length * laps;
+    for (let i = 0; i < moves.length; i++) {
+      const move = moves[i];
+      if (move.recovering) continue;
+      const a = move.a;
+      const controls = move.controls;
+      const old = move.old;
+      const s = move.s;
+      const x = move.x;
+      const k = a.kart;
+      if (k.s > s && k.grounded) {
+        const ramp = crossedRamp(s, x, k.s, k.x);
+        if (ramp) launchFromRamp(k, ramp, controls, controls.steer || 0);
+      }
+      if (k.kartImpact > 3 || k.wallImpact > 0.15) {
+        state.events.push({ type: 'bump', seat: a.id });
+      }
+      features(a, old, dt, hazardsOn);
+      if (a.car === 'barrage' && state.mode !== 'trial' && (controls.blasters || controls.blastersPressed)) {
+        play.fireBlasters(a);
+      }
+      if (controls.itemSwapPressed && state.mode !== 'trial') swapItems(a);
+      if (controls.itemPressed && state.mode !== 'trial') {
+        play.use(a, a.held, state.actors, controls.itemBackward ?? (controls.brake > 0.25 || controls.reverse > 0.5));
+      }
+      if (state.mode !== 'test' && a.finish === null && old < line && k.s >= line) {
+        a.finish = state.elapsed - (dt * (k.s - line)) / (k.s - old);
+        a.finishUs = Math.round(a.finish * 1e6);
+        if (state.firstFinishAt === null) state.firstFinishAt = a.finish;
+        state.events.push({ type: 'finish', seat: a.id, finish: a.finish, finishUs: a.finishUs });
+      }
     }
   }
 
@@ -437,47 +526,29 @@ export function createSimWorld(options = {}) {
     }
 
     // Track fixtures follow the leading active lap so loading doors open for the front-runner in MP too.
+    // Test Drive is the exception: its lap counter wraps and the player chose which lap to
+    // practise, so there the fixtures follow the player and rivals cannot shut the door.
     let maxS = state.player ? (state.player.kart.fall?.exitS ?? state.player.kart.s) : 0;
-    for (let i = 0; i < state.actors.length; i++) {
-      const s = state.actors[i].kart.fall?.exitS ?? state.actors[i].kart.s;
-      if (s > maxS) maxS = s;
+    if (state.mode !== 'test') {
+      for (let i = 0; i < state.actors.length; i++) {
+        const s = state.actors[i].kart.fall?.exitS ?? state.actors[i].kart.s;
+        if (s > maxS) maxS = s;
+      }
     }
     const leadLap = state.mode === 'test'
       ? 1 + mod(Math.floor(maxS / track.length), laps)
       : Math.max(1, Math.min(laps, Math.floor(maxS / track.length) + 1));
     track.update(state.elapsed, dt, maxS, leadLap);
 
-    const oldPips = state.actors.map((a) => a.boost.pips);
-    const moves = state.actors.map((a) => driveActor(a, resolveSeatControls(a, seatInputs), dt));
-
-    play.update(dt, state.actors, () => {
-      const line = track.length * laps;
-      for (let i = 0; i < moves.length; i++) {
-        const { a, controls, old, s, x, recovering } = moves[i];
-        if (recovering) continue;
-        const k = a.kart;
-        if (k.s > s && k.grounded) {
-          const ramp = crossedRamp(s, x, k.s, k.x);
-          if (ramp) launchFromRamp(k, ramp, controls, controls.steer || 0);
-        }
-        if (k.kartImpact > 3 || k.wallImpact > 0.15) {
-          state.events.push({ type: 'bump', seat: a.id });
-        }
-        features(a, old, dt, true);
-        if (a.car === 'barrage' && state.mode !== 'trial' && (controls.blasters || controls.blastersPressed)) {
-          play.fireBlasters(a);
-        }
-        if (controls.itemPressed && state.mode !== 'trial') {
-          play.use(a, a.held, state.actors, controls.itemBackward ?? (controls.brake > 0.25 || controls.reverse > 0.5));
-        }
-        if (state.mode !== 'test' && a.finish === null && old < line && k.s >= line) {
-          a.finish = state.elapsed - (dt * (k.s - line)) / (k.s - old);
-          a.finishUs = Math.round(a.finish * 1e6);
-          if (state.firstFinishAt === null) state.firstFinishAt = a.finish;
-          state.events.push({ type: 'finish', seat: a.id, finish: a.finish, finishUs: a.finishUs });
-        }
-      }
-    });
+    const actors = state.actors;
+    for (let i = 0; i < actors.length; i++) oldPips[i] = actors[i].boost.pips;
+    for (let i = 0; i < actors.length; i++) {
+      const a = actors[i];
+      driveActor(a, resolveSeatControls(a, seatInputs), dt, moves[i] || (moves[i] = { a: null, controls: null, old: 0, s: 0, x: 0, recovering: false }));
+    }
+    moves.length = actors.length;
+    stepDt = dt;
+    play.update(dt, state.actors, afterContacts);
 
     for (let i = 0; i < state.actors.length; i++) {
       const actor = state.actors[i];
@@ -543,7 +614,9 @@ export function createSimWorld(options = {}) {
       }));
   }
 
-  reset(options);
+  // `deferReset` builds the world without starting a race, for a caller that owns a track and
+  // gameplay object which are not ready to reset yet. Call `reset` before the first `step`.
+  if (options.deferReset !== true) reset(options);
 
   return {
     course,

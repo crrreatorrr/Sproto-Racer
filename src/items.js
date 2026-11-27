@@ -31,14 +31,42 @@ export function pickupWeights(actor,pack){
     gap=Math.max(gap,distance);
   }
   const rank=ahead/Math.max(1,pack.length-1);
-  const trailing=Math.min(1,rank*(1+Math.min(gap/150,1)*.22));
+  // Luck (the car's stat) rolls as if the kart sat further back in the pack, or slightly ahead.
+  const luck=actor.kart.tuning?.luckShift??0;
+  const trailing=Math.min(1,Math.max(0,Math.min(1,rank*(1+Math.min(gap/150,1)*.22))+luck));
   return ITEMS.map(({weights:[first,last]})=>first+(last-first)*trailing);
 }
 
 export const PICKUP_SPIN_SECONDS=1.5;
 
+// A kart carries up to two items. `held` is the front slot (the one Use fires) and
+// `reserve` is the second; a reserve is only ever filled while the front slot is.
+export function hasItemRoom(actor){
+  return actor.held==null || actor.reserve==null;
+}
+
+/** Swap the front and second items so the other one fires next. */
+export function swapItems(actor){
+  if(actor.unlimited || actor.held==null || actor.reserve==null)return false;
+  const held=actor.held, charges=actor.charges;
+  actor.held=actor.reserve;
+  actor.charges=actor.reserveCharges;
+  actor.reserve=held;
+  actor.reserveCharges=charges;
+  return true;
+}
+
+/** Once the front slot empties, the second item moves up. */
+export function promoteReserve(actor){
+  if(actor.held!=null || actor.reserve==null)return;
+  actor.held=actor.reserve;
+  actor.charges=actor.reserveCharges;
+  actor.reserve=null;
+  actor.reserveCharges=0;
+}
+
 export function startPickup(actor,pack,now,random=Math.random){
-  if(actor.finish!=null || actor.held!=null || actor.roulette || actor.unlimited)return;
+  if(actor.finish!=null || !hasItemRoom(actor) || actor.roulette || actor.unlimited)return;
   const weights=pickupWeights(actor,pack);
   let total=0;
   for(let i=0;i<weights.length;i++)total+=weights[i];
@@ -64,8 +92,14 @@ export function settlePickup(actor,now){
   if(!roll)return;
   if(actor.finish==null){
     if(now-roll.started<PICKUP_SPIN_SECONDS)return;
-    actor.held=roll.item;
-    actor.charges=ITEMS[roll.item].charges??1;
+    const charges=ITEMS[roll.item].charges??1;
+    if(actor.held==null){
+      actor.held=roll.item;
+      actor.charges=charges;
+    }else{
+      actor.reserve=roll.item;
+      actor.reserveCharges=charges;
+    }
   }
   actor.roulette=null;
 }

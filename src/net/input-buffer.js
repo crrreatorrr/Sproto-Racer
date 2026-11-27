@@ -3,6 +3,7 @@
 // held-last fallback frames and clearing held buttons cleanly on disconnect.
 
 import {
+  BUTTONS_MASK,
   EDGE_BUTTON_MASK,
   HELD_BUTTON_MASK,
   neutralIntentFrame,
@@ -19,12 +20,16 @@ export function createSeatInputBuffer(options = {}) {
   let lastKnown = neutralIntentFrame(0);
   let lastReceivedTick = -1;
   let disconnected = false;
+  // Ticks below this have had their records dropped. A late copy of one must not start a new
+  // record, or presses that were already delivered would be delivered again.
+  let prunedBelow = 0;
 
   function push(frame, referenceTick = null) {
     if (!frame || typeof frame.tick !== 'number' || frame.tick < 0) return false;
     const tick = frame.tick >>> 0;
     if (referenceTick !== null && tick > referenceTick + maxLeadTicks) return false;
     if (tick <= lastConsumedTick - maxHistoryTicks) return false;
+    if (tick <= lastConsumedTick && tick < prunedBelow) return false;
 
     disconnected = false;
     const existing = byTick.get(tick);
@@ -42,8 +47,9 @@ export function createSeatInputBuffer(options = {}) {
         throttle: frame.throttle & 0xff,
         brake: frame.brake & 0xff,
         reverse: frame.reverse & 0xff,
-        buttons: frame.buttons & 0xffff,
-        edgesConsumed: false,
+        buttons: frame.buttons & BUTTONS_MASK,
+        // The press bits of this frame that next() has already handed to the simulation.
+        deliveredEdges: 0,
       });
     }
     if (tick > lastReceivedTick) {
@@ -52,6 +58,7 @@ export function createSeatInputBuffer(options = {}) {
     // Prune ancient ticks.
     if (byTick.size > maxHistoryTicks * 2) {
       const cutoff = tick - maxHistoryTicks;
+      if (cutoff > prunedBelow) prunedBelow = cutoff;
       for (const k of byTick.keys()) {
         if (k < cutoff) byTick.delete(k);
       }
@@ -75,29 +82,36 @@ export function createSeatInputBuffer(options = {}) {
       return lastKnown;
     }
 
-    // Collect any unconsumed button edges from frames in (lastConsumedTick .. t]
-    // so late-arriving or skipped frames never drop a drift hop, drift boost, or item use.
+    // Collect every press not yet delivered from frames at or before t, so a skipped frame or
+    // one that arrives after its own tick was consumed never drops a drift hop, drift boost or
+    // item use. Each press bit of each frame is delivered exactly once, however many redundant
+    // copies of the frame arrive and whenever they arrive.
     let carriedEdges = 0;
+    const oldest = t - maxHistoryTicks;
     for (const [k, rec] of byTick.entries()) {
-      if (k > lastConsumedTick && k <= t && !rec.edgesConsumed) {
-        carriedEdges |= rec.buttons & EDGE_BUTTON_MASK;
-        rec.edgesConsumed = true;
+      if (k <= t) {
+        const fresh = rec.buttons & EDGE_BUTTON_MASK & ~rec.deliveredEdges;
+        if (fresh) {
+          carriedEdges |= fresh;
+          rec.deliveredEdges |= fresh;
+        }
       }
-      if (k < t - maxHistoryTicks) byTick.delete(k);
+      if (k < oldest) byTick.delete(k);
     }
+    if (oldest > prunedBelow) prunedBelow = oldest;
 
     const exact = byTick.get(t);
     lastConsumedTick = t;
 
     if (exact) {
-      exact.edgesConsumed = true;
       const out = {
         tick: t,
         steer: exact.steer,
         throttle: exact.throttle,
         brake: exact.brake,
         reverse: exact.reverse,
-        buttons: (exact.buttons & HELD_BUTTON_MASK) | ((exact.buttons | carriedEdges) & EDGE_BUTTON_MASK),
+        // The frame's own presses are in carriedEdges unless an earlier sample already took them.
+        buttons: (exact.buttons & HELD_BUTTON_MASK) | carriedEdges,
       };
       lastKnown = { ...out, buttons: out.buttons & HELD_BUTTON_MASK };
       return out;
@@ -172,6 +186,8 @@ export function createSeatInputBuffer(options = {}) {
   function markDisconnected() {
     disconnected = true;
     byTick.clear();
+    // Every record is gone, so no frame for a tick already consumed may come back.
+    if (lastConsumedTick + 1 > prunedBelow) prunedBelow = lastConsumedTick + 1;
     lastKnown = neutralIntentFrame(Math.max(0, lastConsumedTick));
   }
 
@@ -180,6 +196,7 @@ export function createSeatInputBuffer(options = {}) {
     byTick.clear();
     lastConsumedTick = -1;
     lastReceivedTick = -1;
+    prunedBelow = 0;
     lastKnown = neutralIntentFrame(0);
   }
 

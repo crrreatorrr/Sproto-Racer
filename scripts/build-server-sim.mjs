@@ -27,11 +27,32 @@ const BANNED_PATTERNS = [
   [/\bMath\.(sin|cos|tan|atan|atan2|exp|pow|hypot)\b/, 'Non-deterministic Math transcendental'],
 ];
 
+// The match host checks each client's sim version against this bundle's own, but the bundle's
+// version is a hash of its code, so the code cannot contain it. Inside the bundle
+// `src/sim/version.js` is replaced by a module that reads the version from an argument the
+// wrapper passes in after hashing.
+function simVersionPlugin() {
+  const VIRTUAL = '\0racer-sim-version';
+  const target = OUT_VERSION;
+  return {
+    name: 'racer-sim-version',
+    enforce: 'pre',
+    resolveId(source, importer) {
+      if (!importer || !source.endsWith('version.js')) return null;
+      return path.resolve(path.dirname(importer), source) === target ? VIRTUAL : null;
+    },
+    load(id) {
+      return id === VIRTUAL ? 'export const RACER_SIM_VERSION = __RACER_SIM_VERSION_ARG__;' : null;
+    },
+  };
+}
+
 export async function buildServerSim() {
   const result = await build({
     root: ROOT,
     configFile: false,
     logLevel: 'silent',
+    plugins: [simVersionPlugin()],
     build: {
       write: false,
       minify: false,
@@ -65,8 +86,8 @@ export async function buildServerSim() {
     '  var instance = null;',
     '  function api() {',
     '    if (instance) return instance;',
-    '    var fn = new Function(' + JSON.stringify(innerCode + '\nreturn __RacerSimInner;') + ');',
-    '    instance = fn();',
+    '    var fn = new Function("__RACER_SIM_VERSION_ARG__", ' + JSON.stringify(innerCode + '\nreturn __RacerSimInner;') + ');',
+    '    instance = fn(RACER_SIM_VERSION);',
     '    return instance;',
     '  }',
     '  return {',
@@ -75,6 +96,8 @@ export async function buildServerSim() {
     '    contentManifest: function () { return api().contentManifest(); },',
     '    createMatch: function (opts) { return api().createMatch(opts); },',
     '    createSimWorld: function (opts) { return api().createSimWorld(opts); },',
+    '    createMatchHost: function (opts) { return api().createMatchHost(opts); },',
+    '    netInfo: function () { return api().netInfo(); },',
     '    stateHash: function (world) { return api().stateHash(world); },',
     '    captureSnapshot: function (world, ack) { return api().captureSnapshot(world, ack); },',
     '    applySnapshot: function (world, snap) { return api().applySnapshot(world, snap); },',

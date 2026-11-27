@@ -4,7 +4,7 @@
 import { barrageMuzzle } from '../barrage-layout.js';
 import { hasShapedBody } from '../kart-footprint.js';
 import { resolveKartContacts } from '../kart-contact.js';
-import { CRUISE_SPEED, GRAVITY, SKY_MAX_SPEED, steerForTurn, stunKart, springJump, tumbleKart } from '../driving.js';
+import { GRAVITY, flightCeiling, steerForTurn, stunKart, springJump, tumbleKart } from '../driving.js';
 import { interruptBoost, grantBoost, grantCell, dropSkyTier, stepSkyChain, clearSky } from '../boost.js';
 import { lapOf, laneCeiling, sweepCells, sweepObstacles, SKY_KART_RADIUS } from './sky.js';
 
@@ -16,10 +16,11 @@ const RIVAL_SKY = [
   { skill: 0.84, bold: 0.45, aggression: 0.9, gate: false, tricks: 0.6 },
   { skill: 0.68, bold: 0.9, aggression: 0.5, gate: true, tricks: 0.85 },
 ];
-import { ITEMS } from '../items.js';
+import { ITEMS, hasItemRoom, promoteReserve } from '../items.js';
 import { contactTime, shapedItemContactTime } from '../projectile-contact.js';
 import { atan2, clamp, cos, damp, hypot3, mix, mod, sin } from './math.js';
 import { createTrackSample } from './track-core.js';
+import { createRoadIndex, itemsAhead } from './road-index.js';
 
 export { ITEMS } from '../items.js';
 
@@ -30,7 +31,32 @@ const blankInput = () => ({
   driftHeld: false,
   driftPressed: false,
   itemPressed: false,
+  itemSwapPressed: false,
+  // Only set in some situations. Present but undefined reads the same as absent.
+  pitch: undefined,
+  itemBackward: undefined,
+  blasters: undefined,
 });
+
+function clearInput(input) {
+  input.throttle = 1;
+  input.brake = 0;
+  input.steer = 0;
+  input.driftHeld = false;
+  input.driftPressed = false;
+  input.itemPressed = false;
+  input.itemSwapPressed = false;
+  input.pitch = undefined;
+  input.itemBackward = undefined;
+  input.blasters = undefined;
+  return input;
+}
+
+const BACKWARD_ITEMS = [1, 10, 11];
+// Items a rival uses to defend: the broom always, a shield only when it has none up.
+const guards = (a, item) => item === 15 || (!a.shield && (item === 2 || item === 19));
+// A Barrage rival fires when a kart ahead sits on its line of fire.
+const onFiringLine = (ka, other, d) => Math.abs(other.x - ka.x - sin(ka.yaw) * d) < 1.2;
 
 export const FLYING_TYPES = new Set(['ball', 'disc', 'bolt', 'lightbolt', 'lob', 'ring', 'cursor', 'rocket']);
 export const TRAP_TYPES = new Set(['slip', 'box', 'puck']);
@@ -81,6 +107,19 @@ function defaultActorState(id = 0) {
   };
 }
 
+/**
+ * The drift meter value at which a rival lets go, with a fixed per-slide timing error of ±0.06.
+ * Rivals with id % 3 === 2 chase PERFECT: they aim 0.06 inside their own PERFECT window, so the
+ * error never drops them to GOOD, and stop short of TOO LATE. The others aim at their own GOOD
+ * window, so a car's Boost stat sets when they let go.
+ */
+export function rivalDriftAim(id, slideId, tuning) {
+  const goodAt = tuning?.goodAt ?? 0.70, perfectAt = tuning?.perfectAt ?? 0.90;
+  const scatter = (((id * 7919 + slideId * 104729) % 1000) / 1000 - 0.5) * 0.12;
+  if (id % 3 === 2) return Math.min(0.97, perfectAt + 0.06 + scatter);
+  return goodAt + (id % 3 ? 0.68 : 0.35) * (perfectAt - goodAt) + scatter;
+}
+
 export function createGameplayCore(track, hooks = {}) {
   let actors = [];
   let elapsed = 0;
@@ -89,8 +128,19 @@ export function createGameplayCore(track, hooks = {}) {
   let actorStates = Object.create(null);
   const objects = [];
   let rewards = [...(track.pads || []), ...(track.pickups || [])];
+  let rewardIndex = createRoadIndex(rewards, track.length);
+  let padIndex = createRoadIndex(track.pads, track.length);
   const sampleA = createTrackSample();
   const sampleB = createTrackSample();
+  // Reused every tick, indexed by seat: each rival's controls, each kart's path through the
+  // tick, and the working lists of the item update.
+  const inputs = [];
+  const paths = [];
+  const events = [];
+  const brooms = [];
+  const barrier = { s: 0, s0: 0, x: 0, x0: 0, y: 0, y0: 0 };
+  const frameA = {};
+  const frameB = {};
 
   function sampleTrack(s, x = 0, out = sampleA) {
     if (track.sampleInto) return track.sampleInto(s, x, out);
@@ -139,7 +189,8 @@ export function createGameplayCore(track, hooks = {}) {
   }
 
   function deltaS(from, to) {
-    return mod(to - from + track.length / 2, track.length) - track.length / 2;
+    const length = track.length;
+    return ((((to - from + length / 2) % length) + length) % length) - length / 2;
   }
 
   function towInReach(k, other, distance) {
@@ -555,7 +606,7 @@ export function createGameplayCore(track, hooks = {}) {
         const stolen = Math.min(1.5, target.boost.reserve);
         target.boost.reserve -= stolen;
         if (target.boost.reserve <= 0) target.boost.tier = 0;
-        grantBoost(a.boost, stolen);
+        grantBoost(a.boost, stolen, 1, false); // stolen boost isn't scaled by the thief's Boost stat
         notify(target, 'SODA SIPHONED');
         cue('hit', 'siphon', target);
         break;
@@ -577,6 +628,7 @@ export function createGameplayCore(track, hooks = {}) {
     if (!a.unlimited && (index !== 8 || a.charges === 0)) {
       a.held = null;
       a.charges = 0;
+      promoteReserve(a);
     } else if (index === 8 && a.unlimited && a.charges === 0) {
       a.charges = 3;
     }
@@ -589,7 +641,9 @@ export function createGameplayCore(track, hooks = {}) {
     const k = a.kart;
     const b = a.boost;
     const s = state(a);
-    const input = blankInput();
+    // One controls object per rival, reset each tick. It is read until the end of this tick only.
+    const key = stateKey(a);
+    const input = inputs[key] ? clearInput(inputs[key]) : (inputs[key] = blankInput());
     s.itemCooldown -= dt;
     s.aiRest = Math.max(0, s.aiRest - dt);
     if (k.flying) {
@@ -597,15 +651,22 @@ export function createGameplayCore(track, hooks = {}) {
       aiItems(a, k, s, a.id || 1, input);
       return input;
     }
-    const look = sampleTrack(k.s + 5 + k.speed * 0.20, k.x, sampleA);
-    const here = sampleTrack(k.s, k.x, sampleB);
+    // Only the road's curvature and width are needed here, which the frame alone carries.
+    const framed = track.evalFrame && track.sampleInto;
+    const look = framed ? track.evalFrame(k.s + 5 + k.speed * 0.20, frameA) : sampleTrack(k.s + 5 + k.speed * 0.20, k.x, sampleA);
+    const here = framed ? track.evalFrame(k.s, frameB) : sampleTrack(k.s, k.x, sampleB);
     const curvature = here.curvature * 0.65 + look.curvature * 0.35;
     const id = a.id || 1;
     let lane = clamp(sin(k.s / 128 + id * 2.1) * 2.2 + (id - 3) * 1.3, -7, 7);
     let nearestFeature = 65;
-    const targets = a.held == null && !a.roulette ? rewards : track.pads;
-    for (let i = 0; i < targets.length; i++) {
-      const target = targets[i];
+    // Rewards within the 65 m a rival looks ahead, in array order. Anything further cannot
+    // pass the distance test below, so skipping it changes nothing.
+    const wantsItems = hasItemRoom(a) && !a.roulette;
+    const targets = wantsItems ? rewards : track.pads;
+    const index = wantsItems ? rewardIndex : padIndex;
+    const near = itemsAhead(index, k.s, 65);
+    for (let i = 0; i < near; i++) {
+      const target = targets[index.found[i]];
       if (target.hidden) continue;
       const d = deltaS(k.s, target.s);
       if (d < 0 || d > nearestFeature) continue;
@@ -663,7 +724,7 @@ export function createGameplayCore(track, hooks = {}) {
       input.driftPressed = true;
     }
     if (s.aiDirection) {
-      input.driftHeld = !(k.sliding && !b.chainClosed && b.meter >= 0.77 + (id % 3) * 0.066);
+      input.driftHeld = !(k.sliding && !b.chainClosed && b.meter >= rivalDriftAim(id, k.slideId || 0, k.tuning));
     }
     // Rivals hop at some ramp lips for a trick, set by id, lap and ramp.
     const trickRate = RIVAL_SKY[(id - 1) % RIVAL_SKY.length].tricks;
@@ -714,8 +775,8 @@ export function createGameplayCore(track, hooks = {}) {
     let tx = 0;
     let ty = mid;
     let aimed = false;
-    // With an empty item slot, the nearest floating box ahead comes first.
-    if (a.held == null && !a.roulette) {
+    // With a free item slot, the nearest floating box ahead comes first.
+    if (hasItemRoom(a) && !a.roulette) {
       const taken = k.skyBoxKey === lane.index * 4 + lap ? k.skyBoxGot : 0;
       let best = null;
       for (let i = 0; i < layout.boxes.length; i++) {
@@ -813,10 +874,17 @@ export function createGameplayCore(track, hooks = {}) {
   }
 
   function aiItems(a, k, s, id, input) {
-    const defend = a.incoming && (a.held === 15 || (!a.shield && (a.held === 2 || a.held === 19)));
-    if (a.held != null && (s.itemCooldown <= 0 || defend)) {
+    let item = a.held;
+    let defend = a.incoming && guards(a, item);
+    // A defensive second item is swapped to the front when a hit is coming.
+    if (a.incoming && !defend && item != null && a.reserve != null && guards(a, a.reserve)) {
+      input.itemSwapPressed = true;
+      item = a.reserve;
+      defend = true;
+    }
+    if (item != null && (s.itemCooldown <= 0 || defend)) {
       input.itemPressed = true;
-      if ([1, 10, 11].includes(a.held)) {
+      if (BACKWARD_ITEMS.includes(item)) {
         const front = nearestAhead(a, actors, 60);
         input.itemBackward = actors.some(
           (other) =>
@@ -830,7 +898,7 @@ export function createGameplayCore(track, hooks = {}) {
       s.itemCooldown = 1.2 + (id % 3) * 0.7;
     }
     if (a.car === 'barrage') {
-      input.blasters = !!nearestAhead(a, actors, 30, (ka, other, d) => Math.abs(other.x - ka.x - sin(ka.yaw) * d) < 1.2);
+      input.blasters = !!nearestAhead(a, actors, 30, onFiringLine);
     }
   }
 
@@ -1046,21 +1114,45 @@ export function createGameplayCore(track, hooks = {}) {
     }
   }
 
+  function queue(time, kind, o, target) {
+    if (Number.isFinite(time)) events.push({ time, kind, o, target });
+  }
+
   function updateObjects(dt, pack) {
-    const actorPaths = new Map();
     for (let i = 0; i < pack.length; i++) {
       const a = pack[i];
-      const { s, x, y } = a.kart;
+      const kart = a.kart;
+      const s = kart.s;
+      const x = kart.x;
       const road = sampleTrack(s, x, sampleA);
-      const worldY = road.position.y + y + 0.8;
+      const worldY = road.position.y + kart.y + 0.8;
       const st = state(a);
       const prev = st.lastPosition;
       const roadScale = Math.max(0.55, Math.min(1.65, 1 - x * road.curvature));
-      actorPaths.set(a, { s, x, y: worldY, roadScale, s0: prev?.s ?? s, x0: prev?.x ?? x, y0: prev?.y ?? worldY });
-      st.lastPosition = { s, x, y: worldY, roadScale, s0: s, x0: x, y0: worldY };
+      // Where the kart was a tick ago and where it is now, for sweeping items against it.
+      const key = stateKey(a);
+      const path = paths[key] || (paths[key] = { s: 0, x: 0, y: 0, roadScale: 1, s0: 0, x0: 0, y0: 0 });
+      path.s = s;
+      path.x = x;
+      path.y = worldY;
+      path.roadScale = roadScale;
+      path.s0 = prev ? prev.s ?? s : s;
+      path.x0 = prev ? prev.x ?? x : x;
+      path.y0 = prev ? prev.y ?? worldY : worldY;
+      if (prev) {
+        prev.s = s;
+        prev.x = x;
+        prev.y = worldY;
+        prev.roadScale = roadScale;
+        prev.s0 = s;
+        prev.x0 = x;
+        prev.y0 = worldY;
+      } else {
+        st.lastPosition = { s, x, y: worldY, roadScale, s0: s, x0: x, y0: worldY };
+      }
     }
-    const events = [];
-    const brooms = [];
+    events.length = 0;
+    brooms.length = 0;
     for (let i = 0; i < objects.length; i++) {
       const o = objects[i];
       if ((o.life -= dt) <= 0) continue;
@@ -1101,8 +1193,7 @@ export function createGameplayCore(track, hooks = {}) {
           }
           grantBoost(o.owner.boost, dt * 1.3);
           k.speed += Math.min(4, Math.max(0, o.target.kart.speed + 3 - k.speed)) * dt;
-          // The tether's after-drive pull must obey the same in-lane cap as flight.
-          if(k.flying)k.speed=Math.min(k.speed,CRUISE_SPEED*SKY_MAX_SPEED);
+          if (k.flying) k.speed = Math.min(k.speed, Math.max(flightCeiling(k), k.speed - 4 * dt));
           break;
         case 'beam':
           break;
@@ -1144,22 +1235,18 @@ export function createGameplayCore(track, hooks = {}) {
       }
     }
 
-    function queue(time, kind, o, target) {
-      if (Number.isFinite(time)) events.push({ time, kind, o, target });
-    }
-
     for (let i = 0; i < objects.length; i++) {
       const o = objects[i];
       if (o.life <= 0 || (!FLYING_TYPES.has(o.type) && !TRAP_TYPES.has(o.type))) continue;
       for (let j = 0; j < brooms.length; j++) {
         const a = brooms[j];
-        if (o.owner !== a) queue(contactTime(o, actorPaths.get(a), 7, 6, 4, track.length), 'clear', o);
+        if (o.owner !== a) queue(contactTime(o, paths[stateKey(a)], 7, 6, 4, track.length), 'clear', o);
       }
       if (o.type === 'puck' && elapsed - o.born < 0.45) continue;
       for (let j = 0; j < pack.length; j++) {
         const a = pack[j];
         if (a === o.owner || a.finish != null || o.tagged?.has(a) || (o.target && a !== o.target)) continue;
-        const path = o.born === elapsed ? state(a).lastPosition : actorPaths.get(a);
+        const path = o.born === elapsed ? state(a).lastPosition : paths[stateKey(a)];
         const reach = o.type === 'puck' ? 4.2 : 0;
         if (!reach && hasShapedBody(a.kart)) {
           const padX = o.type === 'slip' ? 1.10 : 0.40;
@@ -1174,7 +1261,9 @@ export function createGameplayCore(track, hooks = {}) {
         const h = trackHazards[j];
         if (h.active === false || Math.abs(deltaS(o.s, h.s)) > h.depth / 2 + Math.abs(o.s - o.s0) + 2) continue;
         const y = pointY(h.s, h.x, h.height / 2);
-        const barrier = { s: h.s, s0: h.s, x: h.x, x0: h.x, y, y0: y };
+        barrier.s = barrier.s0 = h.s;
+        barrier.x = barrier.x0 = h.x;
+        barrier.y = barrier.y0 = y;
         queue(contactTime(o, barrier, h.depth / 2 + 0.4, h.width / 2 + 0.4, h.height / 2 + 0.4, track.length), 'barrier', o);
       }
       if (o.type === 'ball' || o.type === 'disc') {
@@ -1238,7 +1327,11 @@ export function createGameplayCore(track, hooks = {}) {
   }
 
   function update(dt, pack, afterContacts) {
-    actors = pack.filter((a) => !a.kart.fall);
+    // Refilled in place: the list of karts on the road is rebuilt every tick.
+    actors.length = 0;
+    for (let i = 0; i < pack.length; i++) {
+      if (!pack[i].kart.fall) actors.push(pack[i]);
+    }
     elapsed += dt;
     resolveKartContacts(track, actors);
     afterContacts?.();
@@ -1258,6 +1351,8 @@ export function createGameplayCore(track, hooks = {}) {
     reset();
     track = next;
     rewards = [...(track.pads || []), ...(track.pickups || [])];
+    rewardIndex = createRoadIndex(rewards, track.length);
+    padIndex = createRoadIndex(track.pads, track.length);
   }
 
   function captureState(allActors) {
@@ -1283,7 +1378,9 @@ export function createGameplayCore(track, hooks = {}) {
       x0: o.x0,
       y0: o.y0,
       height: o.height,
-      life: o.life,
+      // A shield bubble lasts until its shield runs out: its life is Infinity, which JSON
+      // cannot carry. It is written as null and read back as Infinity in applyState.
+      life: Number.isFinite(o.life) ? o.life : null,
       born: o.born,
       v: o.v,
       vx: o.vx,
@@ -1313,8 +1410,11 @@ export function createGameplayCore(track, hooks = {}) {
     for (let i = objects.length - 1; i >= 0; i--) hooks.onRemove?.(objects[i]);
     objects.length = 0;
     actorStates = Object.create(null);
-    actors = allActors.filter((a) => !a.kart.fall);
     elapsed = snap.elapsed ?? 0;
+    // The list of karts on the road is filled by the first `update`. Before that (the whole
+    // countdown) it is empty, and a restored world has to start from the same empty list or
+    // the AI reads a different pack on the first race tick.
+    actors = elapsed > 0 ? allActors.filter((a) => !a.kart.fall) : [];
     nextEntityId = snap.nextEntityId ?? 1;
     nextVolleyId = snap.nextVolleyId ?? 1;
     const byId = new Map();
@@ -1345,6 +1445,7 @@ export function createGameplayCore(track, hooks = {}) {
       }
       const obj = {
         ...raw,
+        life: raw.life ?? Infinity,
         owner: byId.get(raw.ownerId) ?? allActors[0],
         target: raw.targetId != null ? byId.get(raw.targetId) ?? null : null,
         tagged,

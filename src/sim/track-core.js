@@ -364,14 +364,23 @@ export function createTrackCore(course = CIRCUITS[0]) {
 
   // Scratch locate record to avoid per-call object allocation in hot paths.
   const loc = { distance: 0, index: 0, a: nodes[0], b: nodes[1], t: 0 };
+  // Where the last lookup landed. Lookups come in runs around one kart, so the same stretch
+  // between two nodes usually answers the next one and the search is skipped. Nodes are in
+  // road order, so a stretch that contains the distance is the one the search would find.
+  let lastNode = 0;
   function locateInto(s, out) {
     const distance = mod(s, length);
-    let lo = 0;
-    let hi = nodes.length - 1;
-    while (lo + 1 < hi) {
-      const mid = (lo + hi) >>> 1;
-      if (nodes[mid].s <= distance) lo = mid;
-      else hi = mid;
+    let lo = lastNode;
+    let hi = lo + 1;
+    if (!(nodes[lo].s <= distance && distance < nodes[hi].s)) {
+      lo = 0;
+      hi = nodes.length - 1;
+      while (lo + 1 < hi) {
+        const mid = (lo + hi) >>> 1;
+        if (nodes[mid].s <= distance) lo = mid;
+        else hi = mid;
+      }
+      lastNode = lo;
     }
     let sec = nodes[lo].section;
     if (distance + 1e-8 >= sections[sec].end) {
@@ -429,7 +438,15 @@ export function createTrackCore(course = CIRCUITS[0]) {
     curvature: 0, bank: 0, width: 16, index: 0, u: 0, distance: 0, grade: 0,
   };
 
+  // The road distance scratchFrame currently holds. A kart asks about the same place several
+  // times a tick (surface, bank, tyre heights), and a frame depends on nothing but `s`.
+  let scratchFrameS = NaN;
+
   function evalFrame(s, f) {
+    if (f === scratchFrame) {
+      if (s === scratchFrameS) return f;
+      scratchFrameS = s;
+    }
     locateInto(s, loc);
     const { a, b, t, distance, index: i } = loc;
     f.centerX = a.p.x + (b.p.x - a.p.x) * t;
@@ -565,6 +582,20 @@ export function createTrackCore(course = CIRCUITS[0]) {
     return mix(halfWidths[i], halfWidths[i + 1], u - i) - 0.5;
   }
 
+  // Both rails at one road distance, for callers that test every point of a kart's outline.
+  // `left` and `right` are exactly edgeAt(s, -1) and edgeAt(s, 1). The record is reused: read
+  // it before the next call.
+  const edgePair = { left: 0, right: 0 };
+  function edgesAt(s) {
+    const u = ((((s % length) + length) % length) * segments) / length;
+    const i = Math.min(segments - 1, Math.floor(u));
+    const closed = closedRails[i];
+    const inside = closed ? halfWidths[i] + (halfWidths[i + 1] - halfWidths[i]) * (u - i) - 0.5 : Infinity;
+    edgePair.left = closed & 1 ? inside : Infinity;
+    edgePair.right = closed & 2 ? inside : Infinity;
+    return edgePair;
+  }
+
   const grid = Array.from({ length: 6 }, (_, i) => gridSlot(i));
 
   const mapPoints = [];
@@ -655,6 +686,7 @@ export function createTrackCore(course = CIRCUITS[0]) {
     rampHeight,
     widthAt,
     edgeAt,
+    edgesAt,
     dropAt,
     reset,
     update,

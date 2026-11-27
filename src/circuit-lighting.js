@@ -59,12 +59,17 @@ export function createCircuitLighting(world,renderer,{enabled=true}={}){
  }
  function prepareKart(kart,ghost=false){
    if(!active||ghost||!kart)return;
-   kart.userData.body.traverse(m=>{
+   const cast=m=>{
     if(!m.isMesh||!lit(m.material))return;
     m.castShadow=true;
     // Keep the faceted characters readable at chase size; machinery and
     // mountains still receive sunlight shadows instead of floating above.
-   });
+   };
+   kart.userData.body.traverse(cast);
+   // A rival's distant build stands in for its body beyond the switch distance
+   // (src/kart-art.js), still inside the shadow bubble, so it has to cast too.
+   const low=kart.userData.low;
+   if(low){low.group.traverse(cast);for(const part of low.driverParts)part.traverse(cast);}
  }
  function focus(track,kart,time,forceNow=false){
    if(!active||!kart)return;

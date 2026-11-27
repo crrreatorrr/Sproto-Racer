@@ -26,6 +26,8 @@ describe('hub portal controls', () => {
     assert.equal(lobbyPadAction({ edges: edges([6]), index: 2, count, role: 'launch' }).type, 'launch');
     assert.equal(lobbyPadAction({ edges: edges([0]), index: 0, count, role: 'track' }).type, 'click');
     assert.equal(lobbyPadAction({ edges: edges([6]), index: 4, count, role: 'controls' }).type, 'controller');
+    assert.equal(lobbyPadAction({ edges: edges([0]), index: 5, count: 6, role: 'graphics' }).type, 'click');
+    assert.equal(lobbyPadAction({ edges: edges([6]), index: 5, count: 6, role: 'graphics' }).type, 'click');
   });
 
   it('asks before leaving a race, and the pad can stay or go', () => {

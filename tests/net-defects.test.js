@@ -42,7 +42,7 @@ describe('wire snapshot keys', () => {
       hopLift: 0.013, suspension: -0.014, stunRemaining: 0.015, rescues: 16, grounded: false,
       sliding: true, driftDirection: -1, fall: { time: 0.017, exitS: 18.018, respawnS: 19.019 },
       flying: true, skyLane: 1, skyY: 20.02, skyVX: -21.021, skyVY: 22.022, rollTime: 0.023, tumble: 0.024,
-      skyBoxKey: 25, skyBoxGot: 26, trickCount: 2, trickKind: 3, trickTime: 0.027,
+      skyBoxKey: 25, skyBoxGot: 26, skyHurt: 0.034, trickCount: 2, trickKind: 3, trickTime: 0.027,
     });
     Object.assign(b, { tier: 2, reserve: 1.028, meter: 0.029, pips: 3, skyChain: 4, skyTier: 1, skyTimer: 0.031 });
     Object.assign(a, { held: 12, charges: 3, reserve: 9, reserveCharges: 1, shield: 0.032, incoming: 'CURSOR INCOMING', finishUs: 33000033 });
@@ -57,7 +57,7 @@ describe('wire snapshot keys', () => {
       held: 12, charges: 3, reserve: 9, reserveCharges: 1, shield: 0.032, incoming: 'CURSOR INCOMING',
       finishUs: 33000033, finish: 33.000033,
       flying: true, skyLane: 1, skyY: k.skyY, skyVX: k.skyVX, skyVY: k.skyVY, rollTime: 0.023, tumble: 0.024,
-      skyChain: 4, skyTier: 1, skyTimer: 0.031, skyBoxKey: 25, skyBoxGot: 26,
+      skyChain: 4, skyTier: 1, skyTimer: 0.031, skyBoxKey: 25, skyBoxGot: 26, skyHurt: 0.034,
       trickCount: 2, trickKind: 3, trickTime: 0.027,
     };
     assert.deepEqual(Object.keys(decoded).sort(), Object.keys(expected).sort());

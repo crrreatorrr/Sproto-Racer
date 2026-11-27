@@ -425,7 +425,9 @@ function testBox(p, t, s, x, y, r, out) {
   const ez = Math.max(0, dy);
   if (ex * ex + ey * ey + ez * ez > r * r) return false;
   out.hit = true;
-  out.head = dx < 0 && dy < 0;
+  // Head-on means flying into the front face. A kart already alongside a long obstacle
+  // (a split plate, a squeeze wall) that drifts into its surface has only clipped it.
+  out.head = dx < 0 && dy < 0 && s - (pose.s - pose.hs) < r;
   // Push out through the nearest cross-section face that stays inside the corridor.
   const b = bounds;
   const right = pose.x + pose.hx + r - x;

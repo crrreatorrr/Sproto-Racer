@@ -20,7 +20,8 @@ export function createBoost(gain = 1) {
 
 // Sky Lane chain. Boost Cells are the only boost source in the air: each one adds
 // boost time and chain, and chain thresholds set the flight speed tier. A tier
-// drop falls back one step, never to zero.
+// drop falls back one step, never to zero. A hit takes its own tiers and no more: the
+// chain clock stands still while the kart tumbles and climbs back to speed.
 export const TRICK_SECONDS_BOOST = 0.5;
 export const SKY_TIER_CHAIN = [0, 3, 6, 10];
 export const SKY_CHAIN_SECONDS = 2.5;
@@ -54,7 +55,7 @@ export function dropSkyTier(boost, steps = 1) {
 export function stepSkyChain(boost, kart, dt) {
   if (!kart.flying) return;
   if (kart.skyScraped) boost.skyTimer -= 0.8;
-  boost.skyTimer -= dt;
+  if (!(kart.tumble > 0 || kart.skyHurt > 0)) boost.skyTimer -= dt;
   if (boost.skyTimer <= 0) {
     if (boost.skyTier > 0) dropSkyTier(boost, 1);
     else {

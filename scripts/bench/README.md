@@ -9,6 +9,7 @@ None of these run in `npm test`, `npm run test:qa` or CI. They take from a few s
 | `bench-sim.mjs` | Simulation tick cost, memory per tick, snapshot sizes and rollback cost in Node | Node 22 |
 | `prof.mjs` | Where the simulation tick spends its time (a CPU profile) | Node 22 |
 | `gojabench/` | The same tick inside Goja, the JavaScript engine the Nakama server uses | Go 1.26 or newer |
+| `sim-hashes.mjs` | Whether two checkouts simulate identical races (state hashes) | Node 22 |
 | `browser-harness.js` | Frame times, draw calls, triangles and shader programs in the real game | The dev server |
 
 ## Simulation in Node: `bench-sim.mjs`
@@ -49,19 +50,24 @@ The server runs `build/racer-sim.js` in Goja, which is far slower than Node. Thi
 
 ```sh
 cd scripts/bench/gojabench
-go run .
+go run . ../../../build/racer-sim.js
 ```
 
-Needs Go, and the first run downloads Goja. About 3 minutes. Pass another path to test a different build: `go run . /path/to/racer-sim.js`. If you changed `src/sim`, run `npm run build:server-sim` first so the bundle is current.
+Needs Go, and the first run downloads Goja. A few minutes for the default set. The path to the bundle is required; pass another one to test a different build. If you changed `src/sim`, run `npm run build:server-sim` first so the bundle is current.
 
-Each line is one room on Crestline Ridge (`track02`) timed for 60 seconds of game time:
+Flags (before the path): `-courses track02` picks circuits, `-configs 12:0,12:12` picks rooms as `seats:humans`, `-ticks` and `-warmup` set how long to time and how long to run first, `-profile cpu.pprof` writes a Goja CPU profile (read it with `go tool pprof -top cpu.pprof`), and `-dump ticks.txt` writes every tick's cost for the last room.
 
-| Field | Meaning |
+It prints one table row per room:
+
+| Column | Meaning |
 | --- | --- |
-| `humans`, `seats` | Karts driven by player input, and total karts. The rest are AI |
-| `tick mean`, `p95`, `p99`, `max` | Time for one step in milliseconds. The budget at 60 steps a second is 16.7 ms |
-| `encode+stringify` | Time to build one wire snapshot as JSON |
-| `stateHash` | Time to compute the state hash |
+| `Circuit`, `Seats`, `Humans` | The circuit, total karts, and how many are driven by player input. The rest are AI |
+| `Mean ms`, `p95`, `p99`, `Max` | Time for one step in milliseconds. The budget at 60 steps a second is 16.7 ms |
+| `Wire encode ms` | Time to build one wire snapshot as JSON |
+| `stateHash ms` | Time to compute the state hash |
+| `Hash at end` | The state hash after the run. Two builds that print the same hash simulated the same race |
+
+`sim-hashes.mjs` in this folder compares state hashes of many races between two checkouts; run it after any change that is meant to leave results untouched (its header gives the command).
 
 ## The game in a browser: `browser-harness.js`
 

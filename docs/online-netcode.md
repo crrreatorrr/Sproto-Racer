@@ -23,8 +23,10 @@ The server is the referee: its simulation is the result. Twice a second it sends
 | `src/net/sim-net.js` | A simulated network and an in-process match, for tests and for building the UI without a server. |
 | `src/race-runner.js`, `src/net/online-runner.js` | One interface for the game loop, with an offline and an online implementation. |
 | `src/race-results.js` | The final results in one shape for both. |
+| `src/race-cues.js` | Plays what a runner reports as sounds and effects, for the seat the player holds, and takes a cue back when a correction undoes it. |
+| `src/online-switch.js`, `src/online-dev.js` | The development switch and the online test race: a whole match inside the page, played through the real client (see "In the game"). |
 
-Nothing is wired into `src/main.js` or the UI, and there is no Nakama match handler yet.
+The game loop in `src/main.js` drives every race, single player included, through the RaceRunner interface. An online race can be played in the development server against a match that runs in the page. There is no Nakama match handler yet, so there is no real online race and no menu entry for one.
 
 ## Message flow
 
@@ -147,18 +149,18 @@ Opcodes 1 to 13 are unchanged from `src/net/protocol.js`. JSON for rare messages
 
 A test confirms the claim "one engine": an online race with one human and the same race run offline with the same seats and inputs end in the same state hash. `results()` has the same shape in both (`src/race-results.js`), and that is tested too.
 
-Checked against what `src/main.js` reads from `session.state` today. The interface does not provide, and the single-player move will have to add or keep:
+`src/main.js` uses this interface for every race: `advance`, `alpha`, `previousKart`, `correction`, `hud`, `drainEvents`, `localSeat` and `localActor`. What belongs to one player on one machine stays in `src/session.js`, on top of the local runner, hung on two hooks the runner calls around every tick (`onBeforeTick`, `onAfterTick`):
 
 - Time Trial ghosts: recording, the stored best lap, `session.ghost()` and `ghostSetup`.
 - Records: `session.best`, `reloadBest`, saving a record at the finish.
 - Test Drive tools: `session.select(item)`, the hazards switch, restarting from a chosen sector at speed.
-- Formatted split text (`hud().split` gives the numbers).
-- Pausing.
+- Formatted split text (`splitText(hud().split)`).
+- Pausing: offline the loop stops calling `advance`. An online race cannot pause; its menu opens over a race that keeps running.
 
-Two things the UI wiring must know:
+How the game deals with the two things that differ online:
 
-- Use `runner.localActor`. `world.state.player` is always seat 0, which online is somebody else for most players.
-- The gameplay hooks the renderer listens to (`onSpawn`, `onRemove`, `onVisualCue`, and the Sky Lane ones) fire again when ticks are replayed. Ignore them while `runner.resimulating` is true and take cues from `runner.drainEvents()`.
+- **Which kart is the player's.** Everything drawn or heard follows `runner.localSeat` and `runner.localActor`: the camera, the HUD, the minimap, the engine sound, which rivals fade when they block the view, which karts carry a distant build, and the extras only the driver sees. `world.state.player` and each actor's `isPlayer` still mean seat 0 inside the simulation (the AI and the server use them); nothing on screen reads them. `runner.hud()` gives the lap, sector, place and split for the local seat, and for seat 0 it is exactly what the simulation keeps (a test compares them on every tick of a full race on each circuit).
+- **Hooks that fire again when ticks are replayed.** `runner.resimulating` is true from the moment a saved state is put back until the replay is done. Item effects go through `runner.noteEvent`, which gives them the same treatment as the simulation's own events: announced once, marked `late` when they first show up in a replay, and followed by a `cancel` when a replay no longer produces them. `src/race-cues.js` plays them and stops a sound or removes an effect on `cancel`. Item meshes are kept through a replay (below).
 
 ## Measurements
 
@@ -229,6 +231,53 @@ Events and rollback: most revised events are `bump` (it fires on every tick of a
 
 Batch size: relaying every tick costs 13.6 KB/s down and the most rollback work, because a rollback then runs on every frame. Every 2 ticks is the default. Every 3 ticks saves another 1.7 KB/s and some CPU, but each correction is up to 33 ms staler, so remote karts jump further when corrected; it stays available through `inputBatchTicks`.
 
+## In the game: the online test race
+
+`npm run dev`, then open `http://127.0.0.1:5173/?online=loopback`. Quick Race now leads to a lobby and an online race. Address options: `latency` (one-way milliseconds on every connection, default 60), `jitter` (default a quarter of the latency), `stall` (chance per message of a 200 to 600 ms hold-up), `seats` (2 to 12, default 6), `humans` (players including this one, default 3; the rest are AI) and `laps`. Time Trial and Test Drive stay offline. A production build ignores the switch and does not contain the code (`src/online-switch.js`).
+
+What runs is the real thing at both ends. The page holds the authoritative match host (the code the server will run) and this player's real online runner, joined by simulated connections (`createLoopbackMatch`). The other players are rollback clients too, steered by the AI's decision code, so their steering changes on almost every tick like an analog stick: the hardest case for prediction. They join first, so this player is never in seat 0.
+
+Checked in the browser, with the measuring harness driving this player's kart (`scripts/bench/browser-harness.md`):
+
+- A hidden or frozen page: after 3 s the client caught up in under half a second without a resync; after 15 s it asked for the full state once and carried on. The in-page server keeps running while the page is hidden, as a real one would.
+- The menu during a race opens over a race that keeps running; closing the lobby leaves the match; the results list comes from the server's result message.
+
+### Frame cost in the real game
+
+Full three-lap races on Test Track 01, Apple M5 Pro, the Claude desktop app's browser pane, Auto graphics, 26 November 2026. Everyone on the same simulated connection; jitter a quarter of the latency. "Client work" is everything this player's online side does in a frame: take in the server's inputs, put back a saved state and re-run ticks when a guess was wrong, step the new tick, tidy item meshes and play cues. Single player's share of this is stepping its one tick. "Whole frame" is all script time in a frame, drawing included, without the in-page server and other players, which a real client does not run. Other work on the machine moved these by up to a quarter between runs (the 60 ms row with 6 karts read 0.21 ms in an earlier run).
+
+| Karts (players) | One-way latency | Compared with the host / different | Client work per frame: mean / 99% / worst (ms) | Ticks re-run per frame: mean / worst | Input lead (ticks) | Whole frame: mean (ms) | Frames over 50 ms | Shaders compiled after GO |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 6 (3) | 20 ms | 622 / 0 | 0.16 / 0.4 / 0.9 | 4.2 / 11 | 5 | 0.84 | 0 | 0 |
+| 6 (3) | 60 ms | 623 / 0 | 0.27 / 0.7 / 1.5 | 6.6 / 17 | 9 | 1.29 | 0 | 0 |
+| 6 (3) | 120 ms | 622 / 0 | 0.33 / 0.9 / 1.9 | 10.9 / 26 | 12 | 1.20 | 0 | 0 |
+| 6 (3) | 250 ms | 637 / 0 | 0.44 / 1.4 / 3.2 | 16.3 / 47 | 24 | 1.32 | 0 | 0 |
+| 12 (6) | 20 ms | 625 / 0 | 0.36 / 0.9 / 1.7 | 4.4 / 11 | 5 | 1.65 | 0 | 0 |
+| 12 (6) | 60 ms | 635 / 0 | 0.51 / 1.3 / 2.1 | 6.9 / 16 | 9 | 1.98 | 0 | 0 |
+| 12 (6) | 120 ms | 623 / 0 | 0.70 / 2.0 / 4.4 | 11.0 / 25 | 12 | 1.99 | 0 | 0 |
+| 12 (6) | 250 ms | 629 / 0 | 0.98 / 3.2 / 6.3 | 16.8 / 47 | 23 | 2.49 | 0 | 0 |
+
+Every race finished with the server's result on screen, no resync was ever needed, the client never had to wait for the server, and the console stayed empty. Crestline Ridge and Switchyard GP were also raced once each at 60 ms with 6 karts: 773 and 904 comparisons, none different. For scale, a single-player race on the same circuit costs about 0.77 ms of script a frame, so being online adds roughly 0.1 to 0.5 ms with 6 karts and, on a 12-kart grid, the client work is 0.4 to 1 ms out of a 16.7 ms frame. On a phone five to six times slower that is 2 to 6 ms a frame for 12 karts, which leaves room at 20 to 120 ms and is tight at 250 ms.
+
+Events, 12 karts: of 4,258 announced at 20 ms, 971 were first seen after a correction and 102 were taken back; at 250 ms it was 2,841 and 2,353 of 8,781. With 6 karts at 60 ms: 354 late and 27 taken back of 1,556.
+
+### Item meshes through a correction
+
+A correction puts a saved state back, and that removes every item object (shots, traps, shields) and creates the saved ones again, then re-runs a few ticks. Measured with 6 karts at 20 ms, where corrections are most frequent, about three item objects alive on average:
+
+| | Meshes kept (now) | Meshes dropped and rebuilt on every correction |
+| --- | --- | --- |
+| Client work per frame, frames with items alive: mean / worst (ms) | 0.16 / 0.9 | 0.19 / 3.9 |
+| Times an object was given a mesh from scratch, in one race | 2,120 | 27,856 |
+| Meshes built | 76 | 379 |
+| How much of its trail a shot in flight showed | 95% | 76% |
+
+So rebuilding cost little time, but it was visible: a rebuilt mesh only knows the few ticks the correction re-ran, so a shot's trail was cut short, most on a good connection where a correction reaches back only four ticks. Now `src/gameplay.js` keeps the mesh of an object that a replay removes and hands it back when the same object returns (same id, or the same kind, owner and moment of creation if the replay shifted the ids), draws nothing while old ticks are re-run, and after the frame's advance `play.settle()` drops the meshes that did not come back and draws the rest once. `?reuse=0` switches this off for a comparison.
+
+### Rivals outside the camera at the start
+
+A kart's shapes and pictures are sent to the graphics card the first time it is drawn. Single player never noticed: the player starts at the back of the grid, so every rival is drawn during the countdown. Online the player can start anywhere, and on a 12-kart grid the far rivals start on their distant build, so their full models were first drawn when they caught up: two or three frames of 54 to 81 ms in the first two seconds after GO. `drawKartsOnce` (`src/shader-warmup.js`) now draws every new kart once at race load, in both builds, into a single hidden pixel, and sends pictures that were still downloading as soon as they arrive. After it the worst frame of a 12-kart race was 9.8 to 22.6 ms including the in-page server. In single player the same work moved from the first countdown frame (40 to 52 ms before, 6 to 13 ms now) into the click that starts the race (about 40 ms longer).
+
 ## What the hub server needs
 
 The match host is part of `build/racer-sim.js`, so the server side of an online race is this repo's code end to end. What is left for `metaverse-hub` is a Nakama match handler that passes calls through. It has not been written or run against a real Nakama; the outline below is what the host's interface requires.
@@ -268,9 +317,11 @@ The budget is 16.7 ms a tick. The 12-kart match has single ticks over it (the wo
 
 ## Not covered yet
 
-- No Nakama match handler, no UI, nothing in `src/main.js`. The match host is in `build/racer-sim.js` and runs in Goja (next section); the handler that calls it lives in the `metaverse-hub` repo and is not written.
+- No Nakama match handler, so no real online race and no menu entry a player can reach. The match host is in `build/racer-sim.js` and runs in Goja (previous section); the handler that calls it lives in the `metaverse-hub` repo and is not written. The lobby in the game is the test one: it shows who is in and a READY button, nothing more (no room codes, no matchmaking through `src/net/hub-lobby.js`, no car change in the lobby, no rematch vote).
 - Not measured on a real network or a real server. Bandwidth figures count the JSON envelope, base64 and the WebSocket frame header; they do not count TCP/IP headers or TLS framing.
-- Rendering during rollback: `applySnapshot` removes and re-creates every projectile through the gameplay hooks, so a rollback would rebuild projectile meshes each time. The UI wiring needs a cheaper path (reuse meshes by object id).
+- Cues the game works out from what is on screen rather than from events (the crash sound, the place change pop-up, the Sky Lane sounds) follow the predicted race. They cannot fire twice for one change, but a change that a correction undoes and then makes again is announced again.
+- The circuit's own moving parts and pickups are redrawn on every re-run tick. It did not show in the numbers above; it would be the first thing to skip if a slow device needs the time.
+- Not measured on a phone, or with a person driving. The frame costs above are a desktop's, with the stand-in players steering like an analog stick.
 - Remote karts are predicted by holding their last input. With an analog stick that is wrong on most ticks (hence a rollback on nearly every frame); it is cheap and correct, but smarter prediction would cut visible corrections at high latency.
 - A player whose connection stays up but who stops sending input is not replaced by the AI; their kart coasts. Only a leave hands the seat over.
 - A late joiner drives the car the AI seat already had.
@@ -283,5 +334,11 @@ Worked around in new files; nothing under `src/sim` was edited. Both were later 
 
 1. **`applySnapshot` leaves stale kart fields.** The driving code adds `airFloorY`, `takeoffPitch` and `takeoffRoll` to a kart the first time it leaves the ground. Restoring a snapshot from before that leaves the old values in place, so a rolled-back world drifted from the host within seconds of the start. `restoreSnapshot` blanks any kart or boost field the snapshot lacks.
 2. **The gameplay core's private list of karts in play** is empty in a fresh world until the first racing tick, but `applyState` fills it. The AI reads it when picking a lane, so a rollback during the countdown changed the AI's first move. `restoreSnapshot` resets the gameplay core when the snapshot is from before the first racing tick.
+
+Found while wiring the game, fixed in this repo outside `src/sim`:
+
+3. **The game's item layer could not be saved.** `createGameplay` (`src/gameplay.js`) wraps the simulation's item code for drawing, and did not pass on `captureState`, `applyState` or `objects`. A world built on it took snapshots with no items in them and hashed as if it had none, so the first online race in the game drifted from the host within seconds (10 of 16 comparisons differed). Single player never takes a snapshot, so nothing showed. The layer now passes them on; `qa/online-item-meshes.test.js` holds it.
+4. **`resimulating` was false while a saved state was put back**, so the hooks fired by the restore itself looked like new play. It is now true from the restore to the end of the replay.
+5. **A rollback client given no controls for a tick threw**, because `controlsToIntentFrame` only defaults a missing argument, not `null`. The client now treats "nothing this tick" as hands off.
 
 Of the three defects the audit listed, none is on this code's path: the wire snapshot (`rv` key) and JSON state (`Infinity`) are not used, and the host has its own input queue rather than `input-buffer.js`.

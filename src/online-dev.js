@@ -160,6 +160,11 @@ export function createLoopbackRace({ settings, courseId, hello, createWorld, see
     settings,
     runner,
     match,
+    // The game's own notes on this race: READY pressed, the lobby list last drawn, and
+    // whether the first countdown beep has played.
+    saidReady: false,
+    shownLobby: '',
+    counting: false,
     pump,
     /** Call after each `runner.advance` of a race frame with what that took. */
     noteFrame(ms) {

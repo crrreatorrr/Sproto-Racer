@@ -1,4 +1,5 @@
-// Optional frame-time & WebGL draw-call telemetry overlay (?perf=1).
+// Optional frame-time & WebGL draw-call telemetry overlay (?perf=1). It also shows the graphics
+// tier and the pixel ratio in use (see quality.js; ?quality=low|medium|high|auto overrides the tier).
 // Zero allocations in steady state and zero debug globals exposed in production.
 
 const SAMPLE_WINDOW = 180;
@@ -20,6 +21,7 @@ export function createPerfMonitor(options = {}) {
       beginSim() {},
       endSim() {},
       recordFrame() {},
+      noteQuality() {},
       dispose() {},
     };
   }
@@ -32,6 +34,9 @@ export function createPerfMonitor(options = {}) {
   let simStart = 0;
   let simAccumMs = 0;
   let lastPaintAt = 0;
+  let qualityTier = '';
+  let qualityRatio = 0;
+  let qualityScale = 1;
 
   let panel = null;
   if (typeof document !== 'undefined' && document.body) {
@@ -61,6 +66,13 @@ export function createPerfMonitor(options = {}) {
 
   function endSim() {
     simAccumMs += performance.now() - simStart;
+  }
+
+  /** The graphics tier, the pixel ratio in use and the scaler's share of it. Call when they change. */
+  function noteQuality(tier, pixelRatio, scale = 1) {
+    qualityTier = tier;
+    qualityRatio = pixelRatio;
+    qualityScale = scale;
   }
 
   function summarize() {
@@ -101,9 +113,13 @@ export function createPerfMonitor(options = {}) {
       const renderInfo = renderer?.info?.render;
       const calls = renderInfo?.calls ?? 0;
       const tris = renderInfo?.triangles ?? 0;
+      const canvas = renderer?.domElement;
       panel.textContent =
         `FPS ${Math.round(stats.fps)}  ${stats.avgMs.toFixed(1)}ms (p95 ${stats.p95Ms.toFixed(1)} / max ${stats.maxMs.toFixed(1)})\n` +
-        `SIM ${stats.simMs.toFixed(2)}ms  DRAW ${calls}  TRI ${(tris / 1000).toFixed(1)}k`;
+        `SIM ${stats.simMs.toFixed(2)}ms  DRAW ${calls}  TRI ${(tris / 1000).toFixed(1)}k` +
+        (qualityTier
+          ? `\nGFX ${qualityTier}  PR ${qualityRatio.toFixed(2)} (x${qualityScale.toFixed(2)})  ${canvas?.width ?? 0}x${canvas?.height ?? 0}`
+          : '');
     }
   }
 
@@ -117,6 +133,7 @@ export function createPerfMonitor(options = {}) {
     beginSim,
     endSim,
     recordFrame,
+    noteQuality,
     summarize,
     dispose,
   };

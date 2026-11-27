@@ -20,6 +20,7 @@ import {createItemFx,cueIconType} from './item-fx.js';
 import {createRaceFX} from './race-fx.js';
 import {createSession,DEFAULT_TEST,timeText} from './session.js';
 import {createPerfMonitor} from './perf.js';
+import {TIERS,TIER_IDS,basePixelRatio,createResolutionScaler,loadTier,minScaleFor,saveTier,setActiveTier} from './quality.js';
 import {lerpAngle} from './sim/math.js';
 import {laneCeiling,lapOf,nextCell} from './sim/sky.js';
 import {createTrackSample} from './sim/track-core.js';
@@ -32,10 +33,30 @@ mountUI();
 const $=id=>document.getElementById(id);
 const input=createInput();
 const perf=createPerfMonitor();
+// Graphics tier: the ?quality= override, then the saved choice, then Auto.
+let storage=null;
+try{storage=window.localStorage;}catch{}
+let gfx=setActiveTier(loadTier(storage,location.search));
+// Antialiasing is a WebGL context attribute, so a tier change reaches it on the next page load.
+const bootAntialias=gfx.antialias;
+const scaler=createResolutionScaler();
 let renderer;
-try{renderer=new THREE.WebGLRenderer({antialias:true,alpha:false,powerPreference:'high-performance'});}
+try{renderer=new THREE.WebGLRenderer({antialias:bootAntialias,alpha:false,powerPreference:'high-performance'});}
 catch(error){$('hero-canvas').innerHTML='<div class="unavailable">WebGL 2 is unavailable. Enable hardware acceleration in your browser and reload.</div>';$('launch').disabled=true;throw error;}
-renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,1.6));
+// The frame loop keeps these current: the screen's ratio is re-read every frame, and during a race
+// the scaler lowers the pixel ratio when frames run slow.
+let seenDpr=0,pixelRatio=basePixelRatio(gfx,window.devicePixelRatio),debugFrameMs=0;
+renderer.setPixelRatio(pixelRatio);perf.noteQuality(gfx.id,pixelRatio,1);
+function setGraphics(id){
+  gfx=setActiveTier(id);saveTier(storage,gfx.id);
+  scaler.reset();seenDpr=0;
+}
+if(perf.enabled)window.__sprotoQuality={
+  // Test hook, ?perf=1 only: feed the scaler this frame time instead of the real one (0 = real).
+  simulateFrameMs(ms){debugFrameMs=ms>0?ms:0;},
+  state:()=>({tier:gfx.id,pixelRatio,scale:scaler.scale,level:scaler.level,levels:scaler.levels,changes:scaler.changes,holding:scaler.holding,
+    canvas:[renderer.domElement.width,renderer.domElement.height],antialias:renderer.getContextAttributes().antialias}),
+};
 renderer.outputColorSpace=THREE.SRGBColorSpace;
 renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=1.12;
 $('hero-canvas').append(renderer.domElement);
@@ -238,11 +259,30 @@ function testTools(first=false){
   $('apply-test').onclick=()=>{config={sector:+$('sector-choice').value,speed:$('entry').value,rivals:$('rivals').value,item:+$('test-item').value,lap:+$('test-lap').value};begin('test',config);};
   $('cancel-panel').onclick=()=>closePanel();
 }
+// The Graphics choice, shared by the pause panel and the paddock's Graphics panel.
+const graphicsField=()=>`<label>GRAPHICS<select id="graphics-choice">${options(TIER_IDS.map(id=>[id,TIERS[id].label]),gfx.id)}</select></label><p class="subtle" id="graphics-help" aria-live="polite"></p>`;
+function bindGraphics(){
+  const paint=()=>{
+    const waits=gfx.antialias!==bootAntialias;
+    setText('graphics-help',gfx.blurb+(waits?' Edge smoothing turns '+(gfx.antialias?'on':'off')+' the next time the page loads.':''));
+    if($('graphics-reload'))$('graphics-reload').hidden=!waits;
+  };
+  $('graphics-choice').onchange=event=>{setGraphics(event.target.value);paint();fx.tone('click');};
+  paint();
+}
+function graphicsPanel(){
+  showPanel('graphics',`<h2 id="panel-title">Graphics</h2><p>Lower settings trade sharpness for a smoother frame rate. Resolution changes straight away.</p>${graphicsField()}<div class="panel-actions"><button class="primary" id="graphics-done">DONE ${icon('arrow')}</button><button id="graphics-reload" hidden>Reload now to apply</button></div>`);
+  bindGraphics();
+  $('graphics-done').onclick=closePanel;
+  $('graphics-reload').onclick=()=>{const url=new URL(location.href);url.searchParams.delete('quality');location.replace(url);};
+}
+$('graphics').onclick=graphicsPanel;
 function restartSection(){if(state.mode==='test')begin('test',{...session.settings,sector:state.sector,lap:state.lap,item:state.player.held});else begin(state.mode);}
 function pause(){
   if(screen!=='game'||state.done||feedbackHold.held())return;
-  showPanel('pause',`<h2 id="panel-title">Paused</h2><p>${track.name} · ${track.sections[state.sector].name}</p><div class="keys"><span><kbd>WASD / ↑↓←→</kbd> Drive</span><span><kbd>Q</kbd> Hop & drift</span><span><kbd>E</kbd> Drift boost</span><span><kbd>SPACE</kbd> Item</span><span><kbd>N N</kbd> Feedback</span>${state.player.car==='barrage'&&state.mode!=='trial'?'<span><kbd>F</kbd> Pulse blasters</span>':''}</div><p>Steer and hold drift through the hop. Press boost in the marked zone, then time the next charge. Mix up to three Goods and Perfects per slide. Each Good adds 0.8s and each Perfect adds 1.2s. Boost items add to the same timer. Kart bumps preserve boost. Rail, obstacle, and unblocked item hits cut it.</p><div class="panel-actions"><button class="primary" id="resume">RESUME ${icon('arrow')}</button>${state.mode==='test'?'<button id="panel-tools">Test tools</button>':''}<button id="retry">${state.mode==='test'?'Restart current section':'Restart race'}</button><button id="edit-pad">Controller setup</button><button id="back-home">Return to paddock</button><button id="pause-hub" type="button">Return to hub</button></div>`);
+  showPanel('pause',`<h2 id="panel-title">Paused</h2><p>${track.name} · ${track.sections[state.sector].name}</p><div class="keys"><span><kbd>WASD / ↑↓←→</kbd> Drive</span><span><kbd>Q</kbd> Hop & drift</span><span><kbd>E</kbd> Drift boost</span><span><kbd>SPACE</kbd> Item</span><span><kbd>N N</kbd> Feedback</span>${state.player.car==='barrage'&&state.mode!=='trial'?'<span><kbd>F</kbd> Pulse blasters</span>':''}</div><p>Steer and hold drift through the hop. Press boost in the marked zone, then time the next charge. Mix up to three Goods and Perfects per slide. Each Good adds 0.8s and each Perfect adds 1.2s. Boost items add to the same timer. Kart bumps preserve boost. Rail, obstacle, and unblocked item hits cut it.</p>${graphicsField()}<div class="panel-actions"><button class="primary" id="resume">RESUME ${icon('arrow')}</button>${state.mode==='test'?'<button id="panel-tools">Test tools</button>':''}<button id="retry">${state.mode==='test'?'Restart current section':'Restart race'}</button><button id="edit-pad">Controller setup</button><button id="back-home">Return to paddock</button><button id="pause-hub" type="button">Return to hub</button></div>`);
   $('resume').onclick=closePanel;$('retry').onclick=restartSection;$('edit-pad').onclick=controller;$('back-home').onclick=home;$('pause-hub').onclick=confirmHub;if($('panel-tools'))$('panel-tools').onclick=()=>testTools();
+  bindGraphics();$('resume').focus({preventScroll:true});
   stampAccount();
 }
 function confirmHub(){
@@ -365,13 +405,13 @@ for(const [index,item] of ITEMS.entries()){
   inventory.append(button);
 }
 let navPrev=[];
-function lobbyButtons(){return [...document.querySelectorAll('[data-track],.mode'),$('launch'),$('return-hub'),$('controls')];}
+function lobbyButtons(){return [...document.querySelectorAll('[data-track],.mode'),$('launch'),$('return-hub'),$('controls'),$('graphics')];}
 function menuPad(){
  const pad=input.rawPad();if(!pad){navPrev=[];return;}
  const down=padEdges(pad);
  const edge=down.map((v,i)=>v&&!navPrev[i]);navPrev=down;
  if(!edge.some(Boolean)||controllerOpen)return;
- if(garage.active){
+ if(garage.active&&!modal){
    if(edge[1])garage.back();
    else if(edge[2]||edge[3]||edge[4]||edge[5])garage.move(edge[4]||edge[2]?-1:1);
    else if(edge[6])$('garage-next').click();
@@ -640,7 +680,17 @@ function frame(now){
  const rawDt=Math.max(0,(now-previous)/1000);
  const dt=Math.min(.1,rawDt);previous=now;animation+=dt;
  const host=screen==='lobby'?$('hero-canvas'):$('race-canvas');const W=host.clientWidth,H=host.clientHeight;
- if(W&&H&&(W!==w||H!==h)){w=W;h=H;renderer.setSize(w,h,false);camera.aspect=w/h;camera.updateProjectionMatrix();}
+ const dpr=window.devicePixelRatio||1;
+ if(dpr!==seenDpr){seenDpr=dpr;scaler.setMinScale(minScaleFor(gfx,dpr));}
+ // The paddock always renders at the tier's full resolution; only a race is scaled.
+ const ratio=basePixelRatio(gfx,dpr)*(screen==='game'?scaler.scale:1),resized=W&&H&&(W!==w||H!==h);
+ if(resized||ratio!==pixelRatio){
+   if(ratio!==pixelRatio){pixelRatio=ratio;renderer.setPixelRatio(ratio);}
+   if(resized){w=W;h=H;renderer.setSize(w,h,false);camera.aspect=w/h;camera.updateProjectionMatrix();scaler.restart();}
+   perf.noteQuality(gfx.id,ratio,screen==='game'?scaler.scale:1);
+   // Resizing clears the canvas, and a paused race does not draw: repaint it once.
+   if(screen==='game'&&w&&h&&(modal||controllerOpen||feedbackHold.held()))renderer.render(world,camera);
+ }
  if(feedbackHold.held()){accumulator=0;requestAnimationFrame(frame);return;}
  const c=input.poll();
  if(controllerOpen){menuPad();requestAnimationFrame(frame);return;}
@@ -692,6 +742,7 @@ function frame(now){
    if(now-lastHUD>45){hud();lastHUD=now;}
    renderer.render(world,camera);
    perf.recordFrame(rawDt*1000,renderer,now);
+   scaler.sample(debugFrameMs||rawDt*1000);
    noteCrumbs();
    if(state.done){hud();finish();}
  }

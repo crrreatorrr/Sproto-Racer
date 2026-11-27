@@ -179,3 +179,6 @@
 @media(prefers-reduced-motion:reduce){#reserve-hud[data-slot="drawing"] #reserve-picture,#reserve-hud.swapped{animation:none}}
 @media(max-width:620px){.item-slots{gap:4px}#reserve-hud{width:44px;padding:3px 2px}#reserve-picture{width:26px}#reserve-key{font-size:7px}}
 @media(min-width:481px) and (max-height:460px){#reserve-hud{width:46px;padding:3px}#reserve-picture{width:26px}}
+/* Graphics settings entry in the top bar: icon only on phones, where the bar has no room for a third label.
+   The logo keeps its single line; the Controller setup label wraps instead on the narrowest screens. */
+@media(max-width:620px){#graphics{padding:8px 4px}#graphics span{display:none}.brand{flex-shrink:0}}

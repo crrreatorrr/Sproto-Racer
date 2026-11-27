@@ -1,15 +1,12 @@
 // Sim tick cost, allocation per tick, snapshot sizes and rollback cost in Node (V8).
-// Run from the repo root:
-//   node --expose-gc --max-semi-space-size=256 --import ./tests/register-sdk-hook.js scripts/bench/bench-sim.mjs
-// --max-semi-space-size keeps the young generation from being collected during the timed loop,
-// so "alloc B/tick" is the heap growth per tick.
+//   node --expose-gc --max-semi-space-size=256 scripts/bench/bench-sim.mjs
+// See README.md in this folder for what each column means.
 import { performance } from 'node:perf_hooks';
 import zlib from 'node:zlib';
-const ROOT = process.cwd();
-const { createSimWorld } = await import(ROOT + '/src/sim/world.js');
-const { captureSnapshot, applySnapshot, encodeWireSnapshot } = await import(ROOT + '/src/sim/snapshot.js');
-const { stateHash } = await import(ROOT + '/src/sim/hash.js');
-const { CIRCUITS } = await import(ROOT + '/src/sim/track-core.js');
+import { createSimWorld } from '../../src/sim/world.js';
+import { captureSnapshot, applySnapshot, encodeWireSnapshot, decodeWireKart } from '../../src/sim/snapshot.js';
+import { stateHash } from '../../src/sim/hash.js';
+import { CIRCUITS } from '../../src/sim/track-core.js';
 
 const pct = (arr, p) => { const a = Float64Array.from(arr).sort(); return a[Math.min(a.length - 1, Math.floor(a.length * p))]; };
 const mean = (arr) => arr.reduce((a, b) => a + b, 0) / arr.length;
@@ -90,4 +87,14 @@ console.table(rows);
   }
   console.log('Rollback + resim cost, 12 seats, track02 (full world incl. AI):');
   console.table(out);
+}
+
+// Wire round trip: reverse speed and the reserve item must both survive encode + decode.
+{
+  const world = createSimWorld({ courseId: 'track01', seed: 5, seats: seatsOf(2) });
+  world.state.actors[0].kart.reverseSpeed = 4.2;
+  world.state.actors[0].reserve = 7;
+  const d = decodeWireKart(encodeWireSnapshot(world).k[0]);
+  console.log('wire round trip: sent reverseSpeed 4.2 / reserve 7 -> decoded', { reverseSpeed: d.reverseSpeed, reserve: d.reserve });
+  console.log('one kart on the wire:', JSON.stringify(encodeWireSnapshot(world).k[0]));
 }

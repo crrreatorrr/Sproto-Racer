@@ -284,7 +284,7 @@ A kart's pictures are sent to the graphics card the first time it is drawn. `mai
 
 ## What the hub server needs
 
-The match host is part of `build/racer-sim.js`, so the server side of an online race is this repo's code end to end. What is left for `metaverse-hub` is a Nakama match handler that passes calls through. It has not been written or run against a real Nakama; the outline below is what the host's interface requires.
+The match host is part of `build/racer-sim.js`, so the server side of an online race is this repo's code end to end. What `metaverse-hub` adds is a Nakama match handler that passes calls through. That handler is written and has run on a real Nakama: `server/modules/src/games/racer_match.ts`, in [crrreatorrr/metaverse-hub#209](https://github.com/crrreatorrr/metaverse-hub/pull/209) (open, not merged, as of 27 November 2026). Its own description is `docs/games/sproto-racer-online.md` there. The outline below is what the host's interface requires; "On a real Nakama" after it says what the handler does differently and what was measured.
 
 **In the bundle** (all on the `RacerSim` global, created lazily so nothing is frozen at start-up):
 
@@ -310,6 +310,35 @@ Things the handler must respect:
 - **Car and driver ownership.** By default the host accepts any car and driver in the roster. To enforce unlocks, pass `validateHello(playerId, { car, driver })` returning `{ ok: true, value: { car, driver } }` or `{ ok: false, error }`.
 - **Versions.** A client whose `simVersion` differs from the bundle's is refused at hello with `sim_version_mismatch`. The game client and the server bundle therefore have to be deployed together; the bundle's version changes whenever anything under `src/sim` or the match host changes.
 
+### On a real Nakama
+
+Nakama 3.41.0 in Docker on an Apple M5 Pro, 27 November 2026, with the handler from the hub pull request above.
+
+What the handler does that the outline does not say:
+
+- It passes the host a `broadcast` as well as a `send`, so a relayed input batch is one Nakama call for the whole room.
+- `broadcastMessage` accepts a string or an `ArrayBuffer` and throws on a `Uint8Array`, so every binary message is copied into a buffer of its own, as the table says. Nakama keeps that buffer until the socket writes it.
+- The name other players see is the hub account's. The `name` in HELLO is replaced before the host reads it.
+- Six karts and up to six players a room, three laps, `allowLateJoin: false`: nobody new joins once the race is set up, and the label closes then. A player who holds a seat can always come back.
+- A public lobby starts 45 s after its first player is in, ready or not (`host.start()`).
+- Rooms need the hub's `racer_online` flag, which is off.
+
+One full race: Test Track 01, three laps, six karts. Three were this repo's rollback client (`src/net/rollback-client.js`, steered by the scripted driver in `tests/net-harness.js`) over real sockets through the hub SDK; three were the server's AI. One client's socket was dropped for three seconds, twenty seconds in.
+
+| | |
+| --- | --- |
+| Race length | 19,356 ticks (5 min 23 s) |
+| Compared with the host / different | 646 / 0, 646 / 0 and 640 / 0 for the three clients |
+| Result | all three ended on the server's result, and its hash equalled the hash of each client's own final state |
+| The dropped client | back with one keyframe of 5,692 bytes (two chunks), in agreement to the end; about a second of its updates were spent waiting for it |
+| Corrections | 8,264, 9,121 and 8,262 over the race; the longest re-ran 10 ticks, 16 for the client that dropped |
+| Input lead | 5 ticks, all on one machine |
+| Match loop on the server (Nakama's copy of the match state, the handler, the host's tick), 19,480 loops | mean 2.41 ms; of the last 600, half at 2 ms or less, 95% at 3 ms or less, 99% at 4 ms or less (whole milliseconds); ten loops over 8 ms |
+| Slowest loop | 58 to 87 ms over three runs, once per race: the loop in which everyone is ready and the host builds the circuit, two seconds before the start |
+| Input the host took | 57,891 frames in 28,949 messages; 26 late (around the drop), one refused (sent before the returning client's HELLO), none malformed or over the rate |
+
+So a browser client and the server inside a real Nakama agree, tick for tick, for a whole race. The 2.41 ms is higher than the 1.33 ms a tick measured below in bare Goja; the difference is Nakama and Docker. Not measured: the production host, twelve karts, a real network.
+
 **Measured in Goja** (the engine Nakama runs match handlers in), on an Apple M5 Pro, by replaying a recorded match: `scripts/bench/host-transcript.mjs` records every join, leave, message and tick of a simulated race (three connection qualities, one player dropping for three seconds and rejoining), and `gojabench -host` feeds the same calls to the bundled host.
 
 | Room | Ticks | Host tick in Goja: mean / p95 / p99 / max | All message handling |
@@ -321,8 +350,8 @@ The budget is 16.7 ms a tick. The 12-kart match has single ticks over it (the wo
 
 ## Not covered yet
 
-- No Nakama match handler, so no real online race and no menu entry a player can reach. The match host is in `build/racer-sim.js` and runs in Goja (previous section); the handler that calls it lives in the `metaverse-hub` repo and is not written. The lobby in the game is the test one: it shows who is in and a READY button, nothing more (no room codes, no matchmaking through `src/net/hub-lobby.js`, no car change in the lobby, no rematch vote).
-- Not measured on a real network or a real server. Bandwidth figures count the JSON envelope, base64 and the WebSocket frame header; they do not count TCP/IP headers or TLS framing.
+- No menu entry a player can reach, so no real online race yet. The match host is in `build/racer-sim.js`; the hub's handler that calls it is written and tested on a real Nakama (previous section) but not merged, and it stays off behind the hub's `racer_online` flag. The lobby in the game is the test one: it shows who is in and a READY button, nothing more (no room codes, no matchmaking through `src/net/hub-lobby.js`, no car change in the lobby, no rematch vote).
+- Not measured on a real network or on the production server: the one real-Nakama race ran with server and clients on one machine. Bandwidth figures count the JSON envelope, base64 and the WebSocket frame header; they do not count TCP/IP headers or TLS framing.
 - Cues the game works out from what is on screen rather than from events (the crash sound, the place change pop-up, the Sky Lane sounds) follow the predicted race. They cannot fire twice for one change, but a change that a correction undoes and then makes again is announced again.
 - One or two frames of 57 to 89 ms in a 12-kart race, from `main`'s new scenery and shadows (see "Frame cost in the real game"), and one shader compiled mid-race in some online races.
 - Not measured on a phone, or with a person driving. The frame costs above are a desktop's, with the stand-in players steering like an analog stick.

@@ -18,6 +18,11 @@ function cloneBoost(b) {
   return { ...b };
 }
 
+// JSON has no Infinity: it writes null. A snapshot is sent as JSON, so the few values that are
+// legitimately infinite are written as null here and read back as the infinity they stand for.
+// (A shield bubble's life is the third such value; the gameplay core handles it the same way.)
+const finiteOrNull = (value) => (Number.isFinite(value) ? value : null);
+
 /**
  * Full deterministic state snapshot for exact rollback/reconciliation and server checkpoints.
  * Restoring via `applySnapshot` yields bit-identical future simulation steps and `stateHash`.
@@ -27,7 +32,8 @@ export function captureSnapshot(world, ackBySeat = null) {
   const hiddenPickups = [];
   const pickups = track.pickups || [];
   for (let i = 0; i < pickups.length; i++) {
-    if (pickups[i].hidden) hiddenPickups.push([i, pickups[i].readyAt]);
+    // A pickup hidden for a whole Time Trial never comes back: readyAt is Infinity.
+    if (pickups[i].hidden) hiddenPickups.push([i, finiteOrNull(pickups[i].readyAt)]);
   }
   return {
     v: 1,
@@ -71,7 +77,7 @@ export function captureSnapshot(world, ackBySeat = null) {
       notice: a.notice,
       noticeTime: a.noticeTime,
       splitStart: a.splitStart,
-      pickupDistance: a.pickupDistance,
+      pickupDistance: finiteOrNull(a.pickupDistance),
     })),
     gameplay: play.captureState ? play.captureState(state.actors) : null,
   };
@@ -106,7 +112,7 @@ export function applySnapshot(world, snap) {
       const [idx, readyAt] = snap.hiddenPickups[i];
       if (pickups[idx]) {
         pickups[idx].hidden = true;
-        pickups[idx].readyAt = readyAt;
+        pickups[idx].readyAt = readyAt ?? Infinity;
       }
     }
   }
@@ -117,6 +123,7 @@ export function applySnapshot(world, snap) {
       const car = carById(raw.car);
       return {
         ...raw,
+        pickupDistance: raw.pickupDistance ?? -Infinity,
         kart: Object.assign(createKart(car), raw.kart, {
           tuning: car,
           fall: raw.kart.fall ? { ...raw.kart.fall } : null,
@@ -157,7 +164,7 @@ export function applySnapshot(world, snap) {
       actor.notice = raw.notice;
       actor.noticeTime = raw.noticeTime;
       actor.splitStart = raw.splitStart;
-      actor.pickupDistance = raw.pickupDistance;
+      actor.pickupDistance = raw.pickupDistance ?? -Infinity;
     }
   }
   state.player = state.actors[0] || null;
@@ -166,9 +173,15 @@ export function applySnapshot(world, snap) {
 }
 
 /**
- * Compact network wire snapshot (~400-900 B for 6 karts + projectiles at 20 Hz, well below
- * Nakama's 8192-byte socket.max_message_size_bytes limit).
+ * Compact network wire snapshot. Measured as JSON: about 2.0-2.3 KB for 6 karts and 3.9-4.1 KB
+ * for 12, with the largest seen at 3.5 KB and 5.4 KB. The realtime socket carries binary
+ * payloads as base64 inside a JSON envelope, which adds about a third, so a busy 12-kart
+ * snapshot comes close to Nakama's 8192-byte socket.max_message_size_bytes limit.
  * Keeps kart.s unwrapped in integer millimeters (int32 covers +-2,147 km).
+ *
+ * Every key in a record must be unique: a repeated key silently keeps only the last value.
+ * An item's life `lf` is in milliseconds, or -1 for one that lasts until something removes it
+ * (a shield bubble), because JSON cannot carry Infinity.
  */
 const MM = 1000;
 const RAD_Q = 10000;
@@ -219,7 +232,7 @@ export function encodeWireSnapshot(world, ackBySeat = {}) {
         bp: b.pips,
         it: a.held ?? -1,
         ch: a.charges,
-        rv: a.reserve ?? -1,
+        ri: a.reserve ?? -1,
         rc: a.reserveCharges ?? 0,
         sh: Math.round((a.shield || 0) * 1000),
         in: a.incoming || '',
@@ -244,7 +257,7 @@ export function encodeWireSnapshot(world, ackBySeat = {}) {
       v: Math.round((o.v || 0) * MM),
       vx: Math.round((o.vx || 0) * MM),
       vy: o.vy == null ? null : Math.round(o.vy * MM),
-      lf: Math.round(o.life * 1000),
+      lf: Number.isFinite(o.life) ? Math.round(o.life * 1000) : -1,
       tn: o.tint ?? null,
     })),
   };
@@ -279,7 +292,7 @@ export function decodeWireKart(w) {
     boostPips: w.bp,
     held: w.it >= 0 ? w.it : null,
     charges: w.ch,
-    reserve: w.rv >= 0 ? w.rv : null,
+    reserve: w.ri >= 0 ? w.ri : null,
     reserveCharges: w.rc ?? 0,
     shield: w.sh / 1000,
     incoming: w.in || '',

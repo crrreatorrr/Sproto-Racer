@@ -1,6 +1,7 @@
 import * as T from 'three';
 import {RoundedBoxGeometry} from 'three/addons/geometries/RoundedBoxGeometry.js';
 import {assembly,surface,alloyReflections} from './kart-assembly.js';
+import {kartDetail,lowDetail} from './kart-detail.js';
 import {skipperAxles,skipperWheelWidth,skipperCabin as c,skipperMotor as motor,
   skipperDriver,skipperSection,skipperStations} from './skipper-layout.js';
 import hullUrl from './assets/skipper-hull.webp';
@@ -18,7 +19,8 @@ function initMaterials(){
   glass=new T.MeshPhysicalMaterial({color:'#99cbd4',transparent:true,opacity:.21,roughness:.13,
     depthWrite:false,side:T.DoubleSide,forceSinglePass:true});
 }
-let templates;
+const templates=[];
+let finishes;
 
 function strip(p,rows,mat,color,uv){
   const n=rows[0].length,indices=[];
@@ -161,6 +163,8 @@ function suspension(p){
     const a=new T.Vector3(...pt(.75,1.10,.135)),b=new T.Vector3(...pt(.985,r+.095,-.06));
     const axis=b.clone().sub(a).normalize(),u=new T.Vector3(0,0,1).cross(axis).normalize(),v=axis.clone().cross(u);
     p.pipe(alloy,a.toArray(),b.toArray(),.045,metal);
+    // From the switch distance the spring reads as its damper: the coil is left out.
+    if(lowDetail())continue;
     const coil=Array.from({length:91},(_,i)=>{
       const t=i/90,angle=t*12*Math.PI;
       return a.clone().lerp(b,.08+.77*t).addScaledVector(u,.069*Math.cos(angle)).addScaledVector(v,.069*Math.sin(angle));
@@ -234,27 +238,31 @@ function sternDetails(p){
   for(const xx of [.51,.72])rail(p,[[xx,1.42,1.61],[xx,1.455,1.68],[xx,1.39,1.75],[xx,.99,1.76]],.014);
   for(const yy of [1.075,1.234])p.pipe(alloy,[.51,yy,1.76],[.72,yy,1.76],.015,metal);
 }
+const contactPlane=new T.PlaneGeometry(3.35/1.32,5.22/2);
 export function attachSkipper(body,wheels,shadow){
-  if(!templates){
+  if(!finishes){
     initMaterials();
     enamel.envMap=metal.envMap=glass.envMap=alloyReflections();
     const map=new T.TextureLoader().load(hullUrl);map.colorSpace=T.SRGBColorSpace;map.anisotropy=8;
     const painted=new T.MeshPhysicalMaterial({map,roughness:.45,clearcoat:.35,envMap:enamel.envMap,side:T.DoubleSide});
-    const p=assembly(rubber);
     const alloyMap=new T.TextureLoader().load(metalUrl);
     alloyMap.colorSpace=T.SRGBColorSpace;alloyMap.anisotropy=8;
     const plating=new T.MeshStandardMaterial({map:alloyMap,roughness:.45,metalness:.45,envMap:metal.envMap,side:T.DoubleSide});
-    hull(p,painted,plating);pilothouse(p);suspension(p);outboard(p);sternDetails(p);
-    templates={body:p.finish(),wheel:wheel(),shadow:new T.TextureLoader().load(shadowUrl)};
+    finishes={painted,plating,shadow:new T.TextureLoader().load(shadowUrl)};
   }
+  const built=templates[kartDetail()]??=(()=>{
+    const p=assembly(rubber);
+    hull(p,finishes.painted,finishes.plating);pilothouse(p);suspension(p);outboard(p);sternDetails(p);
+    return {body:p.finish(),wheel:wheel()};
+  })();
   function attach(group,parts,flip=false){
     for(const part of parts){
       const mesh=new T.Mesh(part.geometry,part.material);mesh.userData.sharedKartPart=true;
       if(flip)mesh.rotation.y=Math.PI;group.add(mesh);
     }
   }
-  shadow.geometry.dispose();shadow.geometry=new T.PlaneGeometry(3.35/1.32,5.22/2);
-  shadow.material.alphaMap=templates.shadow;shadow.material.opacity=.90;
-  attach(body,templates.body);
-  for(const axle of wheels)attach(axle,templates.wheel,axle.position.x<0);
+  shadow.geometry=contactPlane;
+  shadow.material.alphaMap=finishes.shadow;shadow.material.opacity=.90;
+  attach(body,built.body);
+  for(const axle of wheels)attach(axle,built.wheel,axle.position.x<0);
 }

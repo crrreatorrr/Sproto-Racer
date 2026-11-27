@@ -1,13 +1,19 @@
 import * as T from 'three';
 import {assembly,alloyReflections} from './kart-assembly.js';
+import {kartDetail,withMountedScale} from './kart-detail.js';
 
 // Keep all driver variants sized around the original seated rig and steering grip.
 // A shared prebaked mesh is instantiated by garage, race and ghost alike.
-const templates=new Map();
+const templateSets=[new Map(),new Map()];
 const soft=new T.MeshStandardMaterial({vertexColors:true,roughness:.53,envMap:alloyReflections(),envMapIntensity:.22});
 const wet=new T.MeshStandardMaterial({vertexColors:true,roughness:.26,envMap:alloyReflections(),envMapIntensity:.45});
 const ink='#18241e',white='#fff2cb';
 function blueprint(person){
+  // Concept cars seat the driver at 0.6 to 0.7 scale.
+  return withMountedScale(.7,()=>model(person));
+}
+function model(person){
+  const templates=templateSets[kartDetail()];
   if(templates.has(person.id))return templates.get(person.id);
   const {skin,accent,cap,suit,id}=person;
   const green=id==='sproto'?'#769e21':skin;

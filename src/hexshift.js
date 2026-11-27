@@ -5,6 +5,7 @@ import reflectionUrl from './assets/hexshift-reflections.hdr?url';
 import contactUrl from './assets/hexshift-contact.png';
 import slickUrl from './assets/hexshift-slick.webp';
 import {mergeGeometries} from 'three/addons/utils/BufferGeometryUtils.js';
+import {kartDetail,lowDetail,reduceGeometry} from './kart-detail.js';
 
 export const hexshiftDriver={x:0,y:.84,z:.20,scale:.70};
 const tau=2*Math.PI;
@@ -24,15 +25,16 @@ function initMaterials(){
   jewel=new T.MeshPhysicalMaterial({color:0xffffff,emissive:'#2bc383',emissiveIntensity:.28,
     vertexColors:true,flatShading:true,roughness:.12,metalness:.16,clearcoat:1,envMapIntensity:.7});
 }
-let templates,contactMap;
+const templates=[];
+const contactPlane=new T.PlaneGeometry(2,2);
+let contactMap,dressed=false;
 
 export function styleHexshiftShadow(shadow){
   if(!contactMap){
     contactMap=new T.TextureLoader().load(contactUrl);
     contactMap.colorSpace=T.SRGBColorSpace;
   }
-  shadow.geometry.dispose();
-  shadow.geometry=new T.PlaneGeometry(2,2);
+  shadow.geometry=contactPlane;
   shadow.material.map=contactMap;
   shadow.material.color.set(0xffffff);
   shadow.material.opacity=1;
@@ -41,6 +43,8 @@ export function styleHexshiftShadow(shadow){
 // A closed loft. Rows run nose to tail, columns run left to right over
 // the painted face and return underneath, giving the tapered tips thickness.
 function shell(rows,columns,point){
+  // The distant build lofts the same surface through fewer stations.
+  if(lowDetail()){rows=Math.max(4,Math.ceil(rows/3));columns=Math.max(6,2*Math.ceil(columns/6));}
   const positions=[],indices=[],uv=[];
   for(let i=0;i<=rows;i++)for(let j=0;j<=columns;j++){
     positions.push(...point(i/rows,tau*j/columns));
@@ -71,9 +75,11 @@ function assembly(){
   function add(geometry,material,position=[0,0,0],rotation=[0,0,0],scale=[1,1,1]){
     const matrix=new T.Matrix4().compose(new T.Vector3(...position),
       new T.Quaternion().setFromEuler(new T.Euler(...rotation)),new T.Vector3(...scale));
-    const g=geometry;
+    geometry.applyMatrix4(matrix);
+    // The distant build swaps in a coarser shape here, or skips a tiny one.
+    const g=reduceGeometry(geometry,{keepUV:!material.userData.distant&&!!(material.map||material.bumpMap||material.roughnessMap)});
+    if(!g)return;
     if(!g.index)g.setIndex(Array.from({length:g.attributes.position.count},(_,i)=>i));
-    g.applyMatrix4(matrix);
     if(!buckets.has(material))buckets.set(material,[]);
     buckets.get(material).push(g);
   }
@@ -82,7 +88,7 @@ function assembly(){
     add(new T.TubeGeometry(curve,Math.max(4,points.length*3),r,8,false),material);
   }
   function finish(){
-    return Array.from(buckets,([mat,parts])=>{
+    return Array.from(buckets).filter(([,parts])=>parts.length).map(([mat,parts])=>{
       const merged=mergeGeometries(parts);parts.forEach(g=>g.dispose());
       return new T.Mesh(merged,mat);
     });
@@ -241,7 +247,8 @@ function roadWheel(){
     const g=new T.LatheGeometry(profile.map(([x,r])=>new T.Vector2(r,x)),64);
     p.add(g,mat,[0,0,0],[0,0,-Math.PI/2]);
   }
-  revolve(section,rubber);
+  // The distant tire keeps the outline and loses the two tread grooves.
+  revolve(lowDetail()?section.filter((_,i)=>![1,3,5,7,8,9,10,11,12,13,14,15,16,18,20,22].includes(i)):section,rubber);
   for(const r of [.291,.356,.383]){
     p.add(new T.TorusGeometry(r,.0026,5,64),rubber,[.193,0,0],[0,Math.PI/2,0]);
   }
@@ -308,20 +315,23 @@ function crystal(){
   return m;
 }
 export function attachHexshift(body,wheels){
-  if(!templates){
+  if(!dressed){
+    dressed=true;
     initMaterials();
     const tread=new T.TextureLoader().load(slickUrl);
     tread.wrapS=tread.wrapT=T.RepeatWrapping;
     tread.anisotropy=4;
     rubber.bumpMap=tread;rubber.bumpScale=.0022;rubber.roughnessMap=tread;
+    // The slick's grain is invisible from the switch distance: plain rubber there.
+    rubber.userData.distant={roughness:.72};
     const reflection=new HDRLoader().load(reflectionUrl);
     // The loader starts with a 1px placeholder. Delay environment prefiltering
     // until the HDR pixels arrive, including when the first preview is already visible.
     reflection.image.height=0;
     reflection.mapping=T.EquirectangularReflectionMapping;
     for(const finish of [plum,ivory,brass,bronze,steel,jewel])finish.envMap=reflection;
-    templates={chassis:chassis(),wheel:roadWheel(),gem:crystal()};
   }
+  const built=templates[kartDetail()]??={chassis:chassis(),wheel:roadWheel(),gem:templates[0]?.gem??crystal()};
   function attach(group,parts,flip=false){
     for(const template of parts){
       const mesh=template.clone();mesh.userData.sharedKartPart=true;
@@ -329,9 +339,9 @@ export function attachHexshift(body,wheels){
       group.add(mesh);
     }
   }
-  attach(body,templates.chassis);
-  for(const axle of wheels)attach(axle,templates.wheel,axle.position.x<0);
-  const gem=templates.gem.clone();gem.userData.sharedKartPart=true;
+  attach(body,built.chassis);
+  for(const axle of wheels)attach(axle,built.wheel,axle.position.x<0);
+  const gem=built.gem.clone();gem.userData.sharedKartPart=true;
   gem.scale.set(.145,.225,.135);gem.position.set(0,.47,-1.66);body.add(gem);
   return gem;
 }

@@ -2,6 +2,7 @@ import * as T from 'three';
 import {HDRLoader} from 'three/addons/loaders/HDRLoader.js';
 import reflectionUrl from './assets/hexshift-reflections.hdr?url';
 import {alloyReflections,assembly} from './kart-assembly.js';
+import {kartDetail,lowDetail,once} from './kart-detail.js';
 import {mantaAxles,mantaHalfTrack,mantaCockpit,mantaDriver,mantaEnds,mantaSection,mantaSweptZ,mantaWheelWidth} from './manta-layout.js';
 
 function grid(rows,reverse=false){
@@ -17,7 +18,8 @@ function grid(rows,reverse=false){
   return g;
 }
 
-function createTemplates(){
+// The finishes, lamp haze and contact shadow are shared by the full and distant builds.
+function createFinishes(){
   const envMap=alloyReflections();
   const pearl=new T.MeshPhysicalMaterial({color:0xc1cadb,metalness:.77,roughness:.21,clearcoat:1,clearcoatRoughness:.095,
     iridescence:.67,iridescenceIOR:1.46,iridescenceThicknessMinimum:270,iridescenceThicknessMaximum:410,envMap,side:T.DoubleSide});
@@ -36,6 +38,13 @@ function createTemplates(){
     }
   });
   pearl.envMapIntensity=.74;
+  return {pearl,hardware,alloy,dark,lens,glass};
+}
+
+function createTemplates(){
+  const {pearl,hardware,alloy,dark,lens,glass}=once('manta:finishes',createFinishes);
+  // The distant build samples the same hull surface on a coarser net of stations.
+  const low=lowDetail(),stations=low?44:150,perSpan=low?2:6,ribbonSteps=low?12:48;
   const glowPoints=[],glowColors=[];
   function emitAt(point,color,strength){
     glowPoints.push(...point);
@@ -45,10 +54,10 @@ function createTemplates(){
   const charcoal='#191e27',graphite='#323844',bright='#abb8c6';
   function line(points,r,material,color){
     const curve=new T.CatmullRomCurve3(points.map(v=>new T.Vector3(...v)));
-    body.add(new T.TubeGeometry(curve,Math.max(24,points.length*2),r,8),material,color);
+    body.add(new T.TubeGeometry(curve,low?Math.max(6,points.length):Math.max(24,points.length*2),r,8),material,color);
   }
   const [start,end]=mantaEnds;
-  const zs=Array.from({length:151},(_,i)=>start+(end-start)*i/150);
+  const zs=Array.from({length:stations+1},(_,i)=>start+(end-start)*i/stations);
   zs.push(mantaCockpit.z-mantaCockpit.length,mantaCockpit.z+mantaCockpit.length);
   zs.sort((a,b)=>a-b);
   const sectionCurve=z=>new T.SplineCurve(mantaSection(z).map(([x,y])=>new T.Vector2(x,y)));
@@ -58,7 +67,8 @@ function createTemplates(){
   // optical stack evaluate the same surface, including its shallow recess.
   function surfacePoint(side,column,z,curve){
     const p=curve.getPoint(column/11),t=(column-1.05)/2.63;
-    if(t>0 && t<1){
+    // The coarse net cannot hold the milled pocket, so its lenses sit on the smooth hood.
+    if(!low && t>0 && t<1){
       const w=lampHalfWidth(t),v=(z-lampZ(t))/w;
       p.y-=.021*Math.sin(Math.PI*t)*Math.exp(-(v**4));
     }
@@ -67,12 +77,13 @@ function createTemplates(){
   for(const side of [-1,1]){
     const rows=zs.map(z=>{
       const curve=sectionCurve(z);
-      return Array.from({length:67},(_,i)=>surfacePoint(side,i/6,z,curve));
+      return Array.from({length:11*perSpan+1},(_,i)=>surfacePoint(side,i/perSpan,z,curve));
     });
+    const edge=5*perSpan+1;
     body.add(grid(rows,side<0),pearl);
     // Roll the painted hood into the mouth. The grille is tucked back behind
     // a single swept splitter, with deeper intakes either side of the center.
-    const frontProfile=rows[0].slice(0,31).map(([x,y])=>{
+    const frontProfile=rows[0].slice(0,edge).map(([x,y])=>{
       const u=Math.min(1,Math.abs(x)/mantaSection(start)[5][0]);
       const inlet=Math.sin(Math.PI*u)**.72;
       return [[x,y,start],[x,y-.014,start-.014],[x*.994,y-.039,start-.012],
@@ -87,7 +98,8 @@ function createTemplates(){
     body.add(grid(frontProfile.map(r=>r.slice(8))),dark,graphite);
     // Blend the ends of the opening back to the exact fender section. The
     // upper and lower lips share vertices across the return into the wheel arch.
-    const outerFace=frontProfile.at(-1),outerRow=rows[0];
+    const outerFace=frontProfile.at(-1),noseCurve=sectionCurve(zs[0]);
+    const outerRow=Array.from({length:67},(_,i)=>surfacePoint(side,i/6,zs[0],noseCurve));
     const fenderIndices=[30,31,33,35,38,44,49,54,58,60];
     const returnRows=Array.from({length:7},(_,i)=>{
       const t=i/6;
@@ -99,13 +111,13 @@ function createTemplates(){
     body.add(grid(returnRows,side<0),pearl);
     // Short horizontal vanes remain deep behind the leading edge.
     for(const h of [.296,.344]){
-      const vanes=frontProfile.slice(3,26).map(r=>{
+      const vanes=frontProfile.slice(low?1:3,low?9:26).map(r=>{
         const x=r[5][0],z=r[5][2]-.013;
         return [[x,h,z-.009],[x,h+.008,z],[x,h+.006,z+.023]];
       });
       body.add(grid(vanes),dark,'#454d56');
     }
-    const tail=rows.at(-1).slice(0,31);
+    const tail=rows.at(-1).slice(0,edge);
     body.add(grid(tail.map(([x,y])=>[[x,y,end],[x,y-.024,end+.012],
       [x*.975,y-.057,end],[x*.95,.248,end-.073],[x,.212,end]])),dark,charcoal);
     // Return the blade into the underside before the wheel cutouts.
@@ -125,8 +137,8 @@ function createTemplates(){
     body.add(grid(lining,side>0),hardware,charcoal);
     line(lining.map(row=>row[0]),.014,dark,graphite);
     function opticalRibbon(begin,finish,near,far,lift,material,color){
-      const ribbon=Array.from({length:49},(_,i)=>{
-        const t=begin+(finish-begin)*i/48,column=1.05+2.63*t;
+      const ribbon=Array.from({length:ribbonSteps+1},(_,i)=>{
+        const t=begin+(finish-begin)*i/ribbonSteps,column=1.05+2.63*t;
         return [near,(near+far)*.5,far].map((across,j)=>{
           const z=lampZ(t)+across*lampHalfWidth(t),p=surfacePoint(side,column,z,sectionCurve(z));
           p[1]+=lift+(j===1?.0015:0);
@@ -151,7 +163,7 @@ function createTemplates(){
       return [side*(x+.003),y-.032,z];
     });
     // Carry the rear signature around the shoulder so it reads from chase view.
-    const rearEdge=tail.slice(6).map(([x,y,z])=>[x,y-.031,z+.017]);
+    const rearEdge=tail.slice(perSpan).map(([x,y,z])=>[x,y-.031,z+.017]);
     const rearGuide=[...rearEdge,...tailLamp.slice(1)];
     line(rearGuide,.022,dark,'#40151e');
     const rearCore=rearGuide.map(([x,y,z])=>[x+side*.009,y+.002,z+.014]);
@@ -162,8 +174,8 @@ function createTemplates(){
       emitAt([p.x+side*.004,p.y+.008,p.z+.012],'#ff2b32',.33*Math.sin(Math.PI*t)**.55);
     }
     // Draw the dark throat of each side duct inside the outer lip.
-    const duct=Array.from({length:49},(_,i)=>{
-      const u=i/48,z=-.67+1.40*u,s=mantaSection(z),t=Math.sin(Math.PI*u)**.64;
+    const duct=Array.from({length:ribbonSteps+1},(_,i)=>{
+      const u=i/ribbonSteps,z=-.67+1.40*u,s=mantaSection(z),t=Math.sin(Math.PI*u)**.64;
       const [x,y]=s[7];
       return [[side*(x+.008),y+.085*t,z],[side*(x+.012),y,z],[side*(s[8][0]+.014),y-.105*t,z]];
     });
@@ -180,8 +192,9 @@ function createTemplates(){
     }
   }
   // The wind deflector follows the forward half of the actual cockpit opening.
-  const screen=Array.from({length:65},(_,i)=>{
-    const angle=-1.40+2.80*i/64,z=mantaCockpit.z-mantaCockpit.length*Math.cos(angle);
+  const screenSteps=low?16:64;
+  const screen=Array.from({length:screenSteps+1},(_,i)=>{
+    const angle=-1.40+2.80*i/screenSteps,z=mantaCockpit.z-mantaCockpit.length*Math.cos(angle);
     const x=mantaCockpit.width*Math.sin(angle),y=mantaSection(z)[0][1];
     const rise=.178*Math.cos(angle);
     return [[x,y,z],[x*.98,y+rise,z+.09*Math.cos(angle)]];
@@ -248,6 +261,14 @@ function createTemplates(){
       position.setZ(i,mantaSweptZ(x,z));normal.setXYZ(i,n.x,n.y,n.z);
     }
   }
+  const {haze,contact,pool}=once('manta:light',createLight);
+  const emitters=new T.BufferGeometry();
+  emitters.setAttribute('position',new T.Float32BufferAttribute(glowPoints,3));
+  emitters.setAttribute('color',new T.Float32BufferAttribute(glowColors,3));
+  return {shell,wheels,glow:new T.Points(emitters,haze),contact,pool};
+}
+
+function createLight(){
   // Accumulate overlapping soft points along each actual emitter. One draw
   // call covers both ends, and the depth buffer occludes lamps behind the car.
   const size=64,pixels=new Uint8Array(size*size*4);
@@ -260,9 +281,6 @@ function createTemplates(){
   halo.magFilter=halo.minFilter=T.LinearFilter;halo.needsUpdate=true;
   const haze=new T.PointsMaterial({map:halo,size:1.02,vertexColors:true,transparent:true,
     opacity:.33,blending:T.AdditiveBlending,depthWrite:false,toneMapped:false});
-  const emitters=new T.BufferGeometry();
-  emitters.setAttribute('position',new T.Float32BufferAttribute(glowPoints,3));
-  emitters.setAttribute('color',new T.Float32BufferAttribute(glowColors,3));
   // Bake the low chassis shadow and four smaller tire contacts in road metres.
   const contactSize=192,contactPixels=new Uint8Array(contactSize*contactSize*4);
   for(let y=0;y<contactSize;y++)for(let x=0;x<contactSize;x++){
@@ -279,12 +297,44 @@ function createTemplates(){
   }
   const contact=new T.DataTexture(contactPixels,contactSize,contactSize);
   contact.magFilter=contact.minFilter=T.LinearFilter;contact.needsUpdate=true;
-  return {shell,wheels,glow:new T.Points(emitters,haze),contact};
+  // The headlights' reach on the ground is a painted pool, not two scene lights (which
+  // made every lit material in the scene pay for four lights). Each texel holds how much
+  // the two lamps add to daylight at that spot, from the same cone, falloff and aim the
+  // spotlights had; the pool brightens whatever ground it lies on by that share.
+  const poolW=64,poolH=128,poolPixels=new Uint8Array(poolW*poolH*4);
+  const lampTint=new T.Color(0xc5faff),beam=new T.Vector3(),reach=new T.Vector3();
+  const coneEdge=Math.cos(.52),coneCore=Math.cos(.52*(1-.84)),daylight=7.5;
+  for(let y=0;y<poolH;y++)for(let x=0;x<poolW;x++){
+    const across=((x+.5)/poolW-.5)*poolSize[0],along=(y+.5)/poolH,ahead=poolStart+along*poolSize[1];
+    let light=0;
+    for(const side of [-1,1]){
+      beam.set(side*.23,-.46,-2.30).normalize();
+      reach.set(across-side*.82,-.52,-ahead+2.18);
+      const distance=reach.length(),cone=T.MathUtils.smoothstep(reach.dot(beam)/distance,coneEdge,coneCore);
+      const falloff=T.MathUtils.clamp(1-(distance/8)**4,0,1)**2/Math.max(distance*distance,.01);
+      light+=27*cone*falloff*.52/distance;
+    }
+    // Soft outer edge, so the far end and the sides never show the quad.
+    const fringe=(1-T.MathUtils.smoothstep(along,.72,1))*(1-T.MathUtils.smoothstep(Math.abs(across)/(poolSize[0]/2),.8,1));
+    const gain=channel=>Math.round(255*Math.min(1,((1+light/daylight*channel)**.45-1)*fringe));
+    poolPixels.set([gain(lampTint.r),gain(lampTint.g),gain(lampTint.b),255],(y*poolW+x)*4);
+  }
+  const poolMap=new T.DataTexture(poolPixels,poolW,poolH);
+  poolMap.magFilter=poolMap.minFilter=T.LinearFilter;poolMap.needsUpdate=true;
+  // Drawn as ground x (1 + pool): bright on pale ground, barely there on dark tarmac,
+  // which is how the spotlights behaved.
+  const pool=new T.MeshBasicMaterial({map:poolMap,transparent:true,depthWrite:false,toneMapped:false,fog:false,
+    blending:T.CustomBlending,blendEquation:T.AddEquation,blendSrc:T.DstColorFactor,blendDst:T.OneFactor,
+    polygonOffset:true,polygonOffsetFactor:-3});
+  return {haze,contact,pool};
 }
+// The pool's width and length on the ground, and how far ahead of the car's centre it starts.
+const poolSize=[5.6,5.4],poolStart=2.25;
+const poolPlane=new T.PlaneGeometry(1,1),contactPlane=new T.PlaneGeometry(2,2);
 
-let templates;
+const templates=[];
 export function attachManta(body,axles,shadow,player,ghost){
-  templates??=createTemplates();
+  const built=templates[kartDetail()]??=createTemplates();
   function attach(parent,parts,flip){
     for(const part of parts){
       const mesh=new T.Mesh(part.geometry,part.material);
@@ -292,21 +342,24 @@ export function attachManta(body,axles,shadow,player,ghost){
       mesh.userData.sharedKartPart=true;parent.add(mesh);
     }
   }
-  shadow.geometry.dispose();
-  shadow.geometry=new T.PlaneGeometry(2,2);
-  shadow.scale.set(1.65,2.60,1);shadow.material.alphaMap=templates.contact;
+  shadow.geometry=contactPlane;
+  shadow.scale.set(1.65,2.60,1);shadow.material.alphaMap=built.contact;
   shadow.material.color.set(0x101723);shadow.material.opacity=.89;
-  attach(body,templates.shell,false);
+  attach(body,built.shell,false);
   if(!ghost){
-    const glow=templates.glow.clone();
+    const glow=built.glow.clone();
     glow.renderOrder=2;
     body.add(glow);
-    if(player)for(const side of [-1,1]){
-      const lamp=new T.SpotLight(0xc5faff,27,8,.52,.84,2);
-      lamp.position.set(side*.82,.52,-2.18);
-      lamp.target.position.set(side*1.05,.06,-4.48);
-      body.add(lamp,lamp.target);
+    if(player){
+      // Rides with the contact shadow: it stays on the road through hops and rolls,
+      // and shrinks away with it when the car leaves the ground.
+      const light=new T.Mesh(poolPlane,built.pool);
+      light.name='headlight-pool';light.userData.sharedKartPart=true;
+      light.scale.set(poolSize[0]/1.65,poolSize[1]/2.60,1);
+      light.position.set(0,(poolStart+poolSize[1]/2)/2.60,.004);
+      light.renderOrder=1;
+      shadow.add(light);
     }
   }
-  for(const axle of axles)attach(axle,templates.wheels[axle.position.z<0?0:1],axle.position.x<0);
+  for(const axle of axles)attach(axle,built.wheels[axle.position.z<0?0:1],axle.position.x<0);
 }

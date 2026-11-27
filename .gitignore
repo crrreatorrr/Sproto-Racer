@@ -1,3 +1,9 @@
 node_modules/
 /dist/
 .DS_Store
+
+# Benchmark outputs (scripts/bench)
+/scripts/bench/gojabench/gojabench
+/scripts/bench/prof/
+*.pprof
+*.cpuprofile

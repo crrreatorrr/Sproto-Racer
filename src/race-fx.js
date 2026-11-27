@@ -124,6 +124,8 @@ export function createRaceFX(scene,track) {
   const dust=new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1,0),
     new THREE.MeshBasicMaterial({transparent:true,opacity:.63,depthWrite:false}),PARTICLES);
   dust.frustumCulled=false; dust.count=0;
+  // Allocate the per-particle colours now, so the first puff uses a shader that is already compiled.
+  dust.setColorAt(0,new THREE.Color());
   dust.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   group.add(skid,dust);scene.add(group);
   const particles=Array.from({length:PARTICLES},()=>({

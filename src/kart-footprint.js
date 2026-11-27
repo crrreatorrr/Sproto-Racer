@@ -74,6 +74,57 @@ function polygon(points){
   return {points,axes};
 }
 
+// A circle around a convex outline, and how sharp its sharpest corner is (the sine of half the
+// smallest interior angle; 0 when the outline is not a proper convex polygon). See hullsApart.
+function discOf(shape){
+  if(shape.disc)return shape.disc;
+  const points=shape.points,count=points.length;
+  let minS=Infinity,maxS=-Infinity,minX=Infinity,maxX=-Infinity;
+  for(let i=0;i<count;i++){
+    const p=points[i];
+    minS=Math.min(minS,p.s);maxS=Math.max(maxS,p.s);minX=Math.min(minX,p.x);maxX=Math.max(maxX,p.x);
+  }
+  const s=(minS+maxS)/2,x=(minX+maxX)/2;
+  let radius=0,sharp=count>=3?1:0,turning=0;
+  for(let i=0;i<count;i++){
+    const a=points[(i+count-1)%count],p=points[i],b=points[(i+1)%count];
+    radius=Math.max(radius,hypot(p.s-s,p.x-x));
+    const us=a.s-p.s,ux=a.x-p.x,vs=b.s-p.s,vx=b.x-p.x,lu=hypot(us,ux),lv=hypot(vs,vx);
+    const cross=us*vx-ux*vs;
+    // Every corner must turn the same way, or this is not a convex outline in order.
+    if(!(lu>0&&lv>0) || cross*turning<0)sharp=0;
+    else if(cross!==0){
+      turning=cross;
+      sharp=Math.min(sharp,Math.sqrt(Math.max(0,(1-(us*vs+ux*vx)/(lu*lv))/2)));
+    }
+  }
+  if(!(radius>=0))sharp=0;
+  return shape.disc={s,x,radius,sharp};
+}
+
+// True only when two outlines are certainly clear of each other, in which case
+// footprintContact(a,b,ds,dx) is null and need not be run. It never changes an answer:
+//
+// - footprintContact reports contact only if the outlines overlap by more than 0.1 mm along
+//   every edge normal it keeps. polygon() drops a normal that is within 0.999999 (cosine) of one
+//   it already has, so each true edge normal is represented to within 1.42 mrad.
+// - Two convex outlines a distance d apart are separated by d along some edge normal when the
+//   nearest points involve an edge, and by at least d * sin(corner / 2) when corner meets
+//   corner. `sharp` is that sine for the sharpest corner of an outline.
+// - Swinging the axis by 1.42 mrad moves the projected gap by at most 1.42 mm per metre of the
+//   pair's extent, which is under twice the two radii plus the gap.
+//
+// So a gap of (0.003 * reach + 0.001) / (sharp - 0.002) metres beyond the two circles is more
+// than enough for one kept axis to show the outlines apart. Outlines with very sharp corners
+// (or none measured) are never skipped.
+export function hullsApart(a,b,ds,dx){
+  const sharp=Math.max(a.sharp,b.sharp);
+  if(!(sharp>.05))return false;
+  const reach=a.radius+b.radius,clear=reach+(.003*reach+.001)/(sharp-.002);
+  const s=ds+b.centerS-a.centerS,x=dx+b.centerX-a.centerX;
+  return s*s+x*x>clear*clear;
+}
+
 export function footprintBox(halfLength,halfWidth){
   return polygon([{s:-halfLength,x:-halfWidth},{s:halfLength,x:-halfWidth},
     {s:halfLength,x:halfWidth},{s:-halfLength,x:halfWidth}]);
@@ -99,12 +150,80 @@ function orient(shape,yaw){
     axes:shape.axes.map(n=>({...rotate(n.s,n.x,c,sn),lo:n.lo,hi:n.hi}))};
 }
 
+// The same turn as orient(), written into a hull a kart already owns. A kart's heading changes
+// every tick, so this runs for every kart on every tick: it must not allocate once the hull has
+// reached its size. The arithmetic and its order match rotate() and span() exactly, so the
+// numbers are the same bit for bit.
+//
+// Only the points are turned straight away, because the rail limits need them every tick. The
+// edge normals and the two road-axis spans are worked out the first time something reads
+// `axes`, `along` or `across`, which only happens when another kart, a hazard or an item is near.
+function Hull(){
+  this.points=[];
+  this.discS=0;this.discX=0;this.centerS=0;this.centerX=0;this.radius=0;this.sharp=0;
+  this.shape=null;this.cos=1;this.sin=0;
+  this.pending=false;
+  this.normals=[];
+  this.spanAlong={lo:0,hi:0};this.spanAcross={lo:0,hi:0};
+}
+
+function settle(hull){
+  const points=hull.points,c=hull.cos,sn=hull.sin;
+  let alongLo=Infinity,alongHi=-Infinity,acrossLo=Infinity,acrossHi=-Infinity;
+  for(let i=0;i<points.length;i++){
+    const q=points[i],along=q.s*1+q.x*0,across=q.s*0+q.x*1;
+    if(along<alongLo)alongLo=along;
+    if(along>alongHi)alongHi=along;
+    if(across<acrossLo)acrossLo=across;
+    if(across>acrossHi)acrossHi=across;
+  }
+  hull.spanAlong.lo=alongLo;hull.spanAlong.hi=alongHi;
+  hull.spanAcross.lo=acrossLo;hull.spanAcross.hi=acrossHi;
+  const from=hull.shape.axes,count=from.length,axes=hull.normals;
+  for(let i=0;i<count;i++){
+    const n=from[i];
+    let a=axes[i];
+    if(a===undefined)a=axes[i]={s:0,x:0,lo:0,hi:0};
+    a.s=n.s*c-n.x*sn;a.x=n.s*sn+n.x*c;
+    a.lo=n.lo;a.hi=n.hi;
+  }
+  if(axes.length!==count)axes.length=count;
+  hull.pending=false;
+}
+
+Object.defineProperties(Hull.prototype,{
+  axes:{get(){if(this.pending)settle(this);return this.normals;},enumerable:true,configurable:true},
+  along:{get(){if(this.pending)settle(this);return this.spanAlong;},enumerable:true,configurable:true},
+  across:{get(){if(this.pending)settle(this);return this.spanAcross;},enumerable:true,configurable:true},
+});
+
+function orientInto(hull,shape,c,sn){
+  const from=shape.points,count=from.length,points=hull.points;
+  for(let i=0;i<count;i++){
+    const p=from[i];
+    let q=points[i];
+    if(q===undefined)q=points[i]={s:0,x:0};
+    const s=p.s*c-p.x*sn,x=p.s*sn+p.x*c;
+    q.s=s;q.x=x;
+  }
+  if(points.length!==count)points.length=count;
+  if(hull.shape!==shape){
+    const disc=discOf(shape);
+    hull.shape=shape;hull.discS=disc.s;hull.discX=disc.x;hull.radius=disc.radius;hull.sharp=disc.sharp;
+  }
+  hull.centerS=hull.discS*c-hull.discX*sn;hull.centerX=hull.discS*sn+hull.discX*c;
+  hull.cos=c;hull.sin=sn;
+  hull.pending=true;
+  return hull;
+}
+
 function horizontalDisc(radius){
   const points=Array.from({length:48},(_,i)=>{
     const t=i*PI/24;
     return {s:radius*cos(t),x:radius*sin(t)};
   });
-  return orient(polygon(points),0);
+  const shape=polygon(points),disc=discOf(shape);
+  return Object.assign(orient(shape,0),{centerS:disc.s,centerX:disc.x,radius:disc.radius,sharp:disc.sharp});
 }
 
 function cartShape(){
@@ -295,6 +414,10 @@ function getTables(){
     ironhideShapes:Object.create(null),
     mantaShapes:Object.create(null),
     skipperShapes:Object.create(null),
+    // What a car's outline is made of, before it is turned to the kart's heading.
+    // Keyed by car id, then by quantised steering for cars whose wheels move the outline.
+    sources:Object.create(null),
+    stockSource:null,
   };
   return tables;
 }
@@ -420,65 +543,213 @@ function skipperShape(t,curvature){
   return {outline:polygon(convexHull(allPoints)),bands};
 }
 
-export function kartFootprint(kart){
-  const t=getTables();
-  const id=kart.tuning?.id,yaw=kart.yaw||0,concept=conceptCarById(id);
-  const steering=!concept&&id!=='saucer'&&id!=='shopping-cart'&&hasShapedBody(kart)?Math.round((kart.steer||0)*fullLockCurvature(kart)*512):0;
-  const old=kart._fp;
-  if(old && old.yaw===yaw && old.steering===steering && old.id===id)return old;
-  let body,bands;
+// One height band of a car: a flat outline (`shape`) that applies between `low` and `high`.
+// `body` marks the band whose outline is the whole-car outline; `fixed` is an outline that never
+// turns (the saucer's discs).
+const part=(shape,low,high)=>({shape,low,high,body:false,fixed:null});
+const bodyPart=(low,high)=>({shape:null,low,high,body:true,fixed:null});
+const fixedPart=(hull,low,high)=>({shape:null,low,high,body:false,fixed:hull});
+const partsOf=bands=>bands.map(({shape,low,high})=>part(shape,low,high));
+
+function buildSource(t,id,steering,concept){
   if(concept){
     const [w,minZ,maxZ]=concept.bounds;
-    body=orient(bodySection([[minZ,w*.78],[minZ*.78,w],[maxZ*.78,w],[maxZ,w*.78]]),yaw);
-    bands=[{hull:body,low:concept.hover?.18:0,high:concept.height}];
-  }else if(id==='shopping-cart'){
-    body=orient(t.shoppingCart.outline,yaw);
-    bands=t.shoppingCart.bands.map(({shape,low,high})=>({hull:orient(shape,yaw),low,high}));
-  }else if(id==='saucer'){
-    body=t.saucerOutline;
-    bands=t.saucerBands.concat(t.saucerUpper.map(({shape,low,high})=>({hull:orient(shape,yaw),low,high})));
-  }else if(id==='manta'||id==='skipper'){
+    return {outline:bodySection([[minZ,w*.78],[minZ*.78,w],[maxZ*.78,w],[maxZ,w*.78]]),fixedBody:null,
+      parts:[bodyPart(concept.hover?.18:0,concept.height)]};
+  }
+  if(id==='shopping-cart')return {outline:t.shoppingCart.outline,fixedBody:null,parts:partsOf(t.shoppingCart.bands)};
+  if(id==='saucer'){
+    return {outline:null,fixedBody:t.saucerOutline,
+      parts:t.saucerBands.map(({hull,low,high})=>fixedPart(hull,low,high)).concat(partsOf(t.saucerUpper))};
+  }
+  if(id==='manta'||id==='skipper'){
     const shapes=id==='skipper'?t.skipperShapes:t.mantaShapes;
     if(!shapes[steering])shapes[steering]=id==='skipper'?skipperShape(t,steering/512):mantaShape(t,steering/512);
-    const shape=shapes[steering];
-    body=orient(shape.outline,yaw);
-    bands=shape.bands.map(({shape:sh,low,high})=>({hull:orient(sh,yaw),low,high}));
-  }else if(id==='crestline'){
-    body=orient(tourerOutline(t,steering),yaw);
-    bands=[{hull:body,low:0,high:1.08},{hull:orient(t.tourerBonnet,yaw),low:1.08,high:1.33},
-      {hull:orient(t.tourerSpare,yaw),low:1.08,high:1.32},{hull:orient(t.tourerCabin,yaw),low:1.33,high:crestlineRoof.top}];
-  }else if(id==='barrage'||id==='ironhide'){
+    return {outline:shapes[steering].outline,fixedBody:null,parts:partsOf(shapes[steering].bands)};
+  }
+  if(id==='crestline'){
+    return {outline:tourerOutline(t,steering),fixedBody:null,parts:[bodyPart(0,1.08),part(t.tourerBonnet,1.08,1.33),
+      part(t.tourerSpare,1.08,1.32),part(t.tourerCabin,1.33,crestlineRoof.top)]};
+  }
+  if(id==='barrage'||id==='ironhide'){
     const shapes=id==='ironhide'?t.ironhideShapes:t.barrageShapes;
     if(!shapes[steering])shapes[steering]=id==='ironhide'?ironhideShape(steering/512):barrageShape(t,steering/512);
-    const shape=shapes[steering];
-    body=orient(shape.outline,yaw);
-    bands=shape.bands.map(({shape:sh,low,high})=>({hull:orient(sh,yaw),low,high}));
-  }else if(id==='geep'){
-    if(!t.geepShapes[steering])t.geepShapes[steering]=polygon(geepOutline(steering/512));
-    body=orient(t.geepShapes[steering],yaw);
-    bands=[{hull:body,low:0,high:geepLowerHeight},{hull:orient(t.cabin,yaw),low:geepLowerHeight,high:geepOverallHeight}];
-  }else{
-    body=orient(t.stock,yaw);
-    bands=[{hull:body,low:0,high:1.4}];
+    return {outline:shapes[steering].outline,fixedBody:null,parts:partsOf(shapes[steering].bands)};
   }
-  const result={yaw,steering,id,body,bands};
-  Object.defineProperty(kart,'_fp',{value:result,writable:true,configurable:true,enumerable:false});
-  return result;
+  if(id==='geep'){
+    if(!t.geepShapes[steering])t.geepShapes[steering]=polygon(geepOutline(steering/512));
+    return {outline:t.geepShapes[steering],fixedBody:null,
+      parts:[bodyPart(0,geepLowerHeight),part(t.cabin,geepLowerHeight,geepOverallHeight)]};
+  }
+  return {outline:t.stock,fixedBody:null,parts:[bodyPart(0,1.4)]};
+}
+
+// The furthest any point of the car is from its center. Turning the car cannot move a point
+// further out than this, so it bounds every band at every heading.
+function reachOf(source){
+  let reach=0;
+  const cover=points=>{
+    for(let i=0;i<points.length;i++)reach=Math.max(reach,hypot(points[i].s,points[i].x));
+  };
+  cover((source.fixedBody||source.outline).points);
+  for(let i=0;i<source.parts.length;i++){
+    const from=source.parts[i];
+    if(!from.body)cover((from.fixed||from.shape).points);
+  }
+  return reach;
+}
+
+function sourceFor(t,id,steering,concept,shaped){
+  let source;
+  if(!shaped)source=t.stockSource;
+  else source=(t.sources[id]||(t.sources[id]=Object.create(null)))[steering];
+  if(!source){
+    source=buildSource(t,id,steering,concept);
+    source.reach=reachOf(source);
+    if(shaped)t.sources[id][steering]=source;
+    else t.stockSource=source;
+  }
+  return source;
+}
+
+// A band of one kart's footprint. `hull` is turned to the kart's heading the first time it is read
+// after the heading changes: most ticks only the body outline is needed (rail limits), and the
+// bands only when another kart, a hazard or an item is close enough to test against.
+function Band(footprint){
+  this.low=0;this.high=0;
+  this.footprint=footprint;
+  this.shape=null;this.fixed=null;
+  this.own=null;this.turn=-1;
+  // The circle around this band's outline (see hullsApart), placed for the kart's heading.
+  this.discS=0;this.discX=0;this.centerS=0;this.centerX=0;this.radius=0;this.sharp=0;
+  this.placed=-1;
+}
+Object.defineProperty(Band.prototype,'hull',{get(){
+  if(this.fixed!==null)return this.fixed;
+  const fp=this.footprint;
+  if(this.turn!==fp.turn){
+    orientInto(this.own||(this.own=new Hull()),this.shape,fp.cos,fp.sin);
+    this.turn=fp.turn;
+  }
+  return this.own;
+},enumerable:true,configurable:true});
+// The band's circle, for hullsApart. It is found by turning one point, not the whole outline.
+Object.defineProperty(Band.prototype,'circle',{get(){
+  if(this.fixed!==null)return this.fixed;
+  const fp=this.footprint;
+  if(this.placed!==fp.turn){
+    this.centerS=this.discS*fp.cos-this.discX*fp.sin;this.centerX=this.discS*fp.sin+this.discX*fp.cos;
+    this.placed=fp.turn;
+  }
+  return this;
+},enumerable:false,configurable:true});
+
+function createFootprint(){
+  // centerS, centerX, radius and sharp make the footprint itself a circle hullsApart accepts:
+  // the whole car, every band included, lies within `reach` of the kart's center.
+  return {yaw:NaN,steering:0,id:undefined,body:null,bands:[],reach:0,
+    centerS:0,centerX:0,radius:0,sharp:0,
+    car:undefined,known:false,concept:null,shaped:false,steers:false,
+    source:null,ownBody:new Hull(),cos:1,sin:0,turn:0};
+}
+
+// The oriented outline of a kart: `body` is the whole-car outline, `bands` its height slices.
+// The result belongs to the kart and is refreshed in place when its heading, steering or car
+// changes, so read it before the next call for the same kart rather than holding on to it.
+export function kartFootprint(kart){
+  const id=kart.tuning?.id,yaw=kart.yaw||0;
+  let fp=kart._fp;
+  if(!fp){
+    fp=createFootprint();
+    // Not enumerable: snapshots, hashes and copies of the kart never see the cache.
+    Object.defineProperty(kart,'_fp',{value:fp,writable:true,configurable:true,enumerable:false});
+  }
+  if(fp.car!==id || !fp.known){
+    // What kind of outline this car has depends on the car alone. Look it up once per car.
+    fp.car=id;fp.known=true;
+    fp.concept=conceptCarById(id)||null;
+    fp.shaped=hasShapedBody(kart);
+    fp.steers=!fp.concept&&id!=='saucer'&&id!=='shopping-cart'&&fp.shaped;
+    fp.yaw=NaN;
+  }
+  const steering=fp.steers?Math.round((kart.steer||0)*fullLockCurvature(kart)*512):0;
+  if(fp.yaw===yaw && fp.steering===steering && fp.id===id)return fp;
+  const source=sourceFor(getTables(),id,steering,fp.concept,fp.shaped);
+  fp.yaw=yaw;fp.steering=steering;fp.id=id;
+  fp.cos=cos(yaw);fp.sin=sin(yaw);
+  fp.turn++;
+  fp.body=source.fixedBody||orientInto(fp.ownBody,source.outline,fp.cos,fp.sin);
+  if(fp.source!==source){
+    fp.source=source;
+    fp.reach=fp.radius=source.reach;
+    const parts=source.parts,bands=fp.bands;
+    for(let i=0;i<parts.length;i++){
+      const from=parts[i],band=bands[i]||(bands[i]=new Band(fp));
+      band.low=from.low;band.high=from.high;
+      band.shape=from.shape;
+      band.fixed=from.body?fp.body:from.fixed;
+      band.turn=band.placed=-1;
+      if(from.shape){
+        const disc=discOf(from.shape);
+        band.discS=disc.s;band.discX=disc.x;band.radius=disc.radius;band.sharp=disc.sharp;
+      }
+    }
+    if(bands.length!==parts.length)bands.length=parts.length;
+  }
+  return fp;
+}
+
+// Which edge normal last showed two footprints to be apart: i+1 for the first shape's axis i,
+// -(i+1) for the second's. See separatedOn.
+let separator=0;
+export const lastSeparatingAxis=()=>separator;
+
+// Two karts that were apart along some edge normal a moment ago are nearly always still apart
+// along it. Testing that one axis first settles most pairs with a single pass over one outline.
+// It is the same arithmetic footprintContact uses for that axis, and footprintContact reports
+// no contact as soon as any axis separates the shapes, so a true here is exactly its null.
+// A false says nothing: run footprintContact.
+export function separatedOn(a,b,ds,dx,code){
+  if(a===b)return false;
+  const first=code>0,index=(first?code:-code)-1,axes=first?a.axes:b.axes;
+  if(index>=axes.length)return false;
+  const axis=axes[index],s=axis.s,x=axis.x,points=first?b.points:a.points;
+  let lo=Infinity,hi=-Infinity;
+  for(let j=0;j<points.length;j++){
+    const p=points[j],d=p.s*s+p.x*x;
+    if(d<lo)lo=d;
+    if(d>hi)hi=d;
+  }
+  const aLo=first?axis.lo:lo,aHi=first?axis.hi:hi;
+  const bLo=first?lo:axis.lo,bHi=first?hi:axis.hi;
+  const offset=ds*s+dx*x,positive=aHi-bLo-offset,negative=bHi+offset-aLo;
+  return Math.min(positive,negative)<=.0001;
 }
 
 // Minimum separating translation, pointing from the first footprint to the second.
 export function footprintContact(a,b,ds,dx,tie=1){
   let depth=Infinity,normalS=0,normalX=0;
-  for(const shape of [a,b])for(const axis of shape.axes){
-    const {s,x}=axis,other=span(shape===a?b.points:a.points,s,x);
-    const aLo=shape===a?axis.lo:other.lo,aHi=shape===a?axis.hi:other.hi;
-    const bLo=shape===a?other.lo:axis.lo,bHi=shape===a?other.hi:axis.hi;
-    const offset=ds*s+dx*x,positive=aHi-bLo-offset,negative=bHi+offset-aLo;
-    const overlap=Math.min(positive,negative);
-    if(overlap<=.0001)return null;
-    if(overlap<depth){
-      const sign=positive===negative?tie:positive<negative?1:-1;
-      depth=overlap;normalS=s*sign;normalX=x*sign;
+  // Each shape's edge normals in turn: project the other shape onto the normal and compare spans.
+  for(let pass=0;pass<2;pass++){
+    // `first` follows the shape, not the pass: two saucers share one fixed disc, so a can be b.
+    const shape=pass===0?a:b,first=shape===a,axes=shape.axes,points=first?b.points:a.points;
+    for(let i=0;i<axes.length;i++){
+      const axis=axes[i],s=axis.s,x=axis.x;
+      let lo=Infinity,hi=-Infinity;
+      for(let j=0;j<points.length;j++){
+        const p=points[j],d=p.s*s+p.x*x;
+        if(d<lo)lo=d;
+        if(d>hi)hi=d;
+      }
+      const aLo=first?axis.lo:lo,aHi=first?axis.hi:hi;
+      const bLo=first?lo:axis.lo,bHi=first?hi:axis.hi;
+      const offset=ds*s+dx*x,positive=aHi-bLo-offset,negative=bHi+offset-aLo;
+      const overlap=Math.min(positive,negative);
+      if(overlap<=.0001){separator=pass===0?i+1:-(i+1);return null;}
+      if(overlap<depth){
+        const sign=positive===negative?tie:positive<negative?1:-1;
+        depth=overlap;normalS=s*sign;normalX=x*sign;
+      }
     }
   }
   return {depth,normalS,normalX};
@@ -486,22 +757,32 @@ export function footprintContact(a,b,ds,dx,tie=1){
 
 export const geepLowerHeight=1.4, geepOverallHeight=2.504*geepScale;
 
+const halfRoadAt=(road,s)=>Math.max(3,road.widthAt?.(s)??road.width??16)/2;
+
 // The inside face of each rail is sampled along the rotated outline, including
 // at transitions into narrower lanes. Stock chassis retain their road margin.
 export function laneBounds(kart,road,stockMargin,curvature=road.curvature||0){
-  const halfAt=s=>Math.max(3,road.widthAt?.(s)??road.width??16)/2;
   if(!hasShapedBody(kart)){
-    const limit=halfAt(kart.s)-stockMargin;
+    const limit=halfRoadAt(road,kart.s)-stockMargin;
     return {min:road.dropAt?.(kart.s,-1)?-Infinity:-limit,max:road.dropAt?.(kart.s,1)?Infinity:limit};
   }
   const scale=Math.max(.55,Math.min(1.65,1-kart.x*curvature));
   let min=-Infinity,max=Infinity;
-  const pts=kartFootprint(kart).body.points;
+  const pts=kartFootprint(kart).body.points,base=kart.s;
+  if(road.edgesAt){
+    // Both rails from one lookup per outline point: the same numbers as edgeAt on each side.
+    const edges=road.edgesAt;
+    for(let i=0;i<pts.length;i++){
+      const p=pts[i],pair=edges(base+p.s/scale);
+      min=Math.max(min,-pair.left-p.x);max=Math.min(max,pair.right-p.x);
+    }
+    return {min,max};
+  }
   for(let i=0;i<pts.length;i++){
     const p=pts[i];
-    const s=kart.s+p.s/scale;
-    const left=road.edgeAt?.(s,-1)??(road.dropAt?.(s,-1)?Infinity:halfAt(s));
-    const right=road.edgeAt?.(s,1)??(road.dropAt?.(s,1)?Infinity:halfAt(s));
+    const s=base+p.s/scale;
+    const left=road.edgeAt?.(s,-1)??(road.dropAt?.(s,-1)?Infinity:halfRoadAt(road,s));
+    const right=road.edgeAt?.(s,1)??(road.dropAt?.(s,1)?Infinity:halfRoadAt(road,s));
     min=Math.max(min,-left-p.x);max=Math.min(max,right-p.x);
   }
   return {min,max};

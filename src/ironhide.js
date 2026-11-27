@@ -1,5 +1,6 @@
 import * as T from 'three';
 import {assembly,surface} from './kart-assembly.js';
+import {kartDetail,lowDetail,once} from './kart-detail.js';
 import {ironhideAxles,ironhideBumper,ironhideDriver,ironhideScreen,ironhideRoof,ironhideTireWidth} from './ironhide-layout.js';
 import hardtopUrl from './assets/ironhide-hardtop.webp';
 import wheelUrl from './assets/ironhide-wheel.webp';
@@ -32,11 +33,12 @@ function windshieldMaterial(){
   return new T.MeshBasicMaterial({map,transparent:true,depthWrite:false,side:T.DoubleSide,forceSinglePass:true});
 }
 const olive='#5d513b',edge='#75614a',iron='#463d33',dark='#24221f',leather='#322d29';
-let templates,contactMap;
+const templates=[];
+const contactPlane=new T.PlaneGeometry(2,2);
+let contactMap;
 export function ironhideShadow(shadow){
   if(!contactMap)contactMap=new T.TextureLoader().load(contactUrl);
-  shadow.geometry.dispose();
-  shadow.geometry=new T.PlaneGeometry(2,2);
+  shadow.geometry=contactPlane;
   shadow.material.alphaMap=contactMap;
   shadow.material.opacity=.87;
   shadow.scale.set(1.77,2.43,1);
@@ -44,11 +46,13 @@ export function ironhideShadow(shadow){
 
 function makeBody(){
   const p=assembly(paint);
-  const map=new T.TextureLoader().load(panelsUrl);
-  map.colorSpace=T.SRGBColorSpace;map.anisotropy=8;
-  const bumpMap=new T.TextureLoader().load(surfaceUrl);
-  bumpMap.anisotropy=8;
-  const skin=new T.MeshStandardMaterial({map,bumpMap,bumpScale:.011,metalness:.12,roughness:.76,side:T.DoubleSide});
+  const skin=once('ironhide:skin',()=>{
+    const map=new T.TextureLoader().load(panelsUrl);
+    map.colorSpace=T.SRGBColorSpace;map.anisotropy=8;
+    const bumpMap=new T.TextureLoader().load(surfaceUrl);
+    bumpMap.anisotropy=8;
+    return new T.MeshStandardMaterial({map,bumpMap,bumpScale:.011,metalness:.12,roughness:.76,side:T.DoubleSide});
+  });
   // The hood, grille, doors and battered steel in this atlas come from the approved painting.
   function tileUV(tile){
     const u=(tile%2)*1024,v=Math.floor(tile/2)*256;
@@ -57,7 +61,10 @@ function makeBody(){
   function face(tile,points,material=skin){
     p.add(surface(points,[0,1,2,0,2,3],tileUV(tile)),material);
   }
-  const lens=skin.clone();lens.emissive.set('#ffac46');lens.emissiveMap=map;lens.emissiveIntensity=.75;
+  const lens=once('ironhide:lens',()=>{
+    const lit=skin.clone();lit.emissive.set('#ffac46');lit.emissiveMap=skin.map;lit.emissiveIntensity=.75;
+    return lit;
+  });
   function beam(a,b,r=.028,color=edge){p.pipe(color,a,b,r);}
   p.box(dark,[0,.54,.01],[2.04,.34,4.09],.05);
   p.box(olive,[0,.77,.63],[2.45,.16,2.88],.055);
@@ -168,7 +175,7 @@ function makeBody(){
   const w=ironhideScreen;
   const corners=[[-w.halfWidth,w.bottom,w.baseZ],[w.halfWidth,w.bottom,w.baseZ],
     [w.halfWidth,w.top,w.topZ],[-w.halfWidth,w.top,w.topZ]];
-  p.add(surface(corners,[0,1,2,0,2,3],[[0,0],[1,0],[1,1],[0,1]]),windshieldMaterial());
+  p.add(surface(corners,[0,1,2,0,2,3],[[0,0],[1,0],[1,1],[0,1]]),once('ironhide:windshield',windshieldMaterial));
   const center=new T.Vector3(0,(w.top+w.bottom)/2,(w.baseZ+w.topZ)/2);
   const glassEdge=corners.map(c=>new T.Vector3(...c).lerp(center,.034).toArray());
   for(let i=0;i<4;i++){
@@ -189,9 +196,11 @@ function makeBody(){
   const roof=ironhideRoof,midZ=(roof.front+roof.rear)/2,depth=roof.rear-roof.front;
   const thickness=roof.top-roof.bottom;
   p.box('#5c5944',[0,roof.bottom+thickness/2,midZ],[2*roof.halfWidth,thickness,depth],.040);
-  const roofMap=new T.TextureLoader().load(hardtopUrl);
-  roofMap.colorSpace=T.SRGBColorSpace;roofMap.anisotropy=8;
-  const roofPaint=new T.MeshStandardMaterial({map:roofMap,roughness:.81,metalness:.12});
+  const roofPaint=once('ironhide:roof',()=>{
+    const roofMap=new T.TextureLoader().load(hardtopUrl);
+    roofMap.colorSpace=T.SRGBColorSpace;roofMap.anisotropy=8;
+    return new T.MeshStandardMaterial({map:roofMap,roughness:.81,metalness:.12});
+  });
   const top=new T.PlaneGeometry(2*roof.halfWidth-.09,depth-.09).rotateX(-Math.PI/2);
   p.add(top,roofPaint,null,[0,roof.top+.001,midZ]);
   for(const side of [-1,1]){
@@ -214,16 +223,25 @@ function makeWheel(){
   const p=assembly(paint),r=ironhideAxles[0][1],w=ironhideTireWidth/2;
   const profile=[[-w,.78],[-w,.85],[-w*.85,.93],[w*.85,.93],[w,.85],[w,.78]];
   p.add(new T.LatheGeometry(profile.map(([x,k])=>new T.Vector2(r*k,x)),48).rotateZ(-Math.PI/2),paint,'#18191a');
-  const map=new T.TextureLoader().load(treadUrl);
-  map.colorSpace=T.SRGBColorSpace;map.anisotropy=4;
-  const rubber=new T.MeshStandardMaterial({map,roughness:.92,bumpMap:map,bumpScale:.006});
-  const sidewall=new T.TextureLoader().load(wheelUrl);
-  sidewall.colorSpace=T.SRGBColorSpace;sidewall.anisotropy=8;
-  const wallPaint=new T.MeshStandardMaterial({map:sidewall,roughness:.83,metalness:.08,side:T.DoubleSide});
+  const rubber=once('ironhide:tread',()=>{
+    const map=new T.TextureLoader().load(treadUrl);
+    map.colorSpace=T.SRGBColorSpace;map.anisotropy=4;
+    const tread=new T.MeshStandardMaterial({map,roughness:.92,bumpMap:map,bumpScale:.006});
+    // From the switch distance the tread print is a flat dark rubber.
+    tread.userData.distant={color:'#1d1e1f'};
+    return tread;
+  });
+  const wallPaint=once('ironhide:sidewall',()=>{
+    const sidewall=new T.TextureLoader().load(wheelUrl);
+    sidewall.colorSpace=T.SRGBColorSpace;sidewall.anisotropy=8;
+    return new T.MeshStandardMaterial({map:sidewall,roughness:.83,metalness:.08,side:T.DoubleSide});
+  });
   // Three staggered tread rows with chamfered block corners and shoulder lugs.
-  for(let i=0;i<24;i++)for(const row of [-1,0,1]){
-    const angle=(i+(row===0?.33:row>0?.58:0))*Math.PI/12;
-    const lug=new T.CylinderGeometry(1,1,.052,6).scale(.121,1,.085)
+  // The distant build carries half as many lugs, each twice as long around the tire.
+  const low=lowDetail(),lugs=low?12:24,turns=low?24:48;
+  for(let i=0;i<lugs;i++)for(const row of [-1,0,1]){
+    const angle=(i+(row===0?.33:row>0?.58:0))*2*Math.PI/lugs;
+    const lug=(low?new T.BoxGeometry(1.7,.052,1.5):new T.CylinderGeometry(1,1,.052,6)).scale(.121,1,low?.17:.085)
       .rotateY(row<0?-.4:.4).translate(row*.14,r-.029,0).rotateX(angle);
     p.add(lug,rubber);
   }
@@ -232,9 +250,9 @@ function makeWheel(){
     const g=new T.TorusGeometry(radius,tube,6,48).rotateY(Math.PI/2);
     p.add(g,paint,color,[x,0,0]);
   }
-  for(let i=0;i<24;i++){
-    const a=i*Math.PI/12;
-    const shoulder=new T.CylinderGeometry(1,1,.039,5).scale(.059,1,.078)
+  for(let i=0;i<lugs;i++){
+    const a=i*2*Math.PI/lugs;
+    const shoulder=(low?new T.BoxGeometry(1.7,.039,1.5):new T.CylinderGeometry(1,1,.039,5)).scale(.059,1,low?.156:.078)
       .rotateZ(-1.12).translate(w-.002,r*.846,0).rotateX(a);
     p.add(shoulder,rubber);
   }
@@ -242,10 +260,10 @@ function makeWheel(){
   const dish=[[r*.87,w-.003],[r*.81,w+.012],[r*.58,w+.018],[r*.51,w+.026],[r*.45,w+.012],[r*.26,w+.018]];
   const pts=[],uv=[],indices=[];
   for(const [radius,x] of dish){
-    for(let i=0;i<=48;i++){
-      const angle=i*Math.PI/24,y=radius*Math.cos(angle),z=radius*Math.sin(angle);
+    for(let i=0;i<=turns;i++){
+      const angle=i*2*Math.PI/turns,y=radius*Math.cos(angle),z=radius*Math.sin(angle);
       pts.push([x,y,z]);uv.push([.5+z/(r*1.76),.5+y/(r*1.76)]);
-      if(pts.length>49&&i){const j=pts.length-1;indices.push(j-50,j-49,j,j-50,j,j-1);}
+      if(pts.length>turns+1&&i){const j=pts.length-1;indices.push(j-turns-2,j-turns-1,j,j-turns-2,j,j-1);}
     }
   }
   p.add(surface(pts,indices,uv),wallPaint);
@@ -266,7 +284,8 @@ function makeWheel(){
 }
 
 export function attachIronhide(body,wheels){
-  if(!templates){initMaterials();templates={body:makeBody(),wheel:makeWheel()};}
+  initMaterials();
+  const built=templates[kartDetail()]??={body:makeBody(),wheel:makeWheel()};
   function attach(group,parts,flip=false){
     for(const {geometry,material} of parts){
       const mesh=new T.Mesh(geometry,material);
@@ -275,6 +294,6 @@ export function attachIronhide(body,wheels){
       group.add(mesh);
     }
   }
-  attach(body,templates.body);
-  for(const axle of wheels)attach(axle,templates.wheel,axle.position.x<0);
+  attach(body,built.body);
+  for(const axle of wheels)attach(axle,built.wheel,axle.position.x<0);
 }

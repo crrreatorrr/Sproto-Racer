@@ -183,10 +183,8 @@ export function createSkyVisuals(group, core) {
     gg.fillStyle = radial;
     gg.fillRect(0, 0, 64, 64);
   });
-  const glow = {
-    cell: keep(new THREE.SpriteMaterial({ map: glowTexture, color: CELL_COLOR, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true })),
-    mega: keep(new THREE.SpriteMaterial({ map: glowTexture, color: MEGA_COLOR, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true })),
-  };
+  const glowQuad = keep(new THREE.PlaneGeometry(1, 1));
+  const glowMaterial = (color) => keep(new THREE.MeshBasicMaterial({ map: glowTexture, color, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }));
 
   const lanes = [];
   const dummy = new THREE.Object3D();
@@ -214,12 +212,88 @@ export function createSkyVisuals(group, core) {
     return geometry;
   }
 
+  // Boxes that never move are not scene objects of their own. They are collected per parent,
+  // shape, material and stretch of lane, and each collection is drawn as one instanced mesh
+  // (see flushBoxes). Splitting by stretch keeps off-screen parts of a long lane culled.
+  const BOX_STRETCH = 160;
+  const boxBatches = new Map();
   function boxAt(parent, material, s, x, y, w, h, d) {
+    const geometry = material.map===livery?geo.structure:geo.box;
+    const key = parent.id + ':' + geometry.id + ':' + material.id + ':' + Math.floor(s / BOX_STRETCH);
+    let batch = boxBatches.get(key);
+    if (!batch) boxBatches.set(key, batch = { parent, geometry, material, matrices: [] });
+    place(dummy, s, x, y);
+    dummy.scale.set(w, h, d);
+    dummy.updateMatrix();
+    batch.matrices.push(dummy.matrix.clone());
+  }
+  /** A box that is shown, hidden or moved on its own: a mesh, as before. */
+  function looseBoxAt(parent, material, s, x, y, w, h, d) {
     const mesh = new THREE.Mesh(material.map===livery?geo.structure:geo.box, material);
     place(mesh, s, x, y);
     mesh.scale.set(w, h, d);
     parent.add(mesh);
     return mesh;
+  }
+  function flushBoxes() {
+    for (const { parent, geometry, material, matrices } of boxBatches.values()) {
+      const mesh = keep(new THREE.InstancedMesh(geometry, material, matrices.length));
+      mesh.name = 'Sky Lane boxes';
+      for (let i = 0; i < matrices.length; i++) mesh.setMatrixAt(i, matrices[i]);
+      mesh.computeBoundingSphere();
+      parent.add(mesh);
+    }
+    boxBatches.clear();
+  }
+
+  // Boost Cell glows face the camera like sprites, but all of one lap's glows are one
+  // instanced mesh: the vertex shader takes each instance's place and size from its matrix
+  // and spreads the quad in view space.
+  function glowBillboard(material) {
+    material.onBeforeCompile = (shader) => {
+      shader.vertexShader = shader.vertexShader.replace('#include <project_vertex>', `
+        vec4 mvPosition = modelViewMatrix * instanceMatrix * vec4( 0.0, 0.0, 0.0, 1.0 );
+        mvPosition.xy += transformed.xy * vec2( length( instanceMatrix[ 0 ].xyz ), length( instanceMatrix[ 1 ].xyz ) );
+        gl_Position = projectionMatrix * mvPosition;`);
+    };
+    material.customProgramCacheKey = () => 'sky-cell-glow-billboard';
+    return material;
+  }
+  const cellQuat = new THREE.Quaternion();
+  const cellSpin = new THREE.Quaternion();
+  const cellScale = new THREE.Vector3();
+  const cellPosition = new THREE.Vector3();
+  const cellMatrix = new THREE.Matrix4();
+  const hiddenMatrix = new THREE.Matrix4().makeScale(0, 0, 0);
+  const UP = new THREE.Vector3(0, 1, 0);
+
+  const glowCell = glowBillboard(glowMaterial(CELL_COLOR));
+  const glowMega = glowBillboard(glowMaterial(MEGA_COLOR));
+
+  /** Spins and bobs one lap's cells; a collected cell shrinks to nothing. */
+  function poseCells(cells, time, collected) {
+    for (let i = 0; i < cells.length; i++) {
+      const c = cells[i];
+      const { gems, halos, auras } = c.kind;
+      const visible = !(collected & (1 << c.cell.index));
+      if (!visible) {
+        if (c.shown !== false) {
+          gems.setMatrixAt(c.slot, hiddenMatrix);
+          halos.setMatrixAt(c.slot, hiddenMatrix);
+          auras.setMatrixAt(c.slot, hiddenMatrix);
+          c.shown = false;
+        }
+        continue;
+      }
+      c.shown = true;
+      cellPosition.copy(c.position);
+      cellPosition.y += Math.sin(time * 3 + i) * 0.25;
+      cellQuat.copy(c.quaternion).multiply(cellSpin.setFromAxisAngle(UP, time * 2.4 + i));
+      gems.setMatrixAt(c.slot, cellMatrix.compose(cellPosition, cellQuat, cellScale.setScalar(c.size)));
+      cellQuat.copy(c.quaternion).multiply(cellSpin.setFromAxisAngle(UP, time * 1.3));
+      halos.setMatrixAt(c.slot, cellMatrix.compose(cellPosition, cellQuat, cellScale.setScalar(c.size * 0.9)));
+      auras.setMatrixAt(c.slot, cellMatrix.compose(cellPosition, c.quaternion, cellScale.setScalar(c.size * 5.5)));
+    }
   }
 
   for (const lane of sky.lanes) {
@@ -292,7 +366,7 @@ export function createSkyVisuals(group, core) {
     boxAt(laneGroup, mat.post, lane.start - 2, entryX, archHeight, entryHalf * 2 + 2.4, 0.5, 0.8);
     let gateBarrier = null;
     if (lane.optional) {
-      gateBarrier = boxAt(laneGroup, mat.closed, lane.start - 2, entryX, 1.4, entryHalf * 2, 2.6, 0.4);
+      gateBarrier = looseBoxAt(laneGroup, mat.closed, lane.start - 2, entryX, 1.4, entryHalf * 2, 2.6, 0.4);
     } else {
       // The road falls away at the lip and the landing deck rises out of the drop.
       boxAt(laneGroup, mat.deck, lane.start + 0.6, 0, -7, core.widthAt(lane.start), 14, 1.2);
@@ -352,27 +426,44 @@ export function createSkyVisuals(group, core) {
             }
             continue;
           }
-          const mesh = new THREE.Mesh(geo.structure, material);
-          place(mesh, pose.s, pose.x, pose.y);
-          mesh.scale.set(pose.hx * 2, pose.hy * 2, pose.hs * 2);
-          lapGroup.add(mesh);
-          if (part.motion || part.shape === 'door') moving.push({ part, mesh });
+          if (part.motion || part.shape === 'door') {
+            const mesh = new THREE.Mesh(geo.structure, material);
+            place(mesh, pose.s, pose.x, pose.y);
+            mesh.scale.set(pose.hx * 2, pose.hy * 2, pose.hs * 2);
+            lapGroup.add(mesh);
+            moving.push({ part, mesh });
+          } else {
+            boxAt(lapGroup, material, pose.s, pose.x, pose.y, pose.hx * 2, pose.hy * 2, pose.hs * 2);
+          }
         }
       }
-      const cells = layout.cells.map((cell) => {
-        const holder = new THREE.Group();
-        place(holder, cell.s, cell.x, cell.y);
-        const size = cell.mega ? 2 : 1.3;
-        const gem = new THREE.Mesh(geo.cell, cell.mega ? mat.mega : mat.cell);
-        gem.scale.setScalar(size);
-        const halo = new THREE.Mesh(geo.halo, cell.mega ? mat.megaHalo : mat.cellHalo);
-        halo.scale.setScalar(size * 0.9);
-        const aura = new THREE.Sprite(cell.mega ? glow.mega : glow.cell);
-        aura.scale.setScalar(size * 5.5);
-        holder.add(gem, halo, aura);
-        lapGroup.add(holder);
-        return { cell, holder, gem, halo, baseY: holder.position.y };
+      // Every cell is a crystal, a ring and a glow. A lap's cells of one kind share three
+      // instanced meshes, so a corridor of cells is six draw calls instead of three per cell.
+      const kinds = [false, true].map((mega) => {
+        const count = layout.cells.filter((cell) => !!cell.mega === mega).length;
+        if (!count) return null;
+        const gems = keep(new THREE.InstancedMesh(geo.cell, mega ? mat.mega : mat.cell, count));
+        const halos = keep(new THREE.InstancedMesh(geo.halo, mega ? mat.megaHalo : mat.cellHalo, count));
+        const auras = keep(new THREE.InstancedMesh(glowQuad, mega ? glowMega : glowCell, count));
+        gems.name = 'Sky Lane boost cells';
+        halos.name = 'Sky Lane boost cell rings';
+        auras.name = 'Sky Lane boost cell glows';
+        lapGroup.add(gems, halos, auras);
+        return { gems, halos, auras, used: 0 };
       });
+      const cells = layout.cells.map((cell, order) => {
+        place(dummy, cell.s, cell.x, cell.y);
+        const kind = kinds[cell.mega ? 1 : 0];
+        return {
+          cell, order, kind, slot: kind.used++, size: cell.mega ? 2 : 1.3,
+          position: dummy.position.clone(), quaternion: dummy.quaternion.clone(), shown: null,
+        };
+      });
+      poseCells(cells, 0, 0);
+      for (const kind of kinds) {
+        if (!kind) continue;
+        for (const mesh of [kind.gems, kind.halos, kind.auras]) mesh.computeBoundingSphere();
+      }
       const entries=(layout.boxes || []).map(box=>({
         index:box.index,position:lanePoint(box.s,box.x,box.y),yaw:laneYaw(box.s),
       }));
@@ -383,10 +474,11 @@ export function createSkyVisuals(group, core) {
         keep(chests.mesh.material);
         lapGroup.add(chests.mesh);
       }
-      return { group: lapGroup, moving, cells, chests };
+      return { group: lapGroup, moving, cells, kinds, chests };
     });
     lanes.push({ lane, laps, gateBarrier, collected: 0, boxesTaken: 0, lapShown: -1 });
   }
+  flushBoxes();
 
   function update(time, lap) {
     streamTexture.offset.y = -time * 2.6;
@@ -413,14 +505,12 @@ export function createSkyVisuals(group, core) {
           m.mesh.userData.animateCrossing?.(time,direction);
         }
       }
-      for (let i = 0; i < view.cells.length; i++) {
-        const c = view.cells[i];
-        const visible = !(entry.collected & (1 << c.cell.index));
-        c.holder.visible = visible;
-        if (!visible) continue;
-        c.gem.rotation.y = time * 2.4 + i;
-        c.halo.rotation.y = time * 1.3;
-        c.holder.position.y = c.baseY + Math.sin(time * 3 + i) * 0.25;
+      poseCells(view.cells, time, entry.collected);
+      for (const kind of view.kinds) {
+        if (!kind) continue;
+        kind.gems.instanceMatrix.needsUpdate = true;
+        kind.halos.instanceMatrix.needsUpdate = true;
+        kind.auras.instanceMatrix.needsUpdate = true;
       }
       view.chests?.update(time,entry.boxesTaken,{silent:changedLap});
     }

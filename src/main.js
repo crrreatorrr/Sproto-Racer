@@ -77,7 +77,7 @@ const camera=new THREE.PerspectiveCamera(62,1,.15,6500);
 let chosenCourse=savedCourse();
 setCircuitAtmosphere(chosenCourse);
 // Defer heavy circuit mesh/atlas build until after the first lobby frame paints.
-let track=createTrack(world,chosenCourse,{deferVisuals:true});
+let track=createTrack(world,chosenCourse,{deferVisuals:true});track.setVisualsPerFrame(true);
 let trackMountJob=null;
 function cancelTrackMount(){
   if(trackMountJob===null)return;
@@ -211,7 +211,7 @@ function noteCrumbs(){
 const feedbackHold=createFeedbackHold(input,{pauseAudio:()=>fx.pause()});
 function renderFeedbackFrame(){
   if(screen==='lobby')paddock.render(renderer,animation,w||1,h||1);
-  else{ensureTrackVisuals();sceneLight.focus(track,state.player?.kart,animation,true);renderer.render(world,camera);}
+  else{ensureTrackVisuals();track.drawVisuals();sceneLight.focus(track,state.player?.kart,animation,true);renderer.render(world,camera);}
 }
 const feedbackHandle=installRaceFeedback({
   hold(){pendingEdges={};pendingSlot=null;return feedbackHold.hold();},
@@ -254,6 +254,7 @@ function loadSelectedCourse(){
   if(chosenCourse.id===track.id){ensureTrackVisuals();return;}
   cancelTrackMount();
   const next=createTrack(world,chosenCourse);
+  next.setVisualsPerFrame(true);
   track.dispose();track=next;
   sceneLight.prepareTrack(next.trackGroup);
   setCircuitAtmosphere(chosenCourse);
@@ -755,7 +756,7 @@ function frame(now){
    if(resized){w=W;h=H;renderer.setSize(w,h,false);camera.aspect=w/h;camera.updateProjectionMatrix();scaler.restart();}
    perf.noteQuality(gfx.id,ratio,screen==='game'?scaler.scale:1);
    // Resizing clears the canvas, and a paused race does not draw: repaint it once.
-   if(screen==='game'&&w&&h&&(modal||controllerOpen||feedbackHold.held()))renderer.render(world,camera);
+   if(screen==='game'&&w&&h&&(modal||controllerOpen||feedbackHold.held())){track.drawVisuals();renderer.render(world,camera);}
  }
  // Frames outside a running race only teach the scaler how fast this screen refreshes.
  if(screen!=='game'||modal||controllerOpen||feedbackHold.held())scaler.observe(rawDt*1000);
@@ -808,6 +809,7 @@ function frame(now){
    fx.update(dt,state.actors,true,state.countdown>0);syncWorld(dt,Math.min(1,accumulator*60));
    itemFx.update(dt,camera);timingHUD();raceCues();skyHUD();
    if(now-lastHUD>45){hud();lastHUD=now;}
+   track.drawVisuals();
    sceneLight.focus(track,state.player?.kart,animation);
    renderer.render(world,camera);
    perf.recordFrame(rawDt*1000,renderer,now);

@@ -127,6 +127,97 @@ describe('fast rendering & cold-boot optimizations', () => {
     }
   },15000);
 
+  it('draws Sky Lane boxes and Boost Cells as instanced meshes, and hides a collected cell', () => {
+    for (const course of CIRCUITS) {
+      const scene = new THREE.Scene();
+      const track = createTrack(scene, course);
+      const sky = track.trackGroup.getObjectByName('sky-lanes');
+      expect(sky, course.id + ' has no Sky Lane scenery').toBeTruthy();
+
+      let cells = 0;
+      track.sky.lanes.forEach((lane, laneIndex) => {
+        const laneGroup = sky.children[laneIndex];
+        const lapGroups = laneGroup.children.filter((child) => child.isGroup);
+        expect(lapGroups.length).toBe(lane.layouts.length);
+        lane.layouts.forEach((layout, lap) => {
+          const group = lapGroups[lap];
+          let sprites = 0, glows = 0, gems = 0, rings = 0, loose = 0;
+          group.traverse((object) => {
+            if (object.isSprite) sprites++;
+            if (!object.isMesh) return;
+            if (object.name === 'Sky Lane boost cell glows') glows += object.count;
+            else if (object.name === 'Sky Lane boost cells') gems += object.count;
+            else if (object.name === 'Sky Lane boost cell rings') rings += object.count;
+            else if (!object.isInstancedMesh) loose++;
+          });
+          // One instance of each part per cell, and no cell is a scene object of its own.
+          expect(sprites).toBe(0);
+          expect(gems).toBe(layout.cells.length);
+          expect(rings).toBe(layout.cells.length);
+          expect(glows).toBe(layout.cells.length);
+          // Only parts that move (and crossing models) are still meshes of their own.
+          const moving = layout.obstacles.flatMap((ob) => ob.parts).filter((part) => part.motion || part.shape === 'door' || part.shape === 'blade' || part.crossing).length;
+          expect(loose, `${course.id} lane ${laneIndex} lap ${lap + 1}`).toBeLessThanOrEqual(moving * 40);
+          cells += layout.cells.length;
+        });
+      });
+      expect(cells).toBeGreaterThan(20);
+
+      // Collecting a cell shrinks its three instances to nothing; the others keep their size.
+      const lane = track.sky.lanes[0];
+      const first = lane.layouts[0].cells[0];
+      const lapGroup = sky.children[0].children.filter((child) => child.isGroup)[0];
+      const gemsMesh = lapGroup.children.find((child) => child.name === 'Sky Lane boost cells' && child.count > 1) ?? lapGroup.children.find((child) => child.name === 'Sky Lane boost cells');
+      const scales = () => {
+        const out = [], m = new THREE.Matrix4(), v = new THREE.Vector3();
+        for (let i = 0; i < gemsMesh.count; i++) { gemsMesh.getMatrixAt(i, m); out.push(v.setFromMatrixScale(m).x); }
+        return out;
+      };
+      track.update(1, 1 / 60, lane.start + 5, 1);
+      expect(scales().every((x) => x > 1)).toBe(true);
+      const kindOfFirst = lane.layouts[0].cells.filter((cell) => !!cell.mega === !!first.mega);
+      track.setSkyCollected(lane.index, 1 << first.index);
+      track.update(1.1, 1 / 60, lane.start + 5, 1);
+      if (kindOfFirst.length === gemsMesh.count) expect(scales().filter((x) => x === 0).length).toBe(1);
+      track.setSkyCollected(lane.index, 0);
+      track.update(1.2, 1 / 60, lane.start + 5, 1);
+      expect(scales().every((x) => x > 1)).toBe(true);
+      track.dispose();
+    }
+  });
+
+  it('repositions moving scenery once per drawn frame when the game loop asks for that', () => {
+    const scene = new THREE.Scene();
+    const track = createTrack(scene, CIRCUITS[0]);
+    const sky = track.trackGroup.getObjectByName('sky-lanes');
+    const gems = [];
+    sky.traverse((object) => { if (object.name === 'Sky Lane boost cells') gems.push(object); });
+    const stamp = () => gems.map((mesh) => mesh.instanceMatrix.version).join(',');
+
+    // Default: every simulation step also updates what is drawn (tools and tests rely on it).
+    let before = stamp();
+    track.update(1, 1 / 60, 0, 1);
+    expect(stamp()).not.toBe(before);
+
+    // Per-frame mode: steps only mark the visuals stale; drawVisuals brings them up to date once.
+    track.setVisualsPerFrame(true);
+    before = stamp();
+    for (let i = 0; i < 6; i++) track.update(1 + i / 60, 1 / 60, 0, 1);
+    expect(stamp()).toBe(before);
+    track.drawVisuals();
+    const afterDraw = stamp();
+    expect(afterDraw).not.toBe(before);
+    track.drawVisuals();
+    expect(stamp()).toBe(afterDraw);
+
+    // The viewer's lap takes effect at the next draw.
+    const lapGroups = sky.children[0].children.filter((child) => child.isGroup);
+    track.setViewLap(2);
+    track.drawVisuals();
+    expect(lapGroups.map((group) => group.visible)).toEqual([false, true, false]);
+    track.dispose();
+  });
+
   it('reuses pooled item/projectile meshes without leaving inactive objects attached to the scene graph', () => {
     const scene = new THREE.Scene();
     const track = createTrack(scene, CIRCUITS[0], { deferVisuals: true });

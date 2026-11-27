@@ -38,6 +38,16 @@ let roads = null;
 // which axis is tried first, never the outcome, so it is safe to keep between ticks and races.
 let hints = null;
 const HINT_STRIDE = 32;
+// Within one call a pair that was found clear stays clear until one of the two karts is moved
+// by a contact with someone else. Each racer carries a stamp that changes when it is moved; a
+// pair remembers the two stamps it was last found clear at.
+let stamps = null;
+let clearA = null;
+let clearB = null;
+let stamp = 0;
+// The parts of each car within reach of the other, for the pair being resolved.
+let nearA = null;
+let nearB = null;
 
 function roadUnder(track, kart, slot) {
   const road = roads[slot] || (roads[slot] = { valid: false, s: 0, x: 0, y: 0, curvature: 0 });
@@ -83,15 +93,22 @@ function resolvePair(track, first, second, slotA, slotB) {
   }
   let contact=null;
   const bandsA=shapeA.bands,bandsB=shapeB.bands;
+  // Most parts of two touching cars are nowhere near the other car. Keep the ones that are, in
+  // their original order, before any outline is turned to its kart's heading.
+  let countA=0,countB=0;
   for(let i=0;i<bandsA.length;i++){
-    const bandA=bandsA[i];
-    for(let j=0;j<bandsB.length;j++){
-      const bandB=bandsB[j];
+    if(!hullsApart(bandsA[i].circle,shapeB,gapS,dx))nearA[countA++]=bandsA[i];
+  }
+  for(let j=0;j<bandsB.length;j++){
+    if(!hullsApart(shapeA,bandsB[j].circle,gapS,dx))nearB[countB++]=bandsB[j];
+  }
+  for(let i=0;i<countA;i++){
+    const bandA=nearA[i],circleA=bandA.circle,whole=bandA.fixed===bodyA;
+    for(let j=0;j<countB;j++){
+      const bandB=nearB[j];
       if(bandA.high<=height+bandB.low || bandA.low>=height+bandB.high)continue;
-      const hullA=bandA.hull,hullB=bandB.hull;
-      // Most parts of two touching cars are nowhere near each other.
-      const hit=hullA===bodyA && hullB===bodyB ? envelope :
-        hullsApart(hullA,hullB,gapS,dx) ? null : footprintContact(hullA,hullB,gapS,dx,tie);
+      const hit=whole && bandB.fixed===bodyB ? envelope :
+        hullsApart(circleA,bandB.circle,gapS,dx) ? null : footprintContact(bandA.hull,bandB.hull,gapS,dx,tie);
       if(hit && (!contact || hit.depth>contact.depth))contact=hit;
     }
   }
@@ -133,19 +150,35 @@ export function resolveKartContacts(track, racers) {
   if (!roads) {
     roads = [];
     hints = [];
+    stamps = [];
+    clearA = [];
+    clearB = [];
+    nearA = [];
+    nearB = [];
   }
   for (let i = 0; i < count; i++) {
     racers[i].kart.kartImpact = 0;
     if (roads[i]) roads[i].valid = false;
+    stamps[i] = ++stamp;
   }
   // A correction in a pack can bring a third kart into contact.
   for (let pass = 0; pass < 6; pass++) {
     let changed = false;
     for (let i = 0; i < count; i++) {
       for (let j = i + 1; j < count; j++) {
-        if (resolvePair(track, racers[i], racers[j], i, j)) changed = true;
+        const slot = j < HINT_STRIDE ? i * HINT_STRIDE + j : -1;
+        if (slot >= 0 && clearA[slot] === stamps[i] && clearB[slot] === stamps[j]) continue;
+        if (resolvePair(track, racers[i], racers[j], i, j)) {
+          changed = true;
+          stamps[i] = ++stamp;
+          stamps[j] = ++stamp;
+        } else if (slot >= 0) {
+          clearA[slot] = stamps[i];
+          clearB[slot] = stamps[j];
+        }
       }
     }
     if (!changed) break;
   }
+  nearA.length = nearB.length = 0;
 }

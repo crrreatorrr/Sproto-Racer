@@ -620,6 +620,9 @@ function Band(footprint){
   this.footprint=footprint;
   this.shape=null;this.fixed=null;
   this.own=null;this.turn=-1;
+  // The circle around this band's outline (see hullsApart), placed for the kart's heading.
+  this.discS=0;this.discX=0;this.centerS=0;this.centerX=0;this.radius=0;this.sharp=0;
+  this.placed=-1;
 }
 Object.defineProperty(Band.prototype,'hull',{get(){
   if(this.fixed!==null)return this.fixed;
@@ -630,9 +633,22 @@ Object.defineProperty(Band.prototype,'hull',{get(){
   }
   return this.own;
 },enumerable:true,configurable:true});
+// The band's circle, for hullsApart. It is found by turning one point, not the whole outline.
+Object.defineProperty(Band.prototype,'circle',{get(){
+  if(this.fixed!==null)return this.fixed;
+  const fp=this.footprint;
+  if(this.placed!==fp.turn){
+    this.centerS=this.discS*fp.cos-this.discX*fp.sin;this.centerX=this.discS*fp.sin+this.discX*fp.cos;
+    this.placed=fp.turn;
+  }
+  return this;
+},enumerable:false,configurable:true});
 
 function createFootprint(){
+  // centerS, centerX, radius and sharp make the footprint itself a circle hullsApart accepts:
+  // the whole car, every band included, lies within `reach` of the kart's center.
   return {yaw:NaN,steering:0,id:undefined,body:null,bands:[],reach:0,
+    centerS:0,centerX:0,radius:0,sharp:0,
     source:null,ownBody:new Hull(),cos:1,sin:0,turn:0};
 }
 
@@ -657,14 +673,18 @@ export function kartFootprint(kart){
   fp.body=source.fixedBody||orientInto(fp.ownBody,source.outline,fp.cos,fp.sin);
   if(fp.source!==source){
     fp.source=source;
-    fp.reach=source.reach;
+    fp.reach=fp.radius=source.reach;
     const parts=source.parts,bands=fp.bands;
     for(let i=0;i<parts.length;i++){
       const from=parts[i],band=bands[i]||(bands[i]=new Band(fp));
       band.low=from.low;band.high=from.high;
       band.shape=from.shape;
       band.fixed=from.body?fp.body:from.fixed;
-      band.turn=-1;
+      band.turn=band.placed=-1;
+      if(from.shape){
+        const disc=discOf(from.shape);
+        band.discS=disc.s;band.discX=disc.x;band.radius=disc.radius;band.sharp=disc.sharp;
+      }
     }
     if(bands.length!==parts.length)bands.length=parts.length;
   }

@@ -242,7 +242,59 @@ softContact.needsUpdate=true;
 export function makeKart(id=0,car=CARS[0],person=DRIVERS[0],ghost=false,{flightWings=false,lowDetail=false,player=id===0}={}) {
   const g=withKartDetail(FULL,()=>assembleKart(id,car,person,ghost,flightWings,player));
   if(lowDetail&&!ghost)addLowDetail(g,car,person);
+  noteKartMemory(g,car.id);
   return g;
+}
+
+// ---- Graphics memory for cars nobody is using ---------------------------------------
+// A car's models and textures are built once and kept, so the second kart of a car costs
+// almost nothing. But once drawn they also stay on the graphics card: about 2 MB of
+// models per car and 22 MB for each of the large liveries, for the rest of the session,
+// for every car the player so much as looked at in the garage.
+//
+// Every car remembers what its karts were drawn with. When more than KEPT_CARS cars are
+// remembered, the ones with no kart alive and used longest ago let go of their graphics
+// memory. Nothing is thrown away on the JavaScript side, so a car that comes back is
+// simply sent to the card again the next time it is drawn. Anything a remaining car also
+// uses (shared wheels, drivers, reflections) is left alone.
+export const KEPT_CARS=8;
+const carMemory=new Map();
+let memoryClock=0;
+function noteKartMemory(kart,carId) {
+  let record=carMemory.get(carId);
+  if(!record)carMemory.set(carId,record={assets:new Set(),live:0,used:0});
+  record.live++;
+  record.used=++memoryClock;
+  kart.userData.memoryCar=carId;
+  kart.traverse(object=>{
+    if(object.geometry)record.assets.add(object.geometry);
+    const materials=Array.isArray(object.material)?object.material:object.material?[object.material]:[];
+    for(const material of materials){
+      for(const key in material){
+        const value=material[key];
+        if(value&&value.isTexture)record.assets.add(value);
+      }
+    }
+  });
+  trimCarMemory();
+}
+function trimCarMemory() {
+  let over=carMemory.size-KEPT_CARS;
+  if(over<=0)return;
+  const idle=[...carMemory].filter(([,record])=>record.live===0).sort((a,b)=>a[1].used-b[1].used).slice(0,over);
+  if(!idle.length)return;
+  for(const [carId] of idle)carMemory.delete(carId);
+  const inUse=new Set();
+  for(const record of carMemory.values())for(const asset of record.assets)inUse.add(asset);
+  for(const [,record] of idle){
+    for(const asset of record.assets)if(!inUse.has(asset)&&!sharedGeometry.has(asset))asset.dispose();
+  }
+}
+/** How many cars are holding graphics memory, and how many of them have a kart alive. For tests. */
+export function kartMemoryStats() {
+  let live=0;
+  for(const record of carMemory.values())if(record.live>0)live++;
+  return {cars:carMemory.size,live};
 }
 function assembleKart(id,car,person,ghost,flightWings,player) {
   const g=new THREE.Group(),body=new THREE.Group();g.add(body);
@@ -472,6 +524,8 @@ export function animateKart(g,k,b,time,renderDt=0,reduceMotion=false) {
 
 // Only release resources owned by this instance. Color/number materials are pooled.
 export function disposeKart(kart) {
+  const memory=carMemory.get(kart.userData.memoryCar);
+  if(memory){memory.live=Math.max(0,memory.live-1);kart.userData.memoryCar=null;}
   releaseKartFade(kart);
   disposeKartWings(kart.userData.wings);
   disposeLowDetail(kart.userData.low);

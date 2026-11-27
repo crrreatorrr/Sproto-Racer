@@ -12,6 +12,9 @@ import { LEGACY_GHOST, RECORD_KEY, TRIAL_LAYOUT } from './config.js';
  */
 
 const TRACK_ID = /^[a-z0-9][a-z0-9-]{0,31}$/;
+// Reserve a bounded namespace for the shipped Sky Lanes layouts, with and without
+// crossings. The same circuit ID can have records on both sides of the layout change.
+const LAYOUT_2_SLOT = /^(track0[123](?:-crossings)?)(-l2)?$/;
 const NAME = /^[\w .'-]{1,40}$/;
 const MAX_TIME = 60 * 60;
 const MAX_FRAMES = 20000;
@@ -33,11 +36,9 @@ function cleanFrames(frames) {
   return frames.map((frame) => frame.slice(0, 7));
 }
 
-/** One stored record, or null. Bad frames are dropped; the time remains. A record set on an
- * older circuit layout is null. */
-export function normalizeTrial(raw) {
+/** Validate record fields without changing the layout under which the run was driven. */
+function validateTrial(raw) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
-  if (raw.layout !== TRIAL_LAYOUT) return null;
   const time = typeof raw.time === 'number' ? raw.time : (typeof raw.t === 'number' ? raw.t / 1000 : NaN);
   const length = typeof raw.length === 'number' ? raw.length : raw.len;
   if (!Number.isFinite(time) || time <= 0 || time > MAX_TIME) return null;
@@ -46,8 +47,26 @@ export function normalizeTrial(raw) {
   const driver = cleanName(raw.driver);
   if (!car || !driver) return null;
   const frames = cleanFrames(raw.frames);
-  const layout = TRIAL_LAYOUT;
+  const layout = raw.layout;
   return frames ? { time, length, car, driver, layout, frames } : { time, length, car, driver, layout };
+}
+
+/** Only current-layout runs are eligible for the playable circuit. */
+export function normalizeTrial(raw) {
+  return raw?.layout === TRIAL_LAYOUT ? validateTrial(raw) : null;
+}
+
+function addStoredTrial(trials, id, raw) {
+  if (!TRACK_ID.test(id)) return;
+  const historical = LAYOUT_2_SLOT.exec(id);
+  let slot = id;
+  if (raw?.layout === 2 && TRIAL_LAYOUT !== 2 && historical) {
+    slot = `${historical[1]}-l2`;
+  } else if (raw?.layout !== TRIAL_LAYOUT || historical?.[2]) {
+    return;
+  }
+  const trial = validateTrial(raw);
+  if (trial) trials[slot] = betterTrial(trials[slot], trial);
 }
 
 function trialsOf(raw) {
@@ -55,9 +74,7 @@ function trialsOf(raw) {
   const src = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw.trials : null;
   if (!src || typeof src !== 'object' || Array.isArray(src)) return trials;
   for (const [id, row] of Object.entries(src)) {
-    if (!TRACK_ID.test(id)) continue;
-    const trial = normalizeTrial(row);
-    if (trial) trials[id] = trial;
+    addStoredTrial(trials, id, row);
   }
   return trials;
 }
@@ -168,8 +185,7 @@ function legacyTrials(storage) {
     if (!match) continue;
     let raw = null;
     try { raw = JSON.parse(storage.getItem(key) || 'null'); } catch { raw = null; }
-    const trial = normalizeTrial(raw);
-    if (trial) trials[match[1]] = trial;
+    addStoredTrial(trials, match[1], raw);
   }
   return { trials };
 }
@@ -236,7 +252,7 @@ export function createRecordBook(opts = {}) {
       return store.get().trials[trackId] ?? null;
     },
     commit(trackId, result) {
-      if (!TRACK_ID.test(trackId)) return null;
+      if (!TRACK_ID.test(trackId) || LAYOUT_2_SLOT.exec(trackId)?.[2]) return null;
       // A run just driven is on the current layout.
       const trial = normalizeTrial({ ...result, layout: TRIAL_LAYOUT });
       if (!trial) return this.get(trackId);

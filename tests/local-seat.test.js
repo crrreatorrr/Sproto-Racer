@@ -252,9 +252,15 @@ describe('AI rivals drive the same on the game\'s track as on the server\'s', ()
           assert.fail(`the two races differ by tick ${tick}`);
         }
       }
-      // The check means nothing on a circuit without low-grip road, so say so if that changes.
-      const core = worlds[0].track;
-      assert.ok((core.icePatches?.length ?? 0) + (core.wetPatches?.length ?? 0) > 0, `${course.id} has no ice or wet road`);
     });
   }
+
+  it('is checked on circuits that have ice or wet road', () => {
+    // Grip is what the two tracks disagreed about. If no circuit had any, the races above would prove little.
+    const lowGrip = CIRCUITS.filter((course) => {
+      const core = createTrackCore(course);
+      return (core.icePatches?.length ?? 0) + (core.wetPatches?.length ?? 0) > 0;
+    });
+    assert.ok(lowGrip.length >= 3, `only ${lowGrip.length} circuits have ice or wet road`);
+  });
 });

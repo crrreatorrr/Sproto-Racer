@@ -1,5 +1,6 @@
 // The Geep faces -Z. Its two seats, steering column and driver use the same mount.
 import * as T from 'three';
+import {loadTexture} from './texture-budget.js';
 import {geepAxles,geepTireWidthScale} from './geep-layout.js';
 export {geepScale,geepAxles} from './geep-layout.js';
 import bonnetUrl from './assets/geep-bonnet.webp';
@@ -85,7 +86,7 @@ function badge(part,material,x,y,z,w,h,rx=0,ry=0) {
 function makeBody(){
   const p=assembly(hardware),paint=once('geep:livery',makeLivery);
   function referencePaint(url){
-    const map=new T.TextureLoader().load(url);
+    const map=loadTexture(url);
     map.colorSpace=T.SRGBColorSpace;map.anisotropy=8;
     return new T.MeshStandardMaterial({map,roughness:.54,metalness:.04,side:T.DoubleSide});
   }

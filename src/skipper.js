@@ -1,4 +1,5 @@
 import * as T from 'three';
+import {loadTexture} from './texture-budget.js';
 import {RoundedBoxGeometry} from 'three/addons/geometries/RoundedBoxGeometry.js';
 import {assembly,surface,alloyReflections} from './kart-assembly.js';
 import {kartDetail,lowDetail} from './kart-detail.js';
@@ -243,12 +244,12 @@ export function attachSkipper(body,wheels,shadow){
   if(!finishes){
     initMaterials();
     enamel.envMap=metal.envMap=glass.envMap=alloyReflections();
-    const map=new T.TextureLoader().load(hullUrl);map.colorSpace=T.SRGBColorSpace;map.anisotropy=8;
+    const map=loadTexture(hullUrl);map.colorSpace=T.SRGBColorSpace;map.anisotropy=8;
     const painted=new T.MeshPhysicalMaterial({map,roughness:.45,clearcoat:.35,envMap:enamel.envMap,side:T.DoubleSide});
-    const alloyMap=new T.TextureLoader().load(metalUrl);
+    const alloyMap=loadTexture(metalUrl);
     alloyMap.colorSpace=T.SRGBColorSpace;alloyMap.anisotropy=8;
     const plating=new T.MeshStandardMaterial({map:alloyMap,roughness:.45,metalness:.45,envMap:metal.envMap,side:T.DoubleSide});
-    finishes={painted,plating,shadow:new T.TextureLoader().load(shadowUrl)};
+    finishes={painted,plating,shadow:loadTexture(shadowUrl)};
   }
   const built=templates[kartDetail()]??=(()=>{
     const p=assembly(rubber);

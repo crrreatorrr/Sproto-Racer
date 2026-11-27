@@ -1,4 +1,5 @@
 import * as T from 'three';
+import {loadTexture} from './texture-budget.js';
 import {HDRLoader} from 'three/addons/loaders/HDRLoader.js';
 import {RoundedBoxGeometry} from 'three/addons/geometries/RoundedBoxGeometry.js';
 import reflectionUrl from './assets/hexshift-reflections.hdr?url';
@@ -31,7 +32,7 @@ let contactMap,dressed=false;
 
 export function styleHexshiftShadow(shadow){
   if(!contactMap){
-    contactMap=new T.TextureLoader().load(contactUrl);
+    contactMap=loadTexture(contactUrl);
     contactMap.colorSpace=T.SRGBColorSpace;
   }
   shadow.geometry=contactPlane;
@@ -318,7 +319,7 @@ export function attachHexshift(body,wheels){
   if(!dressed){
     dressed=true;
     initMaterials();
-    const tread=new T.TextureLoader().load(slickUrl);
+    const tread=loadTexture(slickUrl);
     tread.wrapS=tread.wrapT=T.RepeatWrapping;
     tread.anisotropy=4;
     rubber.bumpMap=tread;rubber.bumpScale=.0022;rubber.roughnessMap=tread;

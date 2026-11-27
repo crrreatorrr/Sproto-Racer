@@ -26,6 +26,7 @@ import {createCuePlayer,cueEvent} from './race-cues.js';
 import {onlineSwitch} from './online-switch.js';
 import {createPerfMonitor} from './perf.js';
 import {TIERS,TIER_IDS,basePixelRatio,createResolutionScaler,loadTier,minScaleFor,saveTier,tierFor} from './quality.js';
+import {saveMuted,soundLabel,startMuted} from './sound-pref.js';
 import {lerpAngle} from './sim/math.js';
 import {laneCeiling,lapOf,nextCell} from './sim/sky.js';
 import {createTrackSample} from './sim/track-core.js';
@@ -163,8 +164,9 @@ function syncModel(old,id,setup,{ghost=false,local=false}={}){
 }
 // ?kartlod=low or ?kartlod=full pins every rival to one build, for side-by-side checks.
 forceKartDetail(new URLSearchParams(location.search).get('kartlod'));
-let screen='lobby',selected='race',modal='',controllerOpen=false,muted=false,config={...DEFAULT_TEST};
-try{muted=localStorage.getItem('sproto.mute')==='1';}catch{}
+let screen='lobby',selected='race',modal='',controllerOpen=false,config={...DEFAULT_TEST};
+// ?mute=1 starts this visit muted; a test server (npm run dev:muted) always starts muted.
+let muted=startMuted(storage,location.search,import.meta.env.VITE_START_MUTED==='1');
 fx.mute(muted);
 let previous=performance.now(),animation=0,w=0,h=0,lastHUD=0;
 let followKart=createChaseCamera(camera,track);
@@ -185,9 +187,11 @@ function selectMode(id){
   $('launch').innerHTML='CHOOSE DRIVER '+icon('arrow');
 }
 document.querySelectorAll('[data-mode]').forEach(b=>b.onclick=()=>{selectMode(b.dataset.mode);fx.tone('click')});
-function soundToggle(){muted=!muted;try{localStorage.setItem('sproto.mute',muted?'1':'0');}catch{}
+function soundToggle(){muted=!muted;saveMuted(storage,muted);
   fx.unlock();fx.mute(muted);updateSound();if(!muted)fx.tone('click');}
-function updateSound(){$('audio').innerHTML=icon(muted?'mute':'sound');$('audio').setAttribute('aria-label',muted?'Enable sound':'Mute sound');}
+// The paddock's speaker button and the pause panel's Sound button show the same choice.
+function updateSound(){$('audio').innerHTML=icon(muted?'mute':'sound');$('audio').setAttribute('aria-label',muted?'Enable sound':'Mute sound');
+  const inPause=$('pause-sound');if(inPause){inPause.textContent=soundLabel(muted);inPause.setAttribute('aria-pressed',String(!muted));}}
 updateSound();$('audio').onclick=soundToggle;
 function controller(){controllerOpen=true;openController(input,()=>{const pad=input.rawPad();navPrev=pad?padEdges(pad):[];controllerOpen=false;previous=performance.now();});}
 $('controls').onclick=controller;
@@ -361,8 +365,8 @@ function restartSection(){
 function pause(){
   if(screen!=='game'||state.done||feedbackHold.held())return;
   if(online){onlineMenu();return;}
-  showPanel('pause',`<h2 id="panel-title">Paused</h2><p>${track.name} · ${track.sections[view.sector].name}</p><div class="keys"><span><kbd>WASD / ↑↓←→</kbd> Drive</span><span><kbd>Q</kbd> Hop & drift</span><span><kbd>E</kbd> Drift boost</span><span><kbd>SPACE</kbd> Item</span><span><kbd>N N</kbd> Feedback</span>${player.car==='barrage'&&state.mode!=='trial'?'<span><kbd>F</kbd> Pulse blasters</span>':''}</div><p>Steer and hold drift through the hop. Press boost in the marked zone, then time the next charge. Mix up to three Goods and Perfects per slide. Each Good adds 0.8s and each Perfect adds 1.2s. Boost items add to the same timer. Kart bumps preserve boost. Rail, obstacle, and unblocked item hits cut it.</p>${graphicsField()}<div class="panel-actions"><button class="primary" id="resume">RESUME ${icon('arrow')}</button>${state.mode==='test'?'<button id="panel-tools">Test tools</button>':''}<button id="retry">${state.mode==='test'?'Restart current section':'Restart race'}</button><button id="edit-pad">Controller setup</button><button id="back-home">Return to paddock</button><button id="pause-hub" type="button">Return to hub</button></div>`);
-  $('resume').onclick=closePanel;$('retry').onclick=restartSection;$('edit-pad').onclick=controller;$('back-home').onclick=home;$('pause-hub').onclick=confirmHub;if($('panel-tools'))$('panel-tools').onclick=()=>testTools();
+  showPanel('pause',`<h2 id="panel-title">Paused</h2><p>${track.name} · ${track.sections[view.sector].name}</p><div class="keys"><span><kbd>WASD / ↑↓←→</kbd> Drive</span><span><kbd>Q</kbd> Hop & drift</span><span><kbd>E</kbd> Drift boost</span><span><kbd>SPACE</kbd> Item</span><span><kbd>N N</kbd> Feedback</span>${player.car==='barrage'&&state.mode!=='trial'?'<span><kbd>F</kbd> Pulse blasters</span>':''}</div><p>Steer and hold drift through the hop. Press boost in the marked zone, then time the next charge. Mix up to three Goods and Perfects per slide. Each Good adds 0.8s and each Perfect adds 1.2s. Boost items add to the same timer. Kart bumps preserve boost. Rail, obstacle, and unblocked item hits cut it.</p>${graphicsField()}<div class="panel-actions"><button class="primary" id="resume">RESUME ${icon('arrow')}</button>${state.mode==='test'?'<button id="panel-tools">Test tools</button>':''}<button id="retry">${state.mode==='test'?'Restart current section':'Restart race'}</button><button id="edit-pad">Controller setup</button><button id="pause-sound" type="button"></button><button id="back-home">Return to paddock</button><button id="pause-hub" type="button">Return to hub</button></div>`);
+  $('resume').onclick=closePanel;$('retry').onclick=restartSection;$('edit-pad').onclick=controller;$('pause-sound').onclick=soundToggle;updateSound();$('back-home').onclick=home;$('pause-hub').onclick=confirmHub;if($('panel-tools'))$('panel-tools').onclick=()=>testTools();
   bindGraphics();$('resume').focus({preventScroll:true});
   stampAccount();
 }
@@ -427,8 +431,8 @@ function onlineLobbyFrame(dt){
     +(runner.lobby.length<onlineDev.seats?`<li class="subtle"><b>${onlineDev.seats-runner.lobby.length} more</b><span>computer drivers</span><em></em></li>`:'');
 }
 function onlineMenu(){
-  showPanel('pause',`<h2 id="panel-title">Online race</h2><p>${track.name} · ${track.sections[view.sector].name}</p><p>An online race cannot pause. It carries on behind this panel.</p><p class="subtle">${onlineNote()}</p>${graphicsField()}<div class="panel-actions"><button class="primary" id="resume">BACK TO THE RACE ${icon('arrow')}</button><button id="edit-pad">Controller setup</button><button id="back-home">Leave the race</button></div>`);
-  $('resume').onclick=closePanel;$('edit-pad').onclick=controller;$('back-home').onclick=home;
+  showPanel('pause',`<h2 id="panel-title">Online race</h2><p>${track.name} · ${track.sections[view.sector].name}</p><p>An online race cannot pause. It carries on behind this panel.</p><p class="subtle">${onlineNote()}</p>${graphicsField()}<div class="panel-actions"><button class="primary" id="resume">BACK TO THE RACE ${icon('arrow')}</button><button id="edit-pad">Controller setup</button><button id="pause-sound" type="button"></button><button id="back-home">Leave the race</button></div>`);
+  $('resume').onclick=closePanel;$('edit-pad').onclick=controller;$('pause-sound').onclick=soundToggle;updateSound();$('back-home').onclick=home;
   bindGraphics();$('resume').focus({preventScroll:true});
 }
 function onlineResults(){

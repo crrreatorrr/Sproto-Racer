@@ -85,7 +85,7 @@ describe('deterministic math & PRNG', () => {
 });
 
 describe('pure SimWorld determinism, snapshots, and Nakama Goja VM parity', () => {
-  it('produces identical stateHash across independent runs on all 3 circuits with mixed custom cars', () => {
+  it('produces identical stateHash across independent runs on all circuits with mixed custom cars', () => {
     const cars = ['apex', 'barrage', 'saucer', 'ironhide', 'geep', 'manta'];
     const drivers = ['sproto', 'cone', 'milady', 'remilio', 'pepe', 'wojak'];
 

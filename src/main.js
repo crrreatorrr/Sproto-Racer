@@ -8,6 +8,7 @@ import {controllerIsOpen,openController} from './controller.js';
 import {attachFeedbackSdk,createFeedbackHold,installRaceFeedback,raceBreadcrumbs} from './feedback.js';
 import {createPaddock,lightScene} from './paddock.js';
 import {updateRivalVisibility} from './kart-visibility.js';
+import {warmRaceShaders} from './shader-warmup.js';
 import {makeKart,animateKart,disposeKart,resetKartWingPose} from './kart-art.js';
 import {createGarage} from './garage.js';
 import {carById,driverById} from './roster.js';
@@ -113,6 +114,9 @@ let cameraRescues=0;
 const poseFields=['s','x','y','yaw','pitch','roll','speed','travelYaw','steer','slipAngle','hopLift','suspension','stunRemaining','rollTime','tumble','wobble','trickTime'];
 const placeSample=createTrackSample();
 function setText(id,value){if($(id).textContent!==String(value))$(id).textContent=value;}
+// The HUD repaints many times a second; touch the page only when a value is new.
+function setAttr(el,name,value){if(el.getAttribute(name)!==value)el.setAttribute(name,value);}
+function setHidden(el,hidden){if(el.hidden!==hidden)el.hidden=hidden;}
 function selectMode(id){
   selected=id;const idx=MODES.findIndex(m=>m.id===id);
   document.querySelectorAll('[data-mode]').forEach(btn=>{const on=btn.dataset.mode===id;btn.classList.toggle('selected',on);btn.setAttribute('aria-pressed',on);});
@@ -154,11 +158,17 @@ function feedbackSnapshot(){
     stun:kart?.stunRemaining??0,offTrack:!!kart?.fall,done:!!state.done,countdown:state.countdown,
   };
 }
-let lastCrumb=null;
+// The four things a breadcrumb can come from, compared every frame. The full snapshot
+// (25 fields and a track sample) is built only on the frame one of them changes.
+const crumbWatch={live:false,lap:1,done:false,offTrack:false,stunned:false};
 function noteCrumbs(){
-  const snap=feedbackSnapshot();
-  for(const crumb of raceBreadcrumbs(lastCrumb,snap))feedbackHandle.breadcrumb(crumb.type,crumb.data);
-  lastCrumb=snap;
+  const kart=state.player?.kart,w=crumbWatch;
+  const lap=state.lap??1,done=!!state.done,offTrack=!!kart?.fall,stunned=(kart?.stunRemaining??0)>0;
+  if(w.live&&(lap>w.lap||(done&&!w.done)||(offTrack&&!w.offTrack)||(stunned&&!w.stunned))){
+    const before={racing:true,lap:w.lap,done:w.done,offTrack:w.offTrack,stun:w.stunned?1:0};
+    for(const crumb of raceBreadcrumbs(before,feedbackSnapshot()))feedbackHandle.breadcrumb(crumb.type,crumb.data);
+  }
+  w.live=true;w.lap=lap;w.done=done;w.offTrack=offTrack;w.stunned=stunned;
 }
 const feedbackHold=createFeedbackHold(input,{pauseAudio:()=>fx.pause()});
 function renderFeedbackFrame(){
@@ -180,7 +190,7 @@ const feedbackHandle=installRaceFeedback({
 });
 function begin(mode=selected,options=config){
   ensureTrackVisuals();
-  closePanel();fx.unlock();fx.mute(muted);lastCrumb=null;
+  closePanel();fx.unlock();fx.mute(muted);crumbWatch.live=false;
   pendingEdges={};pendingSlot=null;itemHold=-1;hudItemDown=false;screen='game';$('lobby').hidden=true;$('game').hidden=false;document.querySelector('.topbar').hidden=true;
   $('race-canvas').append(renderer.domElement);w=0;h=0;accumulator=0;previous=performance.now();
   itemFx.reset();impactUntil=0;shownItemToken='';shownReserveToken='';shownSlotOrder='';$('item-impact').hidden=true;
@@ -198,6 +208,9 @@ function begin(mode=selected,options=config){
   for(const m of models)if(m)m.visible=false;
   if(state.countdown>0)fx.tone('count');
   lookingBack=false;lastPose.length=0;syncWorld(0,1);hud();timingHUD();
+  // Compile every shader the race can need now, so none of them stalls a frame mid-race.
+  const karts=state.actors.map(a=>models[a.id]);
+  warmRaceShaders(renderer,world,camera,{built:[track,ghostModel,...karts],rivals:karts.filter((_,i)=>!state.actors[i].isPlayer),play,itemFx});
 }
 function loadSelectedCourse(){
   if(chosenCourse.id===track.id){ensureTrackVisuals();return;}
@@ -335,7 +348,7 @@ function paintReserve(a,rolling){
  const shown=rolling??a.reserve;
  const slot=rolling!=null?'drawing':shown==null?'empty':'ready';
  setText('reserve-key',slot==='empty'?'2ND':slot==='drawing'?'…':'HOLD ⇄');
- button.setAttribute('aria-label',slot==='drawing'?'Drawing a second item':shown==null?'Second item slot':'Second item: '+ITEMS[shown].name+(shown===8?' ('+a.reserveCharges+' charges)':'')+'. Hold the item button to swap.');
+ setAttr(button,'aria-label',slot==='drawing'?'Drawing a second item':shown==null?'Second item slot':'Second item: '+ITEMS[shown].name+(shown===8?' ('+a.reserveCharges+' charges)':'')+'. Hold the item button to swap.');
  const token=slot+':'+(shown??'');
  if(token!==shownReserveToken){
    shownReserveToken=token;button.dataset.slot=slot;
@@ -497,6 +510,7 @@ function rebuildMap(){
   mapBgCtx.setLineDash([]);
 }
 rebuildMap();
+let shownMeter=-1,shownReserve=-1;
 function timingHUD(){
  const {kart:k,boost:b}=state.player;
  const pips=$('pips');
@@ -516,8 +530,9 @@ function timingHUD(){
  boostButton.disabled=!charging;
  boostButton.classList.toggle('ready',ready);
  setText('meter-label',state.countdown?'LAUNCH':grade==='PERFECT'?'PERFECT':ready?'READY':k.sliding?'DRIFT':b.tier===2?'SUPER TURBO':b.tier?'TURBO':'DRIFT');
- $('meterfill').style.width=((state.countdown?b.rev:b.meter)*100)+'%';
- $('reservefill').style.width=(100*b.reserve/Math.max(5,b.reservePeak))+'%';
+ const meter=(state.countdown?b.rev:b.meter)*100,reserve=100*b.reserve/Math.max(5,b.reservePeak);
+ if(meter!==shownMeter){shownMeter=meter;$('meterfill').style.width=meter+'%';}
+ if(reserve!==shownReserve){shownReserve=reserve;$('reservefill').style.width=reserve+'%';}
  setText('reserve-time',b.reserve>0?(Math.ceil(b.reserve*10)/10).toFixed(1)+'s':'');
 }
 let finalLapAt=-1,flightStartedAt=-1,lastCue={flying:false,cells:0,tier:0,notice:'',lap:1,place:0,placeAt:-9};
@@ -547,9 +562,10 @@ function raceCues(){
  if(state.elapsed-lastCue.placeAt>1.4)$('position-pop').classList.remove('show');
  Object.assign(lastCue,{flying:k.flying,cells:k.flying?b.skyCells:0,tier:k.flying?b.skyTier:0,notice:a.notice,lap:state.lap});
 }
+let shownSkyTimer=-1,shownSkyHeight=-1,shownSkyArrow='',linesIdle=true,linesQuietAt=0;
 function skyHUD(){
  const a=state.player,k=a.kart,b=a.boost,panel=$('sky-hud');
- panel.hidden=!k.flying;
+ setHidden(panel,!k.flying);
  // Speed lines build from air base speed up to the 2.2× ceiling; the reduce
  // setting keeps them faint and still.
  const lines=$('speed-lines'),calm=!!input.settings.reduceSpeedLines;
@@ -557,12 +573,16 @@ function skyHUD(){
  const opacity=(k.flying?.18+.62*rush:0)*(calm?.3:1);
  if(Math.abs((+lines.dataset.o||0)-opacity)>.02){lines.style.opacity=opacity.toFixed(2);lines.dataset.o=opacity.toFixed(2);}
  lines.classList.toggle('reduced',calm);
+ // Stop the streak animation once the fade-out has finished, and restart it for the next flight.
+ if(opacity>0){linesQuietAt=animation+.3;if(linesIdle){linesIdle=false;lines.classList.remove('idle');}}
+ else if(!linesIdle&&animation>=linesQuietAt){linesIdle=true;lines.classList.add('idle');}
  if(!k.flying)return;
  const lane=track.sky.lanes[k.skyLane];
- panel.dataset.tier=String(b.skyTier);
+ if(panel.dataset.tier!==String(b.skyTier))panel.dataset.tier=String(b.skyTier);
  setText('sky-chain','×'+b.skyChain);
  setText('sky-tier','TIER '+b.skyTier+' · '+[1.6,1.8,2,2.2][b.skyTier].toFixed(1)+'×');
- $('sky-timer-fill').style.width=(100*Math.max(0,b.skyTimer)/2.5)+'%';
+ const timer=Math.max(0,b.skyTimer);
+ if(timer!==shownSkyTimer){shownSkyTimer=timer;$('sky-timer-fill').style.width=(100*timer/2.5)+'%';}
  const layout=lane.layouts[lapOf(k.s,track.length)-1];
  const local=k.s-Math.floor(k.s/track.length)*track.length;
  const cell=nextCell(layout,play.skyGot(a),local,160);
@@ -572,10 +592,12 @@ function skyHUD(){
  if(cell){
    const dx=cell.x-k.x,dy=cell.y-k.skyY;
    const angle=Math.hypot(dx,dy)<1.5?0:Math.atan2(dx,dy);
-   arrow.firstElementChild.style.transform='rotate('+angle.toFixed(3)+'rad)';
+   const turn='rotate('+angle.toFixed(3)+'rad)';
+   if(turn!==shownSkyArrow){shownSkyArrow=turn;arrow.firstElementChild.style.transform=turn;}
  }
  const top=laneCeiling(lane,k.s,track.length);
- $('sky-alt-tick').style.bottom=(100*Math.min(1,Math.max(0,(k.skyY-lane.floor)/Math.max(1,top-lane.floor))))+'%';
+ const height=Math.min(1,Math.max(0,(k.skyY-lane.floor)/Math.max(1,top-lane.floor)));
+ if(height!==shownSkyHeight){shownSkyHeight=height;$('sky-alt-tick').style.bottom=(100*height)+'%';}
 }
 function hud(){
  const a=state.player,k=a.kart,b=a.boost;
@@ -602,7 +624,8 @@ function hud(){
  const shownItem=frontRolling?rolling:a.held;
  const itemButton=$('item-hud');
  itemButton.disabled=a.held==null;
- itemButton.title=frontRolling?'Drawing an item':a.held==null?'Empty item slot':'Use '+ITEMS[a.held].name+(a.reserve!=null&&!a.unlimited?' · hold to swap':'');
+ const itemTitle=frontRolling?'Drawing an item':a.held==null?'Empty item slot':'Use '+ITEMS[a.held].name+(a.reserve!=null&&!a.unlimited?' · hold to swap':'');
+ if(itemButton.title!==itemTitle)itemButton.title=itemTitle;
  setText('item-name',frontRolling?'Drawing…':a.held!=null?ITEMS[a.held].name:'EMPTY');
  const art=$('held-picture');art.hidden=shownItem==null;
  const slotState=frontRolling?'drawing':shownItem==null?'empty':'ready';
@@ -619,7 +642,7 @@ function hud(){
  paintReserve(a,a.roulette&&!frontRolling?rolling:null);
  setText('item-key',frontRolling?'ITEM ROULETTE':state.mode==='test'?'UNLIMITED  ∞':'ITEM');
  if(state.mode==='test'){
-   for(let i=0;i<inventory.children.length;i++)inventory.children[i].setAttribute('aria-pressed',String(i===a.held));
+   for(let i=0;i<inventory.children.length;i++)setAttr(inventory.children[i],'aria-pressed',String(i===a.held));
    const switchKey=input.deviceName==='Keyboard'?'X / I':bindingName(input.settings.bindings.next);
    setText('item-cycle',(a.held===8?a.charges+' CHARGES · ':'')+switchKey+' · NEXT');
  }else setText('item-cycle',a.held===8?a.charges+' CHARGES':'');

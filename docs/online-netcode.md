@@ -261,10 +261,10 @@ Things the handler must respect:
 
 | Room | Ticks | Host tick in Goja: mean / p95 / p99 / max | All message handling |
 | --- | --- | --- | --- |
-| 6 karts, 3 humans, Crestline Ridge | 24,031 | 1.36 / 1.80 / 2.39 / 6.1 ms | 1.3 s in total over the match |
-HOST12ROW
+| 6 karts, 3 humans, Crestline Ridge | 24,031 | 1.33 / 1.73 / 2.30 / 5.7 ms | 1.3 s in total over the match |
+| 12 karts, 6 humans, Switchyard GP | 28,710 | 3.47 / 4.89 / 7.70 / 21.3 ms | 3.1 s in total over the match |
 
-The budget is 16.7 ms a tick. In both engines the replay ends in the same race, with the same count and checksum of every byte sent (36,609 messages, 1.67 MB for the 6-kart match), so a browser client and the Goja server agree. `tests/server-bundle-host.test.js` repeats the Node half of this in `npm test`.
+The budget is 16.7 ms a tick. The 12-kart match has single ticks over it (the worst was 21 ms; 99% are under 8 ms), which matches the sim benchmark's finding that a 12-kart start is the heaviest moment; a late tick slows the race for a moment rather than breaking it. In both engines each replay ends in the same race, with the same count and checksum of every byte sent (36,609 messages and 1.67 MB for the 6-kart match, 87,773 and 6.24 MB for the 12-kart one), so a browser client and the Goja server agree. `tests/server-bundle-host.test.js` repeats the Node half of this in `npm test`.
 
 ## Not covered yet
 

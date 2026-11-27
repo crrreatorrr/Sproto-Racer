@@ -526,10 +526,14 @@ export function createSimWorld(options = {}) {
     }
 
     // Track fixtures follow the leading active lap so loading doors open for the front-runner in MP too.
+    // Test Drive is the exception: its lap counter wraps and the player chose which lap to
+    // practise, so there the fixtures follow the player and rivals cannot shut the door.
     let maxS = state.player ? (state.player.kart.fall?.exitS ?? state.player.kart.s) : 0;
-    for (let i = 0; i < state.actors.length; i++) {
-      const s = state.actors[i].kart.fall?.exitS ?? state.actors[i].kart.s;
-      if (s > maxS) maxS = s;
+    if (state.mode !== 'test') {
+      for (let i = 0; i < state.actors.length; i++) {
+        const s = state.actors[i].kart.fall?.exitS ?? state.actors[i].kart.s;
+        if (s > maxS) maxS = s;
+      }
     }
     const leadLap = state.mode === 'test'
       ? 1 + mod(Math.floor(maxS / track.length), laps)

@@ -107,6 +107,23 @@ describe('single-player session on the shared engine', () => {
     assert.equal(touched(true), true);
   });
 
+  it('Test Drive fixtures follow the player, so rivals on another lap cannot shut the lap-3 door', () => {
+    const { session, track } = makeSession(CIRCUITS[0]);
+    const door = track.hazards.find((h) => h.type === 'loadingDoor');
+    assert.ok(door, 'Test Track 01 lost its loading door');
+    // Start on lap 3 (door open) with a full pack; drive until a rival has wrapped past the lap.
+    const state = session.start('test', { sector: 10, lap: 3, rivals: 'pack', speed: 'cruise', seed: 6 });
+    let rivalWrapped = false;
+    for (let tick = 0; tick < 2400; tick++) {
+      session.tick({ throttle: 1 }, 1 / 60);
+      const playerLap = Math.floor(state.player.kart.s / track.length) % 3;
+      const ahead = state.actors.some((a) => a !== state.player && Math.floor(a.kart.s / track.length) % 3 !== playerLap);
+      rivalWrapped = rivalWrapped || ahead;
+      if (playerLap === 2) assert.notEqual(door.active, true, `door shut on the player's lap 3 at tick ${tick}`);
+    }
+    assert.ok(rivalWrapped, 'no rival ever reached another lap, so the test proved nothing');
+  });
+
   it('Time Trial records a ghost and saves the best time at the finish', () => {
     let saved = null;
     const records = { get: () => null, commit: (_id, value) => (saved = value) };

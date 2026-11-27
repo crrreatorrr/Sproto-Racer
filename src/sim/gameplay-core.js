@@ -20,6 +20,7 @@ import { ITEMS, hasItemRoom, promoteReserve } from '../items.js';
 import { contactTime, shapedItemContactTime } from '../projectile-contact.js';
 import { atan2, clamp, cos, damp, hypot3, mix, mod, sin } from './math.js';
 import { createTrackSample } from './track-core.js';
+import { createRoadIndex, itemsAhead } from './road-index.js';
 
 export { ITEMS } from '../items.js';
 
@@ -31,7 +32,31 @@ const blankInput = () => ({
   driftPressed: false,
   itemPressed: false,
   itemSwapPressed: false,
+  // Only set in some situations. Present but undefined reads the same as absent.
+  pitch: undefined,
+  itemBackward: undefined,
+  blasters: undefined,
 });
+
+function clearInput(input) {
+  input.throttle = 1;
+  input.brake = 0;
+  input.steer = 0;
+  input.driftHeld = false;
+  input.driftPressed = false;
+  input.itemPressed = false;
+  input.itemSwapPressed = false;
+  input.pitch = undefined;
+  input.itemBackward = undefined;
+  input.blasters = undefined;
+  return input;
+}
+
+const BACKWARD_ITEMS = [1, 10, 11];
+// Items a rival uses to defend: the broom always, a shield only when it has none up.
+const guards = (a, item) => item === 15 || (!a.shield && (item === 2 || item === 19));
+// A Barrage rival fires when a kart ahead sits on its line of fire.
+const onFiringLine = (ka, other, d) => Math.abs(other.x - ka.x - sin(ka.yaw) * d) < 1.2;
 
 export const FLYING_TYPES = new Set(['ball', 'disc', 'bolt', 'lightbolt', 'lob', 'ring', 'cursor', 'rocket']);
 export const TRAP_TYPES = new Set(['slip', 'box', 'puck']);
@@ -103,8 +128,17 @@ export function createGameplayCore(track, hooks = {}) {
   let actorStates = Object.create(null);
   const objects = [];
   let rewards = [...(track.pads || []), ...(track.pickups || [])];
+  let rewardIndex = createRoadIndex(rewards, track.length);
+  let padIndex = createRoadIndex(track.pads, track.length);
   const sampleA = createTrackSample();
   const sampleB = createTrackSample();
+  // Reused every tick, indexed by seat: each rival's controls, each kart's path through the
+  // tick, and the working lists of the item update.
+  const inputs = [];
+  const paths = [];
+  const events = [];
+  const brooms = [];
+  const barrier = { s: 0, s0: 0, x: 0, x0: 0, y: 0, y0: 0 };
 
   function sampleTrack(s, x = 0, out = sampleA) {
     if (track.sampleInto) return track.sampleInto(s, x, out);
@@ -153,7 +187,8 @@ export function createGameplayCore(track, hooks = {}) {
   }
 
   function deltaS(from, to) {
-    return mod(to - from + track.length / 2, track.length) - track.length / 2;
+    const length = track.length;
+    return ((((to - from + length / 2) % length) + length) % length) - length / 2;
   }
 
   function towInReach(k, other, distance) {
@@ -604,7 +639,9 @@ export function createGameplayCore(track, hooks = {}) {
     const k = a.kart;
     const b = a.boost;
     const s = state(a);
-    const input = blankInput();
+    // One controls object per rival, reset each tick. It is read until the end of this tick only.
+    const key = stateKey(a);
+    const input = inputs[key] ? clearInput(inputs[key]) : (inputs[key] = blankInput());
     s.itemCooldown -= dt;
     s.aiRest = Math.max(0, s.aiRest - dt);
     if (k.flying) {
@@ -618,9 +655,14 @@ export function createGameplayCore(track, hooks = {}) {
     const id = a.id || 1;
     let lane = clamp(sin(k.s / 128 + id * 2.1) * 2.2 + (id - 3) * 1.3, -7, 7);
     let nearestFeature = 65;
-    const targets = hasItemRoom(a) && !a.roulette ? rewards : track.pads;
-    for (let i = 0; i < targets.length; i++) {
-      const target = targets[i];
+    // Rewards within the 65 m a rival looks ahead, in array order. Anything further cannot
+    // pass the distance test below, so skipping it changes nothing.
+    const wantsItems = hasItemRoom(a) && !a.roulette;
+    const targets = wantsItems ? rewards : track.pads;
+    const index = wantsItems ? rewardIndex : padIndex;
+    const near = itemsAhead(index, k.s, 65);
+    for (let i = 0; i < near; i++) {
+      const target = targets[index.found[i]];
       if (target.hidden) continue;
       const d = deltaS(k.s, target.s);
       if (d < 0 || d > nearestFeature) continue;
@@ -821,18 +863,17 @@ export function createGameplayCore(track, hooks = {}) {
   }
 
   function aiItems(a, k, s, id, input) {
-    const guards = (item) => item === 15 || (!a.shield && (item === 2 || item === 19));
     let item = a.held;
-    let defend = a.incoming && guards(item);
+    let defend = a.incoming && guards(a, item);
     // A defensive second item is swapped to the front when a hit is coming.
-    if (a.incoming && !defend && item != null && a.reserve != null && guards(a.reserve)) {
+    if (a.incoming && !defend && item != null && a.reserve != null && guards(a, a.reserve)) {
       input.itemSwapPressed = true;
       item = a.reserve;
       defend = true;
     }
     if (item != null && (s.itemCooldown <= 0 || defend)) {
       input.itemPressed = true;
-      if ([1, 10, 11].includes(item)) {
+      if (BACKWARD_ITEMS.includes(item)) {
         const front = nearestAhead(a, actors, 60);
         input.itemBackward = actors.some(
           (other) =>
@@ -846,7 +887,7 @@ export function createGameplayCore(track, hooks = {}) {
       s.itemCooldown = 1.2 + (id % 3) * 0.7;
     }
     if (a.car === 'barrage') {
-      input.blasters = !!nearestAhead(a, actors, 30, (ka, other, d) => Math.abs(other.x - ka.x - sin(ka.yaw) * d) < 1.2);
+      input.blasters = !!nearestAhead(a, actors, 30, onFiringLine);
     }
   }
 
@@ -1062,21 +1103,45 @@ export function createGameplayCore(track, hooks = {}) {
     }
   }
 
+  function queue(time, kind, o, target) {
+    if (Number.isFinite(time)) events.push({ time, kind, o, target });
+  }
+
   function updateObjects(dt, pack) {
-    const actorPaths = new Map();
     for (let i = 0; i < pack.length; i++) {
       const a = pack[i];
-      const { s, x, y } = a.kart;
+      const kart = a.kart;
+      const s = kart.s;
+      const x = kart.x;
       const road = sampleTrack(s, x, sampleA);
-      const worldY = road.position.y + y + 0.8;
+      const worldY = road.position.y + kart.y + 0.8;
       const st = state(a);
       const prev = st.lastPosition;
       const roadScale = Math.max(0.55, Math.min(1.65, 1 - x * road.curvature));
-      actorPaths.set(a, { s, x, y: worldY, roadScale, s0: prev?.s ?? s, x0: prev?.x ?? x, y0: prev?.y ?? worldY });
-      st.lastPosition = { s, x, y: worldY, roadScale, s0: s, x0: x, y0: worldY };
+      // Where the kart was a tick ago and where it is now, for sweeping items against it.
+      const key = stateKey(a);
+      const path = paths[key] || (paths[key] = { s: 0, x: 0, y: 0, roadScale: 1, s0: 0, x0: 0, y0: 0 });
+      path.s = s;
+      path.x = x;
+      path.y = worldY;
+      path.roadScale = roadScale;
+      path.s0 = prev ? prev.s ?? s : s;
+      path.x0 = prev ? prev.x ?? x : x;
+      path.y0 = prev ? prev.y ?? worldY : worldY;
+      if (prev) {
+        prev.s = s;
+        prev.x = x;
+        prev.y = worldY;
+        prev.roadScale = roadScale;
+        prev.s0 = s;
+        prev.x0 = x;
+        prev.y0 = worldY;
+      } else {
+        st.lastPosition = { s, x, y: worldY, roadScale, s0: s, x0: x, y0: worldY };
+      }
     }
-    const events = [];
-    const brooms = [];
+    events.length = 0;
+    brooms.length = 0;
     for (let i = 0; i < objects.length; i++) {
       const o = objects[i];
       if ((o.life -= dt) <= 0) continue;
@@ -1159,22 +1224,18 @@ export function createGameplayCore(track, hooks = {}) {
       }
     }
 
-    function queue(time, kind, o, target) {
-      if (Number.isFinite(time)) events.push({ time, kind, o, target });
-    }
-
     for (let i = 0; i < objects.length; i++) {
       const o = objects[i];
       if (o.life <= 0 || (!FLYING_TYPES.has(o.type) && !TRAP_TYPES.has(o.type))) continue;
       for (let j = 0; j < brooms.length; j++) {
         const a = brooms[j];
-        if (o.owner !== a) queue(contactTime(o, actorPaths.get(a), 7, 6, 4, track.length), 'clear', o);
+        if (o.owner !== a) queue(contactTime(o, paths[stateKey(a)], 7, 6, 4, track.length), 'clear', o);
       }
       if (o.type === 'puck' && elapsed - o.born < 0.45) continue;
       for (let j = 0; j < pack.length; j++) {
         const a = pack[j];
         if (a === o.owner || a.finish != null || o.tagged?.has(a) || (o.target && a !== o.target)) continue;
-        const path = o.born === elapsed ? state(a).lastPosition : actorPaths.get(a);
+        const path = o.born === elapsed ? state(a).lastPosition : paths[stateKey(a)];
         const reach = o.type === 'puck' ? 4.2 : 0;
         if (!reach && hasShapedBody(a.kart)) {
           const padX = o.type === 'slip' ? 1.10 : 0.40;
@@ -1189,7 +1250,9 @@ export function createGameplayCore(track, hooks = {}) {
         const h = trackHazards[j];
         if (h.active === false || Math.abs(deltaS(o.s, h.s)) > h.depth / 2 + Math.abs(o.s - o.s0) + 2) continue;
         const y = pointY(h.s, h.x, h.height / 2);
-        const barrier = { s: h.s, s0: h.s, x: h.x, x0: h.x, y, y0: y };
+        barrier.s = barrier.s0 = h.s;
+        barrier.x = barrier.x0 = h.x;
+        barrier.y = barrier.y0 = y;
         queue(contactTime(o, barrier, h.depth / 2 + 0.4, h.width / 2 + 0.4, h.height / 2 + 0.4, track.length), 'barrier', o);
       }
       if (o.type === 'ball' || o.type === 'disc') {
@@ -1253,7 +1316,11 @@ export function createGameplayCore(track, hooks = {}) {
   }
 
   function update(dt, pack, afterContacts) {
-    actors = pack.filter((a) => !a.kart.fall);
+    // Refilled in place: the list of karts on the road is rebuilt every tick.
+    actors.length = 0;
+    for (let i = 0; i < pack.length; i++) {
+      if (!pack[i].kart.fall) actors.push(pack[i]);
+    }
     elapsed += dt;
     resolveKartContacts(track, actors);
     afterContacts?.();
@@ -1273,6 +1340,8 @@ export function createGameplayCore(track, hooks = {}) {
     reset();
     track = next;
     rewards = [...(track.pads || []), ...(track.pickups || [])];
+    rewardIndex = createRoadIndex(rewards, track.length);
+    padIndex = createRoadIndex(track.pads, track.length);
   }
 
   function captureState(allActors) {

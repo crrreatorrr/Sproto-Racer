@@ -1371,7 +1371,9 @@ export function createGameplayCore(track, hooks = {}) {
       x0: o.x0,
       y0: o.y0,
       height: o.height,
-      life: o.life,
+      // A shield bubble lasts until its shield runs out: its life is Infinity, which JSON
+      // cannot carry. It is written as null and read back as Infinity in applyState.
+      life: Number.isFinite(o.life) ? o.life : null,
       born: o.born,
       v: o.v,
       vx: o.vx,
@@ -1433,6 +1435,7 @@ export function createGameplayCore(track, hooks = {}) {
       }
       const obj = {
         ...raw,
+        life: raw.life ?? Infinity,
         owner: byId.get(raw.ownerId) ?? allActors[0],
         target: raw.targetId != null ? byId.get(raw.targetId) ?? null : null,
         tagged,

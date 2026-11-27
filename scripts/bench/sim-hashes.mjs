@@ -86,7 +86,10 @@ function exactDigest(world) {
   h.update(canon((track.pickups || []).map((p) => [p.hidden, p.readyAt])));
   for (const a of state.actors) h.update(canon(a));
   h.update(canon(play.objects));
-  h.update(canon(play.captureState(state.actors)));
+  // The per-actor gameplay records and counters are private to the gameplay core, so they are
+  // read through captureState. Its copy of the item list is left out: the live list is above.
+  const gameplay = play.captureState(state.actors);
+  h.update(canon([gameplay.elapsed, gameplay.nextEntityId, gameplay.nextVolleyId, gameplay.actorStates]));
   return h.digest('hex').slice(0, 16);
 }
 const sample = (world) => stateHash(world) + ':' + exactDigest(world);
@@ -97,9 +100,13 @@ function run(name, options, inputsAt = () => ({}), ticks = TICKS, roundTripEvery
   for (let t = 0; t < ticks; t++) {
     world.step(inputsAt(t, world));
     if (roundTripEvery && t % roundTripEvery === roundTripEvery - 1) {
-      // Rollback path: restore the world's own snapshot, as the predictor does.
-      applySnapshot(world, JSON.parse(JSON.stringify(captureSnapshot(world), (k, v) => (v === Infinity ? '__inf' : v)),
-        (k, v) => (v === '__inf' ? Infinity : v)));
+      // Rollback path: restore the world's own snapshot, as the predictor does. Infinities are
+      // carried across by hand so the comparison also runs on commits whose snapshots held them
+      // (plain JSON turns them into null, which is covered by tests/net-defects.test.js).
+      applySnapshot(world, JSON.parse(
+        JSON.stringify(captureSnapshot(world), (k, v) => (v === Infinity ? '__+inf' : v === -Infinity ? '__-inf' : v)),
+        (k, v) => (v === '__+inf' ? Infinity : v === '__-inf' ? -Infinity : v),
+      ));
     }
     if (t % EVERY === EVERY - 1) hashes.push(sample(world));
   }

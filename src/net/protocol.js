@@ -11,7 +11,11 @@ export { RACER_SIM_VERSION };
 
 export const GAME_ID = 'sproto-racer';
 export const MATCH_KIND = 'sproto_racer';
-export const NET_VERSION = '2';
+// Bumped whenever a message changes shape, so clients on different builds never share a match:
+// it is part of the match label, the matchmaking query and the join check.
+// 3: the wire snapshot sends the reserve item as `ri` (it used to overwrite reverse speed, `rv`)
+//    and an unending item life as -1.
+export const NET_VERSION = '3';
 export const DEFAULT_MAX_SEATS = 6;
 export const MAX_SEATS_LIMIT = 12;
 
@@ -192,7 +196,7 @@ export function validateRacerChoice(payload, ownedRelics = [], unlockTable = REL
 }
 
 // Compact binary wire encoding for OP.INPUT:
-// [uint8 seat, uint8 frameCount, frame0 (11B), frame1 (11B), ...]
+// [uint8 seat, uint8 frameCount, frame0 (12 B), frame1 (12 B), ...] (INTENT_FRAME_BYTES each)
 // Bundling up to 3 recent frames provides lightweight redundancy over lossy links.
 export function encodeInputPacket(seat, frames) {
   const list = Array.isArray(frames) ? frames : [frames];

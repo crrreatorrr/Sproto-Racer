@@ -4,6 +4,10 @@
 //	go build -o gojabench . && ./gojabench ../../../build/racer-sim.js
 //	./gojabench -courses track02 -configs 12:0,12:12 -profile cpu.pprof ../../../build/racer-sim.js
 //	go tool pprof -top cpu.pprof
+//	./gojabench -courses track03 -configs 12:0 -warmup 180 -ticks 600 -dump ticks.txt ../../../build/racer-sim.js
+//
+// With the modules already in the local Go cache, build offline with
+// GOFLAGS=-mod=mod GOPROXY=off go build -o gojabench .
 //
 // A config is seats:humans. Human seats send a fixed throttle-and-steer input every tick.
 package main
@@ -47,6 +51,7 @@ func main() {
 	ticks := flag.Int("ticks", 3600, "timed race ticks per config")
 	warmup := flag.Int("warmup", 480, "untimed ticks first (countdown is 180)")
 	profile := flag.String("profile", "", "write a Goja CPU profile (pprof) to this file")
+	dump := flag.String("dump", "", "write every tick's cost in ms, one per line, to this file (last config run)")
 	flag.Parse()
 	if flag.NArg() != 1 {
 		fmt.Fprintln(os.Stderr, "usage: gojabench [flags] path/to/racer-sim.js")
@@ -96,6 +101,15 @@ func main() {
 				d = append(d, float64(time.Since(t0).Nanoseconds())/1e6)
 			}
 			end := must(hash(goja.Undefined())).String()
+			if *dump != "" {
+				var sb strings.Builder
+				for _, v := range d {
+					fmt.Fprintf(&sb, "%.4f\n", v)
+				}
+				if err := os.WriteFile(*dump, []byte(sb.String()), 0o644); err != nil {
+					panic(err)
+				}
+			}
 			sort.Float64s(d)
 			sum := 0.0
 			for _, v := range d {

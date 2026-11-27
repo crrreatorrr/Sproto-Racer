@@ -8,30 +8,34 @@ export const TIER_IDS = ['auto', 'high', 'medium', 'low'];
 
 /**
  * maxPixelRatio  the sharpest the tier renders (the screen's own ratio wins when it is lower).
+ * pixelBudget    optional cap on the pixels drawn per frame at full resolution, so a large
+ *                high-density window is not rendered at its full ratio (never pushes below 1).
  * minPixelRatio  how far the scaler may drop it when frames run slow. Equal to the maximum
  *                means the resolution is fixed.
  * antialias      a WebGL context attribute: it can only be chosen when the renderer is created,
  *                so a change takes effect on the next page load.
+ * shadows        whether the circuit's sunlight shadow map is drawn. Also set up once, when the
+ *                page loads.
  *
  * Medium's floor is below 1 so that it still differs from High on a screen whose own ratio is 1:
  * there both start at 1, and only Medium may lower it.
  */
 export const TIERS = {
   auto: {
-    id: 'auto', label: 'Auto', maxPixelRatio: 1.6, minPixelRatio: 0.75, antialias: true,
+    id: 'auto', label: 'Auto', maxPixelRatio: 2.5, pixelBudget: 6_000_000, minPixelRatio: 0.75, antialias: true, shadows: true,
     blurb: 'Sharpest picture your screen allows. Lowers the resolution by itself if the frame rate drops, and raises it again when it recovers.',
   },
   high: {
-    id: 'high', label: 'High', maxPixelRatio: 1.6, minPixelRatio: 1.6, antialias: true,
+    id: 'high', label: 'High', maxPixelRatio: 2.5, pixelBudget: 6_000_000, minPixelRatio: 2.5, antialias: true, shadows: true,
     blurb: 'Sharpest picture, never lowered. Choose this if the game already runs smoothly.',
   },
   medium: {
-    id: 'medium', label: 'Medium', maxPixelRatio: 1.3, minPixelRatio: 0.85, antialias: true,
+    id: 'medium', label: 'Medium', maxPixelRatio: 1.3, minPixelRatio: 0.85, antialias: true, shadows: true,
     blurb: 'Lower resolution for a steadier frame rate. Drops a little further by itself if frames still run slow.',
   },
   low: {
-    id: 'low', label: 'Low', maxPixelRatio: 1, minPixelRatio: 0.75, antialias: false,
-    blurb: 'Lowest resolution and no edge smoothing. Best for older laptops and phones.',
+    id: 'low', label: 'Low', maxPixelRatio: 1, minPixelRatio: 0.75, antialias: false, shadows: false,
+    blurb: 'Lowest resolution, no edge smoothing and no cast shadows. Best for older laptops and phones.',
   },
 };
 
@@ -79,15 +83,20 @@ export function tierFor(id) {
   return TIERS[normalizeTier(id) ?? DEFAULT_TIER];
 }
 
-/** The pixel ratio a tier renders at before any scaling, on a screen with this devicePixelRatio. */
-export function basePixelRatio(tier, devicePixelRatio) {
+/**
+ * The pixel ratio a tier renders at before any scaling, on a screen with this devicePixelRatio.
+ * `cssPixels` is the canvas area in CSS pixels (width times height); with it, a tier's pixel
+ * budget holds the ratio down on a large window.
+ */
+export function basePixelRatio(tier, devicePixelRatio, cssPixels = 0) {
   const dpr = devicePixelRatio > 0 ? devicePixelRatio : 1;
-  return Math.min(dpr, tier.maxPixelRatio);
+  const budget = tier.pixelBudget > 0 && cssPixels > 0 ? Math.max(1, Math.sqrt(tier.pixelBudget / cssPixels)) : Infinity;
+  return Math.min(dpr, tier.maxPixelRatio, budget);
 }
 
 /** The lowest scale the scaler may reach for this tier and screen (1 means no room to scale). */
-export function minScaleFor(tier, devicePixelRatio) {
-  const base = basePixelRatio(tier, devicePixelRatio);
+export function minScaleFor(tier, devicePixelRatio, cssPixels = 0) {
+  const base = basePixelRatio(tier, devicePixelRatio, cssPixels);
   return Math.min(1, tier.minPixelRatio / base);
 }
 

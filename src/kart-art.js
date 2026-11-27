@@ -101,7 +101,7 @@ const sharedGeometry=new Set([box,ball,tire,steering,pipeShape,tuftShape,plateSh
 // One contact-shadow material per car model; each car module styles its own.
 const shadowPaints=new Map();
 function shadowPaint(carId){
-  if(!shadowPaints.has(carId))shadowPaints.set(carId,new THREE.MeshBasicMaterial({color:0x16252c,transparent:true,opacity:.28,depthWrite:false,polygonOffset:true,polygonOffsetFactor:-2}));
+  if(!shadowPaints.has(carId))shadowPaints.set(carId,new THREE.MeshBasicMaterial({color:0x142638,alphaMap:softContact,transparent:true,opacity:.34,depthWrite:false,polygonOffset:true,polygonOffsetFactor:-2}));
   return shadowPaints.get(carId);
 }
 function rod(group,color,a,b,radius) {
@@ -219,6 +219,19 @@ function buildDriver(driver,person){
     cube(driver,accent,0,1.38,-.42,.60,.072,.11);
   }
 }
+// Soft, resolution-independent contact under the tires; also works without
+// the local directional shadow map (garage, low-power mode, high flight).
+const contactSize=48;
+const contactTexels=new Uint8Array(contactSize*contactSize*4);
+for(let y=0;y<contactSize;y++)for(let x=0;x<contactSize;x++){
+ const r=Math.hypot((x+.5)/contactSize*2-1,(y+.5)/contactSize*2-1);
+ const a=Math.round(Math.max(0,1-r*r)**2*255);
+ const i=4*(x+y*contactSize);contactTexels.set([a,a,a,255],i);
+}
+const softContact=new THREE.DataTexture(contactTexels,contactSize,contactSize);
+softContact.minFilter=THREE.LinearFilter;softContact.magFilter=THREE.LinearFilter;
+softContact.needsUpdate=true;
+
 /**
  * `lowDetail` gives the kart a second, cheaper build for when it is a distant rival
  * (see updateKartDetail). The player, the ghost and the garage never ask for it.

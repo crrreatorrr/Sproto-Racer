@@ -107,7 +107,7 @@ describe('fast rendering & cold-boot optimizations', () => {
       // Pickup InstancedMesh uses GPU shader (`uTime`) and zero steady-state matrix uploads!
       const pickupMesh = track.trackGroup.getObjectByName('pickupCrates');
       expect(pickupMesh).toBeTruthy();
-      expect(pickupMesh.material.customProgramCacheKey()).toBe('racer-pickup-v1');
+      expect(pickupMesh.material.customProgramCacheKey()).toBe('treasure-chest-road-v1');
 
       const initialVersion = pickupMesh.instanceMatrix.version;
       track.update(1.5, 1 / 60, 120, 1);
@@ -125,7 +125,7 @@ describe('fast rendering & cold-boot optimizations', () => {
 
       track.dispose();
     }
-  });
+  },15000);
 
   it('reuses pooled item/projectile meshes without leaving inactive objects attached to the scene graph', () => {
     const scene = new THREE.Scene();

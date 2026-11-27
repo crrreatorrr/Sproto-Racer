@@ -7,6 +7,7 @@
 
 import { ITEMS } from './items.js';
 import { acceptTrial, noteTrial, pageRecords } from './hub/records.js';
+import { trialRecordId } from './hub/config.js';
 import { mod } from './sim/math.js';
 import { createSimWorld, SIM_DT } from './sim/world.js';
 import { createLocalRaceRunner } from './race-runner.js';
@@ -39,7 +40,9 @@ export function createSession(track, play, fx, records = pageRecords, onVisualCu
   let ghostCursor = 0;
   let splitStart = 0;
 
-  const readBest = () => acceptTrial(records.get(track.id), track.length);
+  // Records are kept per layout of a circuit, so times set before a layout change are kept apart.
+  const recordId = trialRecordId(track.id);
+  const readBest = () => acceptTrial(records.get(recordId), track.length);
   function reloadBest() {
     best = readBest();
     ghostCursor = 0;
@@ -135,7 +138,7 @@ export function createSession(track, play, fx, records = pageRecords, onVisualCu
     track.setViewLap?.(state.lap);
     recordGhost();
     if (state.done && state.mode === 'trial' && (!best || best.time >= state.elapsed)) {
-      best = noteTrial(records, track.id, best, {
+      best = noteTrial(records, recordId, best, {
         time: state.elapsed,
         length: track.length,
         car: state.player.car,

@@ -710,7 +710,7 @@ export function createGameplayCore(track, hooks = {}) {
       s.aiDirection = 0;
       s.aiRest = 0.24;
     }
-    input.steer = steerForTurn(k, feed + steerCorrection);
+    input.steer = steerForTurn(k, (feed + steerCorrection) / (k.grounded ? Math.max(.6, here.grip ?? 1) : 1));
     if (
       !s.aiDirection &&
       s.aiRest === 0 &&
@@ -825,6 +825,13 @@ export function createGameplayCore(track, hooks = {}) {
         ty = best.y;
       }
     }
+    // Thin crossing volumes can slip between the coarse generic probe
+    // stations. Pick the taller free side early, and hold altitude through it.
+    const crossing=layout.obstacles.find(o=>o.type==='crossing'&&o.s-local<82&&o.s+o.depth+7>=local);
+    if(crossing){
+      const p=crossing.parts[0];
+      ty=p.y>(lane.floor+lane.ceiling)*.5+2?p.y-5.0:p.y+5.0;
+    }
     s.aiLane = damp(s.aiLane, tx, 6, 1 / 60);
     input.throttle = 1;
     input.steer = clamp((tx - k.x) / 5 - k.skyVX / 45, -1, 1);
@@ -832,7 +839,7 @@ export function createGameplayCore(track, hooks = {}) {
     input.driftHeld = Math.abs(tx - k.x) > 9;
     if (lane.end - local < 70) input.pitch = 0.7;
     // Barrel-roll away from incoming fire, or into a kart alongside to ram it.
-    if (!k.rollCool) {
+    if (!k.rollCool && !crossing) {
       let side = 0;
       if (a.incoming) side = k.x > 0 ? -1 : 1;
       else if (profile.aggression > 0.6) {

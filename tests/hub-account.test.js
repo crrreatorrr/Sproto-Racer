@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { createHubSdk, GAME_IDS, isGameId, memoryKeyValue } from '@metaverse/hub-sdk/core';
 import { chipFrom, hubChipText, paintAccount } from '../src/hub/account.js';
-import { HUB_GAME_ID, TRIAL_LAYOUT } from '../src/hub/config.js';
+import { HUB_GAME_ID, TRIAL_LAYOUT, trialRecordId } from '../src/hub/config.js';
 import { bootHub } from '../src/hub/boot.js';
 import {
   errorCode, hubExitUrl, startHub, trustedHubUrl, usernameFromToken,
@@ -314,13 +314,13 @@ describe('a session follows the account record', () => {
   it('loads the account time and reloads when the account changes', () => {
     const storage = memory();
     const book = createRecordBook({ storage });
-    book.commit('track01', trial(33, { frames: frames() }));
+    book.commit(trialRecordId('track01'), trial(33, { frames: frames() }));
     const session = createSession({ id: 'track01', length: 100 }, {}, {}, book);
     assert.equal(session.best, 33);
     book.hold();
     session.reloadBest();
     assert.equal(session.best, null);
-    book.commit('track01', trial(21));
+    book.commit(trialRecordId('track01'), trial(21));
     session.reloadBest();
     assert.equal(session.best, 21);
   });

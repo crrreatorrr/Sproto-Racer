@@ -44,7 +44,8 @@ const share = (seen, test) => seen.filter(test).length / seen.length;
 const near = (a, b) => Math.abs(a - b) < 1e-9;
 /** The budget is an average of measured frame times, so it is only compared loosely. */
 const about = (a, b) => Math.abs(a - b) < 0.05;
-const AUTO_RETINA = minScaleFor(TIERS.auto, 2); // 0.75 / 1.6
+// A typical floor for the scaler tests: a base ratio of 1.6 that may fall to 0.75.
+const AUTO_RETINA = 0.75 / 1.6;
 
 describe('quality tiers', () => {
   it('defines Auto, High, Medium and Low with the expected limits', () => {
@@ -55,17 +56,21 @@ describe('quality tiers', () => {
       assert.ok(tier.minPixelRatio <= tier.maxPixelRatio, id);
       assert.ok(tier.blurb.length > 10, id);
     }
-    // High keeps the cap the game shipped with, and never scales.
-    assert.equal(TIERS.high.maxPixelRatio, 1.6);
-    assert.equal(TIERS.high.minPixelRatio, 1.6);
+    // High goes up to 2.5 device pixels per CSS pixel within a 6-megapixel frame, and never scales.
+    assert.equal(TIERS.high.maxPixelRatio, 2.5);
+    assert.equal(TIERS.high.pixelBudget, 6_000_000);
+    assert.equal(TIERS.high.minPixelRatio, TIERS.high.maxPixelRatio);
     assert.equal(TIERS.high.antialias, true);
     // Auto starts where High is.
     assert.equal(TIERS.auto.maxPixelRatio, TIERS.high.maxPixelRatio);
+    assert.equal(TIERS.auto.pixelBudget, TIERS.high.pixelBudget);
     assert.equal(TIERS.auto.antialias, TIERS.high.antialias);
     // Low can go below one canvas pixel per CSS pixel, and drops antialiasing.
     assert.equal(TIERS.low.maxPixelRatio, 1);
     assert.ok(TIERS.low.minPixelRatio < 1);
     assert.equal(TIERS.low.antialias, false);
+    // Only Low goes without the sunlight shadow map.
+    assert.deepEqual(TIER_IDS.filter((id) => !TIERS[id].shadows), ['low']);
   });
 
   it('reads the tier from the URL first, then storage, then defaults to Auto', () => {
@@ -100,9 +105,15 @@ describe('quality tiers', () => {
   });
 
   it('turns a tier and a screen into a pixel ratio and a scaling floor', () => {
-    assert.equal(basePixelRatio(TIERS.high, 2), 1.6);
+    assert.equal(basePixelRatio(TIERS.high, 2), 2);
     assert.equal(basePixelRatio(TIERS.high, 1), 1);
-    assert.equal(basePixelRatio(TIERS.auto, 3), 1.6);
+    assert.equal(basePixelRatio(TIERS.auto, 3), 2.5);
+    // The pixel budget holds the ratio down on a large window, but never below 1.
+    assert.equal(basePixelRatio(TIERS.high, 2, 1512 * 982), 2);
+    assert.ok(Math.abs(basePixelRatio(TIERS.high, 2, 2560 * 1440) - Math.sqrt(6_000_000 / (2560 * 1440))) < 1e-12);
+    assert.equal(basePixelRatio(TIERS.auto, 2, 3840 * 2160), 1);
+    assert.equal(basePixelRatio(TIERS.auto, 3, 390 * 844), 2.5);
+    assert.equal(basePixelRatio(TIERS.medium, 2, 3840 * 2160), 1.3);
     assert.equal(basePixelRatio(TIERS.medium, 2), 1.3);
     assert.equal(basePixelRatio(TIERS.low, 3), 1);
     assert.equal(basePixelRatio(TIERS.low, 0), 1);
@@ -110,7 +121,9 @@ describe('quality tiers', () => {
     // High never scales.
     assert.equal(minScaleFor(TIERS.high, 2), 1);
     assert.equal(minScaleFor(TIERS.high, 1), 1);
-    // Auto on a high-DPI screen can fall from 1.6 to 0.75.
+    assert.equal(minScaleFor(TIERS.high, 2, 2560 * 1440), 1);
+    // Auto on a high-DPI screen can fall from the screen's ratio to 0.75, with or without the budget.
+    assert.ok(Math.abs(basePixelRatio(TIERS.auto, 2, 2560 * 1440) * minScaleFor(TIERS.auto, 2, 2560 * 1440) - 0.75) < 1e-9);
     assert.ok(Math.abs(basePixelRatio(TIERS.auto, 2) * minScaleFor(TIERS.auto, 2) - 0.75) < 1e-9);
     assert.ok(Math.abs(basePixelRatio(TIERS.medium, 2) * minScaleFor(TIERS.medium, 2) - 0.85) < 1e-9);
     assert.equal(minScaleFor(TIERS.low, 2), 0.75);

@@ -222,13 +222,16 @@ function buildDriver(driver,person){
 /**
  * `lowDetail` gives the kart a second, cheaper build for when it is a distant rival
  * (see updateKartDetail). The player, the ghost and the garage never ask for it.
+ * `player` marks the kart this player drives (it gets the extras only its driver sees,
+ * such as the Manta's headlight pool); it defaults to seat 0, which is the player in
+ * single player, and an online race passes it for whichever seat the player holds.
  */
-export function makeKart(id=0,car=CARS[0],person=DRIVERS[0],ghost=false,{flightWings=false,lowDetail=false}={}) {
-  const g=withKartDetail(FULL,()=>assembleKart(id,car,person,ghost,flightWings));
+export function makeKart(id=0,car=CARS[0],person=DRIVERS[0],ghost=false,{flightWings=false,lowDetail=false,player=id===0}={}) {
+  const g=withKartDetail(FULL,()=>assembleKart(id,car,person,ghost,flightWings,player));
   if(lowDetail&&!ghost)addLowDetail(g,car,person);
   return g;
 }
-function assembleKart(id,car,person,ghost,flightWings) {
+function assembleKart(id,car,person,ghost,flightWings,player) {
   const g=new THREE.Group(),body=new THREE.Group();g.add(body);
   const shadow=new THREE.Mesh(blobShape,shadowPaint(car.id));
   shadow.userData.sharedKartPart=true;
@@ -301,7 +304,7 @@ function assembleKart(id,car,person,ghost,flightWings) {
   if(skipper)attachSkipper(body,wheels,shadow);
   if(cart)attachShoppingCart(body,wheels);
   if(saucer)attachSaucer(body);
-  if(manta)attachManta(body,wheels,shadow,id===0,ghost);
+  if(manta)attachManta(body,wheels,shadow,player,ghost);
   if(crestline)attachCrestline(body,wheels,shadow);
   if(ironhide){attachIronhide(body,wheels);ironhideShadow(shadow);}
   if(geep)attachGeep(body,wheels);
@@ -313,7 +316,7 @@ function assembleKart(id,car,person,ghost,flightWings) {
   // Race-only attachment: paddock geometry, contact probes and bounds stay stock.
   const wings=flightWings?createKartWings(car.id):null;
   if(wings)body.add(wings);
-  g.userData={body,wheels,wings,gem,moons,driver,driverHeight:mount.y,flames,shadow,timingLamp,solidMeshes,car:car.id,concept,character:person.id};return g;
+  g.userData={body,wheels,wings,gem,moons,driver,driverHeight:mount.y,flames,shadow,timingLamp,solidMeshes,car:car.id,concept,character:person.id,player:!!player};return g;
 }
 
 // ---- Distant rivals -------------------------------------------------------------
@@ -364,7 +367,8 @@ export function forceKartDetail(mode) {
  */
 export function updateKartDetail(models,camera) {
   let reflectionsChanged=false;
-  for(let i=1;i<models.length;i++){
+  // Every kart that has a distant build is a rival, whichever seat the player holds.
+  for(let i=0;i<models.length;i++){
     const model=models[i],low=model?.userData.low;
     if(!low)continue;
     if(followAnchor(low.lit))reflectionsChanged=true;

@@ -44,6 +44,9 @@
 //                        followed by { type: 'cancel', event }, and one that only shows
 //                        up after a rollback carries late: true. 'finish' is only ever
 //                        delivered once it is final.
+//   noteEvent(ev)        report a presentation event (an item's visual cue) from a hook
+//                        fired during the current tick. It comes back through
+//                        drainEvents with the once-only, late and cancel treatment.
 //   results()            once phase is 'finished':
 //                        { tick, hash, standings: [{ place, seat, car, driver, finishUs,
 //                          human, name }] } (see race-results.js); null before that.
@@ -60,11 +63,14 @@
 import { createSimWorld, SIM_DT } from './sim/world.js';
 import { controlsToIntentFrame } from './sim/intent.js';
 import { createTrackSample } from './sim/track-core.js';
+import { mod } from './sim/math.js';
 import { buildRaceResults } from './race-results.js';
 
 /**
  * Lap, sector, split and position for one seat. `world.state.lap` and `.sector` follow
- * seat 0 only, so each runner tracks its own seat here, outside the simulation.
+ * seat 0 only, so each runner tracks its own seat here, outside the simulation. For
+ * seat 0 the lap and sector are the same numbers the simulation keeps (a test holds
+ * this), provided `read` is called after every tick.
  */
 export function createSeatView() {
   const scratch = createTrackSample();
@@ -91,10 +97,16 @@ export function createSeatView() {
       const k = actor.kart;
       const track = world.track;
       const raceS = k.fall?.exitS ?? k.s;
-      out.lap = Math.max(1, Math.min(state.laps, Math.floor(raceS / track.length) + 1));
+      const test = state.mode === 'test';
+      // Test Drive laps wrap round; a race stops counting at the last lap.
+      out.lap = test
+        ? 1 + mod(Math.floor(raceS / track.length), state.laps)
+        : Math.max(1, Math.min(state.laps, Math.floor(raceS / track.length) + 1));
       const section = track.sampleInto ? track.sampleInto(raceS, k.x, scratch).section : track.sample(raceS, k.x).section;
-      if (sector < 0) sector = section;
-      else if (k.s >= 0 && section !== sector) {
+      // On the grid a kart sits behind the line, in the lap's last stretch of road: the
+      // race starts in sector 0 all the same, and nothing counts before the countdown ends.
+      if (sector < 0) sector = test || k.s >= 0 ? section : 0;
+      else if (state.countdown === 0 && (test || k.s >= 0) && section !== sector) {
         split = { sector, seconds: state.elapsed - splitStart, at: state.elapsed };
         splitStart = state.elapsed;
         sector = section;
@@ -122,6 +134,10 @@ function copyKarts(world, into) {
  * track, play, finishRule). `name` is the player's name in the results. Controls go through the same quantised input frame the
  * online game sends, so an offline lap and an online lap respond identically; pass
  * `quantize: false` to feed raw controls instead.
+ *
+ * `onBeforeTick(world, tick, controls)` and `onAfterTick(world, tick)` run around every
+ * tick, however it was started (`advance` or `tick`). Single player hangs its extras on
+ * them (src/session.js).
  */
 export function createLocalRaceRunner(options = {}) {
   const localSeat = options.localSeat ?? 0;
@@ -133,10 +149,13 @@ export function createLocalRaceRunner(options = {}) {
   const events = [];
   const seatInputs = Object.create(null);
   let accumulator = 0;
+  let currentTick = 0;
 
   function tick(controls, dt = SIM_DT) {
     copyKarts(world, previous);
     const t = world.state.tick;
+    currentTick = t;
+    if (options.onBeforeTick) options.onBeforeTick(world, t, controls);
     seatInputs[localSeat] = quantize ? controlsToIntentFrame(t, controls || {}) : controls || {};
     const produced = world.step(seatInputs, dt);
     for (let i = 0; i < produced.length; i++) {
@@ -144,6 +163,9 @@ export function createLocalRaceRunner(options = {}) {
       events.push(ev);
       if (options.onEvent) options.onEvent(ev);
     }
+    // Keeps the split exact to the tick; `hud()` then only reads what is already there.
+    view.read(world, localSeat);
+    if (options.onAfterTick) options.onAfterTick(world, t);
     return produced;
   }
 
@@ -180,6 +202,11 @@ export function createLocalRaceRunner(options = {}) {
     drainEvents() {
       return events.splice(0, events.length);
     },
+    noteEvent(ev) {
+      const noted = { ...ev, tick: currentTick };
+      events.push(noted);
+      if (options.onEvent) options.onEvent(noted);
+    },
     results: () => (world.state.done
       ? buildRaceResults(world, (seat) => {
         const human = world.state.actors[seat].kind !== 'ai';
@@ -191,6 +218,7 @@ export function createLocalRaceRunner(options = {}) {
       world.reset(startOptions);
       view.reset();
       accumulator = 0;
+      currentTick = 0;
       events.length = 0;
       copyKarts(world, previous);
     },

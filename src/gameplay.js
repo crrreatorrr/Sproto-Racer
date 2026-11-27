@@ -29,13 +29,25 @@ const FLAIR = Object.freeze({
 });
 const POOL_PER_KEY = 6;
 const POOL_MAX = 72;
+// A replay may move the moment an object was created by a few ticks. Within this many
+// seconds, with the same kind and owner, it is the same object and keeps its mesh.
+const REPLAY_SAME_OBJECT = 0.25;
 
 function poolKey(o) {
   const variant = o.itemType ?? o.tint ?? o.color ?? '';
   return o.type + ':' + variant;
 }
 
-export function createGameplay(scene, track, { onVisualCue } = {}) {
+/**
+ * `replaying()` says whether the simulation is re-running old ticks (an online race
+ * correcting itself; see src/net/rollback-client.js). A replay first puts back a saved
+ * state, which removes every item object and creates the saved ones again, then re-runs
+ * a few ticks. None of that is new play, so while it lasts the meshes are kept: a removed
+ * object's mesh waits, and when the same object comes back it gets its mesh again, trail
+ * and all. Nothing is drawn until the replay is over; call `settle()` once per frame
+ * after the race has advanced to drop the meshes that did not come back.
+ */
+export function createGameplay(scene, track, { onVisualCue, replaying } = {}) {
   const root = new THREE.Group();
   root.name = 'item-effects';
   scene.add(root);
@@ -56,6 +68,10 @@ export function createGameplay(scene, track, { onVisualCue } = {}) {
   const materials = new Map();
   const freePool = new Map();
   const activeMeshes = new Map();
+  // Meshes of objects removed during a replay, by object id, until `settle()`.
+  const waiting = new Map();
+  // A replay changed the objects and they have not been drawn since.
+  let unsettled = false;
   const sampleScratch = createTrackSample();
   const previousScratch = createTrackSample();
   const pNow = new THREE.Vector3();
@@ -66,7 +82,7 @@ export function createGameplay(scene, track, { onVisualCue } = {}) {
   const tmpB = new THREE.Vector3();
   const tmpC = new THREE.Vector3();
   const part = new THREE.Object3D();
-  let pooled = 0, disposed = false;
+  let pooled = 0, disposed = false, built = 0, fresh = 0, reclaimed = 0;
   const arcs = 14;
 
   function material(color, opacity, blend = false) {
@@ -130,6 +146,7 @@ export function createGameplay(scene, track, { onVisualCue } = {}) {
   }
 
   function buildEntry(o, key) {
+    built++;
     const group = new THREE.Group();
     const type = o.type;
     const pose = new THREE.Group();
@@ -584,17 +601,46 @@ export function createGameplay(scene, track, { onVisualCue } = {}) {
     else drawGround(o, e, road, age);
   }
 
+  // Is this waiting mesh the one that was drawing `o` before the replay? Ids are handed
+  // out in order, so an object keeps its id unless the replay created something new
+  // before it; the owner and the moment of creation settle it either way.
+  function drew(e, o, key) {
+    return e.key === key && e.ownerId === (o.owner?.id ?? -1) && Math.abs(e.born - (o.born ?? 0)) < REPLAY_SAME_OBJECT;
+  }
+
+  function reclaim(o, key) {
+    const byId = waiting.get(o.id);
+    if (byId && drew(byId, o, key)) { waiting.delete(o.id); return byId; }
+    for (const [id, e] of waiting) {
+      if (drew(e, o, key)) { waiting.delete(id); return e; }
+    }
+    return null;
+  }
+
   function acquireMesh(o, clock) {
     const key = poolKey(o);
+    if (waiting.size) {
+      const kept = reclaim(o, key);
+      if (kept) {
+        reclaimed++;
+        activeMeshes.set(o.id, kept);
+        unsettled = true;
+        return;
+      }
+    }
     const bucket = freePool.get(key);
     const e = bucket?.length ? bucket.pop() : buildEntry(o, key);
     if (bucket && !bucket.length) freePool.delete(key);
     if (e.inPool) { e.inPool = false; pooled--; }
     e.head = -1; e.size = 0; e.lastSample = -Infinity;
+    fresh++;
+    e.ownerId = o.owner?.id ?? -1; e.born = o.born ?? 0;
     for (const m of e.owned) m.count = 0;
     activeMeshes.set(o.id, e);
     root.add(e.group);
-    syncObjectMesh(o, e, clock);
+    // During a replay nothing is drawn; `settle` places whatever is still there at the end.
+    if (replaying?.()) { e.group.visible = false; unsettled = true; }
+    else syncObjectMesh(o, e, clock);
   }
 
   function disposeEntry(e) {
@@ -604,10 +650,7 @@ export function createGameplay(scene, track, { onVisualCue } = {}) {
     e.group.clear();
   }
 
-  function releaseMesh(o) {
-    const e = activeMeshes.get(o.id);
-    if (!e) return;
-    activeMeshes.delete(o.id);
+  function recycle(e) {
     root.remove(e.group);
     const bucket = freePool.get(e.key);
     if (disposed || pooled >= POOL_MAX || (bucket?.length ?? 0) >= POOL_PER_KEY) {
@@ -618,16 +661,42 @@ export function createGameplay(scene, track, { onVisualCue } = {}) {
     e.inPool = true; pooled++;
   }
 
+  function releaseMesh(o) {
+    const e = activeMeshes.get(o.id);
+    if (!e) return;
+    activeMeshes.delete(o.id);
+    if (replaying?.()) {
+      // Two different objects cannot wait under one id: the earlier one is gone for good.
+      const earlier = waiting.get(o.id);
+      if (earlier) recycle(earlier);
+      waiting.set(o.id, e);
+      unsettled = true;
+      return;
+    }
+    recycle(e);
+  }
+
   function hideMesh(o) {
     const e = activeMeshes.get(o.id);
     if (e) e.group.visible = false;
   }
 
   function syncAll(objects, clock) {
+    // Old ticks being re-run are not drawn: one sync after the replay shows the result.
+    if (replaying?.()) { unsettled = true; return; }
+    unsettled = false;
     for (let i = 0; i < objects.length; i++) {
       const o = objects[i], e = activeMeshes.get(o.id);
       if (e) syncObjectMesh(o, e, clock);
     }
+  }
+
+  function settle() {
+    if (waiting.size) {
+      for (const e of waiting.values()) recycle(e);
+      waiting.clear();
+    }
+    if (unsettled) syncAll(core.objects, core.elapsed);
   }
 
   const core = createGameplayCore(track, {
@@ -662,6 +731,8 @@ export function createGameplay(scene, track, { onVisualCue } = {}) {
     if (disposed) return;
     disposed = true;
     core.reset();
+    for (const e of waiting.values()) disposeEntry(e);
+    waiting.clear();
     for (const list of freePool.values()) for (const e of list) disposeEntry(e);
     freePool.clear();
     pooled = 0;
@@ -673,6 +744,12 @@ export function createGameplay(scene, track, { onVisualCue } = {}) {
 
   return {
     core,
+    // The simulation reads these to save, restore and fingerprint a race (snapshots for
+    // rollback, the state hash). Without them a world built on this layer saved no items.
+    objects: core.objects,
+    get elapsed() { return core.elapsed; },
+    captureState: core.captureState,
+    applyState: core.applyState,
     setTrack,
     reset: core.reset,
     dispose,
@@ -684,6 +761,27 @@ export function createGameplay(scene, track, { onVisualCue } = {}) {
     hitHazard: core.hitHazard,
     skyGot: core.skyGot,
     syncFromCore,
+    settle,
+    /**
+     * For tests and reports: meshes showing live objects, meshes waiting on a replay,
+     * meshes built since the page loaded, how often an object was given a mesh from
+     * scratch (its trail starts again), and how often a replay handed one back.
+     */
+    get meshStats() { return { active: activeMeshes.size, waiting: waiting.size, built, fresh, reclaimed }; },
+    /**
+     * How much of their trail the shots in flight are showing, 0 to 1, or -1 with none in
+     * flight. A trail fills up over its first few frames; one that keeps being thrown
+     * away never does. For tests and reports.
+     */
+    trailFill() {
+      let sum = 0, n = 0;
+      for (const e of activeMeshes.values()) {
+        if (!e.rule || !e.group.visible) continue;
+        sum += e.size / e.rule.samples;
+        n++;
+      }
+      return n ? sum / n : -1;
+    },
     warmVisuals,
   };
 }

@@ -3,13 +3,16 @@
 // The race itself runs on `createSimWorld` (src/sim/world.js), the same engine an online
 // race runs on, driven through the local race runner (src/race-runner.js). This file adds
 // only what belongs to one player on one machine: the Time Trial ghost and stored best,
-// the Test Drive item picker, split text for the HUD, and sound and visual cues.
+// the Test Drive item picker and the split text for the HUD. The game loop drives the race
+// through `session.runner`, the same RaceRunner interface an online race offers; the
+// extras hang on the runner's per-tick hooks, so they run whoever asks for a tick.
 
 import { ITEMS } from './items.js';
 import { acceptTrial, noteTrial, pageRecords } from './hub/records.js';
 import { mod } from './sim/math.js';
 import { createSimWorld, SIM_DT } from './sim/world.js';
 import { createLocalRaceRunner } from './race-runner.js';
+import { createCuePlayer } from './race-cues.js';
 
 export const DEFAULT_TEST = { sector: 0, speed: 'standstill', rivals: 'solo', item: 0, lap: 1, hazards: true };
 
@@ -27,17 +30,24 @@ export const timeText = (n) => {
 // Item draws are seeded. A new seed per start keeps single-player races from repeating.
 const freshSeed = () => (Math.random() * 0x100000000) >>> 0;
 
+/** The HUD line for a finished sector, from `runner.hud().split`. */
+export const splitText = (split) => 'S' + String(split.sector + 1).padStart(2, '0') + '   ' + timeText(split.seconds);
+/** How long a split stays on the HUD, in race seconds. */
+export const SPLIT_SHOWN = 2.2;
+
 export function createSession(track, play, fx, records = pageRecords, onVisualCue) {
   const world = createSimWorld({ track, play, finishRule: 'primary', deferReset: true });
-  const runner = createLocalRaceRunner({ world, onEvent });
+  const runner = createLocalRaceRunner({ world, onBeforeTick, onAfterTick });
   // The engine's own state object, so the HUD, the camera and tools read the race directly.
-  const state = Object.assign(world.state, { split: '', splitUntil: 0 });
+  const state = world.state;
+  // Sounds and pickup sparkles for what the engine reports each tick.
+  const cues = createCuePlayer({ fx, cue: onVisualCue, localSeat: () => runner.localSeat, track: () => track });
   let settings = { ...DEFAULT_TEST };
   let rec = [];
   let best = null;
   let nextSample = 0;
   let ghostCursor = 0;
-  let splitStart = 0;
+  let counting = false;
 
   const readBest = () => acceptTrial(records.get(track.id), track.length);
   function reloadBest() {
@@ -46,23 +56,10 @@ export function createSession(track, play, fx, records = pageRecords, onVisualCu
   }
   reloadBest();
 
-  // Sounds and pickup sparkles for what the engine reports each tick.
-  function onEvent(ev) {
-    if (ev.type === 'tone') fx.tone?.(ev.name);
-    else if ((ev.type === 'bump' || ev.type === 'boost') && ev.seat === 0) fx.tone?.(ev.type);
-    else if (ev.type === 'pickup' && onVisualCue) {
-      const p = track.pickups[ev.pickupIndex];
-      if (p) onVisualCue({ phase: 'pickup', type: 'pickup', seat: ev.seat, isPlayer: ev.seat === 0, s: p.s, x: p.x, height: 1.05 });
-    }
-  }
-
   function start(mode, options = {}) {
     settings = { ...DEFAULT_TEST, ...options };
     runner.restart({ mode, seed: options.seed ?? freshSeed(), settings });
     fx.reset();
-    state.split = '';
-    state.splitUntil = 0;
-    splitStart = 0;
     rec = [];
     nextSample = 0;
     ghostCursor = 0;
@@ -73,7 +70,7 @@ export function createSession(track, play, fx, records = pageRecords, onVisualCu
 
   function select(index) {
     if (state.mode !== 'test') return;
-    const a = state.player;
+    const a = runner.localActor;
     index = mod(index, ITEMS.length);
     if (a.held !== index) {
       if (a.held !== null) a.inventoryCharges[a.held] = a.charges;
@@ -89,8 +86,9 @@ export function createSession(track, play, fx, records = pageRecords, onVisualCu
   }
 
   function recordGhost() {
-    if (state.mode !== 'trial' || (state.elapsed < nextSample && state.player.finish === null)) return;
-    const { s, x, y, yaw, rescues, flying } = state.player.kart;
+    const me = runner.localActor;
+    if (state.mode !== 'trial' || (state.elapsed < nextSample && me.finish === null)) return;
+    const { s, x, y, yaw, rescues, flying } = me.kart;
     const frame = [state.elapsed, s, x, y, yaw, rescues].map((v) => Math.round(v * 1000) / 1000);
     // Local ghost pose only. The cloud leaderboard save still contains no frames.
     rec.push([...frame, flying ? 1 : 0]);
@@ -115,34 +113,39 @@ export function createSession(track, play, fx, records = pageRecords, onVisualCu
     };
   }
 
-  function tick(input, dt = SIM_DT) {
-    if (state.done) return;
-    if (state.mode === 'test') {
+  // The runner calls these around every tick, whether the game loop asked for it
+  // (`runner.advance`) or a tool did (`tick` below).
+  function onBeforeTick(_world, _tick, input) {
+    if (state.mode === 'test' && input) {
+      const held = runner.localActor.held;
       if (input.slot !== null && input.slot !== undefined) select(input.slot);
-      else if (input.prevPressed) select(state.player.held - 1);
-      else if (input.nextPressed) select(state.player.held + 1);
+      else if (input.prevPressed) select(held - 1);
+      else if (input.nextPressed) select(held + 1);
     }
-    const counting = state.countdown > 0;
-    const sector = state.sector;
-    runner.tick(input, dt);
-    runner.drainEvents();
+    counting = state.countdown > 0;
+  }
+
+  function onAfterTick() {
+    cues.playAll(runner.drainEvents());
     if (counting) return;
-    if (state.sector !== sector) {
-      state.split = 'S' + String(sector + 1).padStart(2, '0') + '   ' + timeText(state.elapsed - splitStart);
-      splitStart = state.elapsed;
-      state.splitUntil = state.elapsed + 2.2;
-    }
     track.setViewLap?.(state.lap);
     recordGhost();
     if (state.done && state.mode === 'trial' && (!best || best.time >= state.elapsed)) {
+      const me = runner.localActor;
       best = noteTrial(records, track.id, best, {
         time: state.elapsed,
         length: track.length,
-        car: state.player.car,
-        driver: state.player.driver,
+        car: me.car,
+        driver: me.driver,
         frames: rec,
       }) ?? best;
     }
+  }
+
+  /** One tick now, for tools and tests. The game loop uses `runner.advance`. */
+  function tick(input, dt = SIM_DT) {
+    if (state.done) return;
+    runner.tick(input, dt);
   }
 
   return {
@@ -153,7 +156,7 @@ export function createSession(track, play, fx, records = pageRecords, onVisualCu
     select,
     useItem,
     ghost,
-    position: () => world.positionOf(0),
+    position: () => world.positionOf(runner.localSeat),
     reloadBest,
     get ghostSetup() { return { car: best?.car, driver: best?.driver }; },
     get settings() { return { ...settings }; },

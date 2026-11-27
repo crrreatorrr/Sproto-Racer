@@ -190,6 +190,8 @@ A 12-player race at 20 snapshots a second would send about 1.3 MB/s from the ser
 
 > **Note, 27 November 2026 (PR #29).** The game's loop now runs every race through the one runner interface, and on the development server `?online=loopback` plays an online race against a match that lives inside the page, with simulated latency (`docs/online-netcode.md`, "In the game"). A production build contains none of it, and no menu reaches it. What is left for players to race each other is the hub's match handler and a real lobby.
 
+> **Note, 27 November 2026 (hub handler).** The hub's match handler is written: [crrreatorrr/metaverse-hub#209](https://github.com/crrreatorrr/metaverse-hub/pull/209), open and not merged, and off behind the hub's `racer_online` flag. On a real Nakama 3.41 in Docker, three of this repo's rollback clients raced a full three-lap race against it: 1,932 state comparisons, none different, and a match loop of 2.41 ms on average (`docs/online-netcode.md`, "On a real Nakama"). What is left for players to race each other: merging and deploying that, a menu entry and lobby screen in the game that use `src/net/hub-lobby.js`, and turning the flag on.
+
 **N2. The parts of the netcode do not connect.** Confirmed in the code and by calling it:
 
 - The predictor cannot use the wire snapshot. `predictor.reconcile(encodeWireSnapshot(world))` returns `false` (`src/net/predictor.js:158` needs fields only the full snapshot has). Prediction therefore needs the 20 to 40 KB full snapshot, which is not sendable 20 times a second.

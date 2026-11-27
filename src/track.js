@@ -245,6 +245,7 @@ export function createTrack(scene, course = CIRCUITS[0], options = {}) {
   let extraDisposables = [];
   let skyVisuals = null;
   let lastLap = 1;
+  let viewLap = null;
   // Road, paint and roadside props stop where a main Sky Lane replaces the road.
   const roadGone = (s) => core.sky.inMainLane(s);
   let syncFixtureVisuals = () => {};
@@ -1057,15 +1058,22 @@ export function createTrack(scene, course = CIRCUITS[0], options = {}) {
     skyVisuals.update(lastTime, lastLap);
   }
 
+  // `lap` drives the track's moving parts and follows the race leader. The Sky Lane obstacle
+  // course that is drawn belongs to one viewer: `setViewLap` names their lap, and until it is
+  // called the drawn lap follows `lap` as well.
   function update(time = 0, dt = 0, playerS = 0, lap = 1) {
     lastTime = time;
-    lastLap = lap;
+    lastLap = viewLap ?? lap;
     core.update(time, dt, playerS, lap);
     if (!visualsMounted) return;
     pickupUniforms.uTime.value = time;
     syncFixtureVisuals(time);
     syncPickups(false);
-    skyVisuals?.update(time, lap);
+    skyVisuals?.update(time, lastLap);
+  }
+
+  function setViewLap(lap) {
+    viewLap = lap;
   }
 
   /** Hides the Boost Cells and item boxes the player has grabbed in a lane this lap. */
@@ -1075,6 +1083,7 @@ export function createTrack(scene, course = CIRCUITS[0], options = {}) {
 
   function reset() {
     lastTime = 0;
+    viewLap = null;
     core.reset();
     if (!visualsMounted) return;
     pickupUniforms.uTime.value = 0;
@@ -1134,6 +1143,7 @@ export function createTrack(scene, course = CIRCUITS[0], options = {}) {
     switchTrigger,
     sky: core.sky,
     setSkyCollected,
+    setViewLap,
     triggerSwitch: core.triggerSwitch,
     getFixtureState: core.getFixtureState,
     setFixtureState: core.setFixtureState,

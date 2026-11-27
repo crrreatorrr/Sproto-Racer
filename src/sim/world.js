@@ -191,8 +191,12 @@ export function createSimWorld(options = {}) {
   const moves = [];
   const oldPips = [];
   let stepDt = SIM_DT;
+  // Test Drive can switch track hazards off. Set at reset; every other mode has them on.
+  let hazardsOn = true;
   const pickupIndex = createRoadIndex(track.pickups, track.length);
-  const heightAt = (s, x) => (track.heightAt ? track.heightAt(s, x) : track.sampleInto(s, x, sampleScratch).position.y);
+  const heightAt = (s, x) => (
+    track.heightAt ? track.heightAt(s, x) : (track.sampleInto ? track.sampleInto(s, x, sampleScratch) : track.sample(s, x)).position.y
+  );
   const crossedRamp = (s0, x0, s1, x1) => crossedTrackRamp(track, s0, x0, s1, x1);
 
   function makeActor(seatDef, s, x, entrySpeed) {
@@ -245,6 +249,7 @@ export function createSimWorld(options = {}) {
     state.seed = seed;
     state.tick = 0;
     state.mode = mode;
+    hazardsOn = mode !== 'test' || !!settings.hazards;
     state.elapsed = 0;
     state.done = false;
     state.firstFinishAt = null;
@@ -471,7 +476,7 @@ export function createSimWorld(options = {}) {
       if (k.kartImpact > 3 || k.wallImpact > 0.15) {
         state.events.push({ type: 'bump', seat: a.id });
       }
-      features(a, old, dt, true);
+      features(a, old, dt, hazardsOn);
       if (a.car === 'barrage' && state.mode !== 'trial' && (controls.blasters || controls.blastersPressed)) {
         play.fireBlasters(a);
       }
@@ -605,7 +610,9 @@ export function createSimWorld(options = {}) {
       }));
   }
 
-  reset(options);
+  // `deferReset` builds the world without starting a race, for a caller that owns a track and
+  // gameplay object which are not ready to reset yet. Call `reset` before the first `step`.
+  if (options.deferReset !== true) reset(options);
 
   return {
     course,

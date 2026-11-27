@@ -73,6 +73,8 @@ export function createKart(tuning = {speed:1, accel:1, turn:1}) {
     trickTime:0, trickCount:0, trickKind:0, trickLanded:0, trickSloppy:false,
     tumble:0, tumbleFall:false, wobble:0, towing:0, skyCarry:0, skyDive:false, skyLaunch:0,
     skyBoxKey:-1, skyBoxGot:0,
+    // Set at take-off and read while airborne. Listed here so restoring a snapshot clears them.
+    airFloorY:null, takeoffPitch:0, takeoffRoll:0,
   };
 }
 

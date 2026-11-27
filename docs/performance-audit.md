@@ -122,6 +122,8 @@ The cost matters on the server (section 4), and a profile of a 12-kart run shows
 
 **F1. There are two race loops and only one is used.** `src/session.js` runs every race today. `src/sim/world.js` is the multiplayer loop and is exercised only by tests. They repeat the same logic nearly line for line (`features`, `drive`/`driveActor`, `tick`/`step`). The single-player loop also draws items with `Math.random` where the multiplayer loop uses the seeded generator. Fix: run single player on `createSimWorld` with one local seat and delete the duplicate. Effort: medium. Risk: medium; Time Trial ghosts and Test Drive options need re-checking. Gain: an online race and an offline race become the same code path, which is the only way to keep them from drifting.
 
+*Done, 2026-11-26:* `src/session.js` now runs every single-player mode on `createSimWorld` through `createLocalRaceRunner` (`src/race-runner.js`). `tests/session-engine.test.js` checks that a Quick Race and a plain engine run with the same seed and inputs stay hash-identical. Two behaviours follow the engine's rules from now on: item draws are seeded (a new seed per start), and the track's moving parts follow the race leader's lap rather than the player's.
+
 **F2. Pausing when the tab is hidden cannot work online.** `src/main.js:421` pauses the race on `visibilitychange`. An online client needs a catch-up path instead. This is a design note for the online work, not a defect today.
 
 ## 4. Netcode and online architecture

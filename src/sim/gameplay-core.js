@@ -1403,8 +1403,11 @@ export function createGameplayCore(track, hooks = {}) {
     for (let i = objects.length - 1; i >= 0; i--) hooks.onRemove?.(objects[i]);
     objects.length = 0;
     actorStates = Object.create(null);
-    actors = allActors.filter((a) => !a.kart.fall);
     elapsed = snap.elapsed ?? 0;
+    // The list of karts on the road is filled by the first `update`. Before that (the whole
+    // countdown) it is empty, and a restored world has to start from the same empty list or
+    // the AI reads a different pack on the first race tick.
+    actors = elapsed > 0 ? allActors.filter((a) => !a.kart.fall) : [];
     nextEntityId = snap.nextEntityId ?? 1;
     nextVolleyId = snap.nextVolleyId ?? 1;
     const byId = new Map();

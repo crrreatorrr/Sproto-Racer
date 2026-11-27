@@ -17,7 +17,7 @@ const tc = await import('/src/sim/track-core.js');
 // Capture the renderer, the race scene (the one with fog) and its camera.
 THREE.Scene.prototype.onBeforeRender = function (r, s, c) { A.r = r; if (s.fog) { A.s = s; A.c = c; } };
 
-// begin() and session.js call state.actors.map(...): capture the array the first time after arm().
+// begin() calls state.actors.map(...) when a race starts: capture that array the first time after arm().
 const origMap = Array.prototype.map;
 A.arm = () => {
   Array.prototype.map = function (fn, t) {

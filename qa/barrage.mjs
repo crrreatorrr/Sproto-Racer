@@ -63,7 +63,7 @@ function hitsDivider(gap,x,y=0){
   const {player}=start();
   Object.assign(player.kart,{s:100,speed:0,y});
   session.tick({},dt);track.hazards=[];
-  return player.touchingHazards.has(h);
+  return (player.touchingMask&1)!==0;
 }
 assert(hitsDivider(2.36,0),'tapered nose reaches a divider');
 assert(!hitsDivider(2.36,1.3),'divider misses the nose corner');

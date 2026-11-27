@@ -32,6 +32,9 @@ const blankInput = () => ({
   driftPressed: false,
   itemPressed: false,
   itemSwapPressed: false,
+  // A rival's steering is already a smooth computed line: the kart skips the mid-slide easing
+  // that softens a human's stick and key changes.
+  exactSteer: true,
   // Only set in some situations. Present but undefined reads the same as absent.
   pitch: undefined,
   itemBackward: undefined,

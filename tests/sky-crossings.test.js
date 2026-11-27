@@ -4,8 +4,9 @@ import {CIRCUITS,createTrackCore} from '../src/sim/track-core.js';
 import {partPose,sweepObstacles} from '../src/sim/sky.js';
 
 test('each main lane has a readable, avoidable timed crossing and unchanged optional gates',()=>{
- for(const [i,course] of CIRCUITS.entries()){
-  const track=createTrackCore(course), expected=['plane','birds','satellite'][i];
+ const types={track01:'plane',track02:'birds',track03:'satellite',track04:'birds',track05:'satellite',track06:'plane'};
+ for(const course of CIRCUITS){
+  const track=createTrackCore(course), expected=types[course.id];
   const lane=track.sky.lanes.find(l=>!l.optional);
   for(const layout of lane.layouts){
    const [ob,...rest]=layout.obstacles.filter(o=>o.type==='crossing');

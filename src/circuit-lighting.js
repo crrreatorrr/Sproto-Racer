@@ -7,6 +7,9 @@ export const CIRCUIT_LIGHT = Object.freeze({
   track01:{sun:0xffddb0,day:0xe3f5ff,bounce:0x81988a,key:2.72,ambient:1.24,dir:[-.48,.72,-.5],contrast:.72},
   track02:{sun:0xf3f7ff,day:0xd5e9ff,bounce:0x91a8c6,key:2.07,ambient:1.57,dir:[.43,.82,-.39],contrast:.49},
   track03:{sun:0xffca8c,day:0xc3d9f5,bounce:0xa1908c,key:2.92,ambient:1.24,dir:[-.30,.56,-.74],contrast:.78},
+  track04:{sun:0xffcb8b,day:0xe9f2d6,bounce:0x9b9666,key:2.85,ambient:1.24,dir:[.38,.58,-.73],contrast:.76},
+  track05:{sun:0xd5e8ff,day:0xaec8ff,bounce:0x687db7,key:2.54,ambient:1.45,dir:[-.58,.76,-.34],contrast:.74},
+  track06:{sun:0xbce6ff,day:0xa5c8ff,bounce:0x586a9a,key:1.96,ambient:1.62,dir:[-.55,.65,-.53],contrast:.63},
 });
 
 function lit(material){
@@ -48,7 +51,7 @@ export function createCircuitLighting(world,renderer,{enabled=true}={}){
    if(!active||!root||seen.has(root))return;
    seen.add(root);
    root.traverse(m=>{
-    if(!m.isMesh||!lit(m.material))return;
+    if(!m.isMesh||!lit(m.material)||m.userData.skipCircuitShadow)return;
     m.receiveShadow=true;
     // Opaque decks, terrain and props cast. The unbounded ground and the GPU
     // animated item crates are receivers only; their local cue already exists.

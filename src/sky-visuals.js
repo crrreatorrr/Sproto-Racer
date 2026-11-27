@@ -13,6 +13,9 @@ const THEMES = {
   rig: { solid: 0xed9a59, trim: 0xf5e8c3, moving: 0xff6959, accent: 0x78f3f7, below: 0x6f9290, texture:'rig' },
   rock: { solid: 0x537997, trim: 0x8bbdd9, moving: 0xdb814b, accent: 0x96eaff, below: 0xb6d2e6, texture:'snow' },
   crane: { solid: 0x616979, trim: 0xa48b75, moving: 0xdd6b4b, accent: 0xacffd7, below: 0x746c5f, texture:'summit' },
+  medieval: { solid:0xb6a087, trim:0xe6c891, moving:0xc86d47, accent:0xffdd91, below:0x7c7456, texture:'stone' },
+  orbital: { solid:0x6c81b7, trim:0xa8bed7, moving:0xf29d68, accent:0xa4c3ff, below:0x334268, texture:'alloy' },
+  neon: { solid:0x587088, trim:0x74e1ce, moving:0xfc8468, accent:0x6cffe9, below:0x293b58, texture:'neon' },
 };
 const CELL_COLOR = 0x6ff6ff;
 const MEGA_COLOR = 0xffd34a;
@@ -138,6 +141,16 @@ export function createSkyVisuals(group, core) {
     }else if(theme.texture==='snow'){
       g.fillStyle='rgba(243,252,255,.43)';g.fillRect(0,0,384,17);
       for(let i=0;i<65;i++)g.fillRect(prng()*384,prng()*28,prng()*12+2,prng()*11+2);
+    }else if(theme.texture==='stone'){
+      g.fillStyle='rgba(52,43,36,.26)';
+      for(let j=0;j<8;j++){
+        g.fillRect(0,j*48,384,3);
+        for(let i=-1;i<6;i++)g.fillRect(i*88+(j%2)*44,j*48,3,48);
+      }
+    }else if(theme.texture==='alloy'||theme.texture==='neon'){
+      g.strokeStyle=theme.texture==='neon'?'#62aca8':'#aabdc6';
+      g.lineWidth=3;
+      for(const x of [48,336]){g.beginPath();g.moveTo(x,0);g.lineTo(x,139);g.lineTo(x+(x<120?21:-21),165);g.lineTo(x+(x<120?21:-21),218);g.lineTo(x,243);g.lineTo(x,384);g.stroke();}
     }else{
       g.fillStyle='rgba(90,68,58,.15)';
       for(const y of [79,113,201,237,278,325])g.fillRect(0,y,384,3);
@@ -169,6 +182,13 @@ export function createSkyVisuals(group, core) {
   });
   streamTexture.wrapS = THREE.RepeatWrapping;
   streamTexture.wrapT = THREE.RepeatWrapping;
+  const guideTheme = ['stone','alloy','neon'].includes(theme.texture);
+  // Narrow segmented sight lines show the actual playable width without pretending
+  // to be solid rails. Keep them much dimmer than collectible and warning colors.
+  const guideMaterial = guideTheme ? keep(new THREE.MeshBasicMaterial({
+    color: theme.accent, map: streamTexture, transparent: true, opacity: .32,
+    blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
+  })) : null;
   const streamMaterial = keep(new THREE.MeshBasicMaterial({
     color: theme.accent, map: streamTexture, transparent: true, opacity: 0.8,
     blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
@@ -190,16 +210,17 @@ export function createSkyVisuals(group, core) {
   const dummy = new THREE.Object3D();
   const vec = new THREE.Vector3();
 
-  function ribbon(lane, y, halfWidth) {
+  function ribbon(lane, y, halfWidth, center = 0, lead = 0, tail = 0) {
     const step = 4;
-    const count = Math.ceil((lane.end - lane.start) / step) + 1;
+    const start=lane.start+lead,end=lane.end-tail;
+    const count = Math.ceil((end-start) / step) + 1;
     const positions = new Float32Array(count * 2 * 3);
     const uvs = new Float32Array(count * 2 * 2);
     const index = [];
     for (let i = 0; i < count; i++) {
-      const s = Math.min(lane.end, lane.start + i * step);
+      const s = Math.min(end, start + i * step);
       for (let side = 0; side < 2; side++) {
-        lanePoint(s, side ? halfWidth : -halfWidth, y, vec);
+        lanePoint(s, center+(side ? halfWidth : -halfWidth), y, vec);
         positions.set([vec.x, vec.y, vec.z], (i * 2 + side) * 3);
         uvs.set([side, (s - lane.start) / 24], (i * 2 + side) * 2);
       }
@@ -307,6 +328,11 @@ export function createSkyVisuals(group, core) {
     const stream = new THREE.Mesh(ribbon(lane, lane.floor - 0.6, half * 0.42), streamMaterial);
     stream.frustumCulled = false;
     laneGroup.add(stream);
+    if (guideMaterial && lane.end-lane.start>48) for (const sign of [-1,1]) {
+      const guide=new THREE.Mesh(ribbon(lane,lane.floor-.24,.46,sign*(half-.78),16,19),guideMaterial);
+      guide.name='sky-lane-width-guide';
+      laneGroup.add(guide);
+    }
 
     // Corridor light posts mark both walls every 45 m.
     const postCount = Math.ceil((lane.end - lane.start) / 45) * 2;
@@ -326,7 +352,7 @@ export function createSkyVisuals(group, core) {
 
     // Course-specific utility outposts are recognizable from both chase and
     // aerial cameras. Place well outside every route leg, not just this lane.
-    if(!lane.optional){
+    if(!lane.optional && ['rig','snow','summit'].includes(theme.texture)){
       const kits=theme.texture==='snow'?['snow-relay','snow-station']:
         theme.texture==='summit'?['alpine-relay','timber-station']:['tanks','workshop','alpine-relay'];
       const placements=new Map();

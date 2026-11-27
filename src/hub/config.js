@@ -14,8 +14,8 @@ export const RECORD_KEY = 'sproto.racer.progress';
 
 /**
  * Circuit layout generation for Time Trial records. Bump it when a circuit's racing line changes
- * (layout 2: Sky Lanes; layout 3: car classes change every car's pace). A record or ghost from another layout is dropped everywhere it is read:
- * this browser, an account's copy and the cloud save.
+ * Layout 2 introduced Sky Lanes; layout 3 changes every car's pace. An older record
+ * may be retained for storage but is ineligible for the current leaderboard or ghost.
  */
 export const TRIAL_LAYOUT = 3;
 

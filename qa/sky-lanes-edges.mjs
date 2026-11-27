@@ -37,7 +37,7 @@ function invariants(world, label) {
 
 // 1. Test Drive from every sector, every lap: does anything start on missing road?
 for (const course of CIRCUITS) {
-  for (let sector = 0; sector < 12; sector++) {
+  for (let sector = 0; sector < course.names.length; sector++) {
     for (const lap of [1, 2, 3]) {
       const world = createSimWorld({ course, mode: 'test', settings: { sector, speed: 'cruise', lap, rivals: 'pack' } });
       let bad = 0;

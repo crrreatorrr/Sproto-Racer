@@ -6,6 +6,9 @@ export const CIRCUIT_ATMOSPHERE = Object.freeze({
   track01: Object.freeze({ background: 0xb9d7d7, fog: 0xb9d4ca, density: .00080 }),
   track02: Object.freeze({ background: 0xaebed3, fog: 0xb8cbdc, density: .00093 }),
   track03: Object.freeze({ background: 0xe5c1a8, fog: 0xd1beac, density: .00072 }),
+  track04: Object.freeze({ background: 0xe7c9a1, fog: 0xc6c9a5, density: .00062 }),
+  track05: Object.freeze({ background: 0x080f28, fog: 0x151d43, density: .00022 }),
+  track06: Object.freeze({ background: 0x151f49, fog: 0x293a64, density: .00040 }),
 });
 
 const themes = {
@@ -37,6 +40,17 @@ const themes = {
       [1570,1970,.329,0x4a5361,0xa58673,0xf0bf8d,0xcab2a2,.10],
       [2190,2690,.329,0x615971,0xb38c7c,0xedc39f,0xd4beba,.22],
       [2920,3550,.328,0x7a758f,0xb3a5b5,0xe7cbc3,0xe0cbd0,.35],
+    ],
+  },
+  track04: {
+    name:'The Crownwood Escarpment', zenith:0x4385a5, high:0xb7c1c0,
+    horizon:0xffdb99, floor:0xbbc3a4, cloud:0xfff2cf, cloudBase:0xaca591,
+    sunlight:0xffc35b, sun:[.38,.38,-.83], cover:.48, puff:.73, glow:.64,
+    radius:.012, fold:1.38,
+    strata:[
+      [1780,2230,.140,0x3e6149,0x789354,0xafb36f,0xb4bc9b,.17],
+      [2520,2880,.156,0x597665,0x8b9d73,0xbbba91,0xbdc4a5,.28],
+      [3250,4010,.150,0x7c8a86,0x9eaa99,0xc6c7a3,0xd0cca9,.47],
     ],
   },
 };
@@ -145,6 +159,7 @@ const massifs=[
   [[.32,.42,.51],[1.29,.31,.65],[2.49,.37,.61],[3.64,.40,.46],[4.60,.43,.39],[5.43,.31,.56]],
   [[.05,.32,.73],[.92,.24,.72],[1.94,.35,.55],[2.67,.24,.80],[3.80,.32,.61],[4.61,.45,.79],[5.53,.38,.66]],
   [[.52,.29,.89],[1.29,.24,.78],[2.54,.35,.76],[3.47,.25,.80],[4.26,.21,.88],[4.74,.31,1.04],[5.83,.38,.76]],
+  [[.48,.49,.52],[1.86,.49,.45],[2.88,.51,.58],[4.10,.50,.41],[5.44,.39,.57]],
 ];
 
 function ridgeHeight(a, index, layer, t){
@@ -219,7 +234,7 @@ function ridgeMesh(t,index) {
       const wall=1-n.y, height=y/(rim*scale);
       const shadePocket=.5+.5*wave(q,19+layer,3.2+u*3.1);
       const cloudShadow=.5+.5*wave(q,9,u*4.1+layer*5.3)*wave(q,14,3.3-layer*.82);
-      if(index===0){
+      if(index===0||index===3){
         const meadow=smooth(.06,.71,u)+.24*wave(q,15,layer+u*4)+.11*flutes;
         outColor.copy(low).lerp(bright,clamp(face*.69+meadow*.25+.07*gully-.09*cloudShadow,.035,.97));
         const heath=smooth(.32,.69,height)*.29 + smooth(.30,.74,wall)*.11;
@@ -299,7 +314,7 @@ function ridgeMesh(t,index) {
         float haze=1.-detail.z*.27;
         float slope=detail.y;
         vec3 tinted;
-        if(biome<.5){
+        if(biome<.5||biome>2.5){
           float texture=relief*.20+stone*.18*detailAA;
           tinted=pigment*(1.+texture*haze*mix(.84,1.02,slope));
         }else if(biome<1.5){

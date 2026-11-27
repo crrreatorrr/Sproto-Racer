@@ -186,7 +186,9 @@ A 12-player race at 20 snapshots a second would send about 1.3 MB/s from the ser
 
 **N1. No online mode is wired up.** No client code opens a match, no server match handler exists, and no opcode definitions exist for joining, readying or starting. This is the bulk of the remaining work and it depends on the decisions in N2 to N4.
 
-> **Note, 27 November 2026.** Partly done. The netcode (N2, N4), the simulation speed-up (N3), the defects (N5) and most of N6 (leave and rejoin, AI takeover, late join, live desync detection, rate limits) are on `main`, and the server side runs inside `build/racer-sim.js` and behaves identically in Goja (`docs/online-netcode.md`). Not done: the Nakama match handler in `metaverse-hub`, and the game's own loop and menus using any of it.
+> **Note, 27 November 2026.** Partly done. The netcode (N2, N4), the simulation speed-up (N3), the defects (N5) and most of N6 (leave and rejoin, AI takeover, late join, live desync detection, rate limits) are on `main`, and the server side runs inside `build/racer-sim.js` and behaves identically in Goja (`docs/online-netcode.md`). Not done: the Nakama match handler in `metaverse-hub`.
+
+> **Note, 27 November 2026 (PR #29).** The game's loop now runs every race through the one runner interface, and on the development server `?online=loopback` plays an online race against a match that lives inside the page, with simulated latency (`docs/online-netcode.md`, "In the game"). A production build contains none of it, and no menu reaches it. What is left for players to race each other is the hub's match handler and a real lobby.
 
 **N2. The parts of the netcode do not connect.** Confirmed in the code and by calling it:
 
@@ -257,7 +259,7 @@ Images are fetched only when a car that uses them appears, which is good. From c
 
 **L4. Everything is one eager download.** Race code, all car definitions and the hub SDK load before the lobby paints. Splitting the race and the hub realtime code behind `import()` would cut the first download; the gain is modest (a few hundred milliseconds on a slow connection) and it is not urgent.
 
-> **Note, 27 November 2026.** Not done. It means turning static imports in `src/main.js` into `import()`, and that file is being reworked to connect the netcode; splitting should follow that.
+> **Note, 27 November 2026.** Not done, and measured to be small. The first download is now 524 KB of JavaScript gzipped: 258 KB for the game's own code, 188 KB for Three, 47 KB for the car models and 31 KB for the hub SDK. The lobby draws the circuit as its backdrop and the garage draws the cars, so only code that runs in a race could be loaded later: item logic and models, effects, the chase camera, driving and collisions. Those files are about 141 KB gzipped as source and less once minified, so splitting them off would save at most about 80 KB, roughly 15% of the download or a third of a second on a 2 Mbit/s connection. It means turning `src/main.js`, which creates the race objects when the page loads, into code that waits for them. Not worth doing while that file is changing often; worth revisiting if the game's own code keeps growing (it was 174 KB at the time of the audit).
 
 ## 6. Recommended order
 

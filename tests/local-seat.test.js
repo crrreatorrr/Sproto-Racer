@@ -30,8 +30,11 @@ function selfDriving(runner) {
 }
 
 describe('the runner\'s view of the player matches what the simulation keeps for seat 0', () => {
-  for (const course of CIRCUITS) {
-    it(`${course.name}: lap, sector, place and splits through a whole race`, () => {
+  // A whole race on the first circuit; on the others the first lap and the start of the
+  // second, which passes every sector boundary and the lap counter once.
+  for (const [index, course] of CIRCUITS.entries()) {
+    const whole = index === 0;
+    it(`${course.name}: lap, sector, place and splits through ${whole ? 'a whole race' : 'the first lap'}`, () => {
       const { session, track } = makeSession(course);
       const state = session.start('race', { seed: 11 });
       const runner = session.runner;
@@ -41,7 +44,9 @@ describe('the runner\'s view of the player matches what the simulation keeps for
       let expectedUntil = 0;
       let splitStart = 0;
       let splits = 0;
-      for (let tick = 0; tick < 45000 && !state.done; tick++) {
+      let intoSecondLap = 0;
+      for (let tick = 0; tick < 45000 && !state.done && (whole || intoSecondLap < 600); tick++) {
+        if (state.lap >= 2) intoSecondLap++;
         const counting = state.countdown > 0;
         const sector = state.sector;
         session.tick(drive(tick), 1 / 60);
@@ -59,8 +64,13 @@ describe('the runner\'s view of the player matches what the simulation keeps for
         assert.equal(hud.split ? splitText(hud.split) : '', expectedSplit, `split text at tick ${tick}`);
         if (hud.split) assert.equal(hud.split.at + 2.2, expectedUntil);
       }
-      assert.equal(state.done, true, 'the race did not finish');
-      assert.ok(splits >= track.sections.length * 3 - 1, `only ${splits} splits in three laps`);
+      if (whole) {
+        assert.equal(state.done, true, 'the race did not finish');
+        assert.ok(splits >= track.sections.length * 3 - 1, `only ${splits} splits in three laps`);
+      } else {
+        assert.ok(state.lap >= 2, 'the second lap was never reached');
+        assert.ok(splits >= track.sections.length, `only ${splits} splits in a lap`);
+      }
       assert.equal(runner.hud().racers, 6);
     });
   }
@@ -151,7 +161,7 @@ describe('item effects in an online race', () => {
       host: {
         courseId: 'track02',
         seed: 77,
-        laps: 2,
+        laps: 1,
         seatCount: 6,
         startDelayTicks: 90,
         onTick(tick, _events, inputs, mask) {

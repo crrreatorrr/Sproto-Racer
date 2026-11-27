@@ -13,6 +13,9 @@ import {createLoopbackMatch,createSimNet} from '../src/net/sim-net.js';
 import {createScriptedDriver} from '../tests/net-harness.js';
 
 const FRAME=1000/60;
+// Each test simulates a whole match (a host and three clients) for up to 40 seconds of
+// racing: a second or two on a desktop, several times that on a shared CI machine.
+const LIMIT=60000;
 // A 6-kart match with three players who use items often. Player 0's world is built on the
 // game's item layer; `keepMeshes` is what the game passes it.
 function race(keepMeshes,seconds=40,latencyMs=120){
@@ -69,7 +72,7 @@ describe('item meshes in an online race',()=>{
     restoreSnapshot(world,snap);
     expect(stateHash(world)).toBe(before);
     play.dispose();
-  });
+  },LIMIT);
 
   it('keeps each object\'s mesh and trail through corrections instead of rebuilding them',()=>{
     // A good connection: corrections are frequent but only reach back a few ticks.
@@ -91,5 +94,5 @@ describe('item meshes in an online race',()=>{
     expect(kept.trailFill).toBeGreaterThan(.85);
     expect(rebuilt.trailFill).toBeLessThan(kept.trailFill-.1);
     kept.play.dispose();rebuilt.play.dispose();
-  });
+  },LIMIT);
 });

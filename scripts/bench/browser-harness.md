@@ -10,7 +10,7 @@ It also drives the player's kart with the same AI the rivals use, so a full race
 
 ## Running it
 
-1. Start the dev server (`npm run dev`) and open `http://127.0.0.1:5173/?perf=1`. Stay in the lobby.
+1. Start the dev server (`npm run dev`) and open `http://127.0.0.1:5173/?perf=1&mute=1`. Stay in the lobby.
 2. In the page console:
 
 ```js
@@ -26,7 +26,7 @@ The game's tab has to be the selected tab in its window. A tab behind another on
 
 ## An online test race
 
-The development server can run an online race against a match that lives inside the page (see `docs/online-netcode.md`, "In the game"). Open `http://127.0.0.1:5173/?perf=1&online=loopback&latency=60` (add `&seats=12&humans=6` for a full grid), stay in the lobby, then:
+The development server can run an online race against a match that lives inside the page (see `docs/online-netcode.md`, "In the game"). Open `http://127.0.0.1:5173/?perf=1&mute=1&online=loopback&latency=60` (add `&seats=12&humans=6` for a full grid), stay in the lobby, then:
 
 ```js
 const A = (await import('/scripts/bench/browser-harness.js')).default;

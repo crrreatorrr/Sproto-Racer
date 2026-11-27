@@ -1,4 +1,4 @@
-import { Color } from 'three';
+import { Color, WebGLRenderTarget } from 'three';
 import { withKartFadeMaterials } from './kart-visibility.js';
 
 // The browser compiles a shader the first time a material is drawn, and the game
@@ -75,6 +75,54 @@ function watchRivals(renderer, scene, camera, rivals) {
   setTimeout(check, WATCH_STEP_MS);
 }
 
+let scratchTarget = null;
+
+/**
+ * Draws the whole scene once into a tiny off-screen target with nothing hidden and nothing
+ * culled, and with the sun's shadow camera widened to take in the whole circuit.
+ *
+ * `compileAsync` builds the shaders of materials in the scene, but two kinds of first-use work
+ * are left for the frame that first needs them: the shadow pass's own depth shaders (one per
+ * kind of caster: plain, instanced, double-sided), and sending each model's vertices and
+ * textures to the graphics card. With a shadow map and large scenery both cost tens of
+ * milliseconds mid-race. This pays for all of it in one frame while the race loads.
+ */
+function drawEverythingOnce(renderer, scene, camera) {
+  const hidden = [], culled = [];
+  let sun = null;
+  scene.traverse((object) => {
+    if (!object.visible) { hidden.push(object); object.visible = true; }
+    if (object.frustumCulled) { culled.push(object); object.frustumCulled = false; }
+    if (!sun && object.isDirectionalLight && object.castShadow) sun = object;
+  });
+  const film = sun?.shadow.camera;
+  const bounds = film && [film.left, film.right, film.top, film.bottom, film.near, film.far];
+  const previousTarget = renderer.getRenderTarget();
+  try {
+    if (film) {
+      film.left = film.bottom = -1e4;
+      film.right = film.top = 1e4;
+      film.near = -1e4;
+      film.far = 1e4;
+      film.updateProjectionMatrix();
+      renderer.shadowMap.needsUpdate = true;
+    }
+    scratchTarget ??= new WebGLRenderTarget(8, 8);
+    renderer.setRenderTarget(scratchTarget);
+    renderer.render(scene, camera);
+  } finally {
+    renderer.setRenderTarget(previousTarget);
+    for (const object of hidden) object.visible = false;
+    for (const object of culled) object.frustumCulled = true;
+    if (film) {
+      [film.left, film.right, film.top, film.bottom, film.near, film.far] = bounds;
+      film.updateProjectionMatrix();
+      // The next real frame redraws the shadow map around the player.
+      renderer.shadowMap.needsUpdate = true;
+    }
+  }
+}
+
 /**
  * @param {import('three').WebGLRenderer} renderer
  * @param {import('three').Scene} scene the race scene, lit as it will be drawn
@@ -110,5 +158,21 @@ export function warmRaceShaders(renderer, scene, camera, { built = [], rivals = 
     // A failed warm-up only means shaders compile on first use, as they did before.
     console.warn('Shader warm-up skipped', error);
   }
-  return Promise.all(pending).then(() => true);
+  return Promise.all(pending).then(() => {
+    // Once the shaders are built, so this frame does not wait on them one by one.
+    try {
+      if (karts.every((kart) => kart.parent)) {
+        // Item models go back in for this one draw so their vertices are sent too.
+        const removeItems = play?.warmVisuals?.();
+        try {
+          drawEverythingOnce(renderer, scene, camera);
+        } finally {
+          removeItems?.();
+        }
+      }
+    } catch (error) {
+      console.warn('Scene warm-up draw skipped', error);
+    }
+    return true;
+  });
 }

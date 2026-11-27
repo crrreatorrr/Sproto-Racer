@@ -198,6 +198,8 @@ export function createTrack(scene, course = CIRCUITS[0], options = {}) {
   let skyVisuals = null;
   let lastLap = 1;
   let viewLap = null;
+  let visualsPerFrame = false;
+  let visualsStale = false;
   // Road, paint and roadside props stop where a main Sky Lane replaces the road.
   const roadGone = (s) => core.sky.inMainLane(s);
   let syncFixtureVisuals = () => {};
@@ -1387,19 +1389,42 @@ export function createTrack(scene, course = CIRCUITS[0], options = {}) {
   // `lap` drives the track's moving parts and follows the race leader. The Sky Lane obstacle
   // course that is drawn belongs to one viewer: `setViewLap` names their lap, and until it is
   // called the drawn lap follows `lap` as well.
+  //
+  // `update` is the simulation's step and can run several times in one frame. By default it
+  // also brings everything drawn up to date, which is what tools and tests expect. A game
+  // loop that draws calls `setVisualsPerFrame(true)` once and `drawVisuals()` before each
+  // render instead, so moving scenery is repositioned once per frame however many steps ran.
   function update(time = 0, dt = 0, playerS = 0, lap = 1) {
     lastTime = time;
     lastLap = viewLap ?? lap;
     core.update(time, dt, playerS, lap);
     if (!visualsMounted) return;
-    pickupUniforms.uTime.value = time;
-    syncFixtureVisuals(time);
+    if (visualsPerFrame) visualsStale = true;
+    else syncVisuals();
+  }
+
+  function syncVisuals() {
+    visualsStale = false;
+    pickupUniforms.uTime.value = lastTime;
+    syncFixtureVisuals(lastTime);
     syncPickups(false);
-    skyVisuals?.update(time, lastLap);
+    skyVisuals?.update(lastTime, lastLap);
+  }
+
+  function setVisualsPerFrame(on) {
+    visualsPerFrame = !!on;
+  }
+
+  function drawVisuals() {
+    if (visualsMounted && visualsStale) syncVisuals();
   }
 
   function setViewLap(lap) {
     viewLap = lap;
+    if (visualsPerFrame && lap != null && lap !== lastLap) {
+      lastLap = lap;
+      visualsStale = true;
+    }
   }
 
   /** Hides the Boost Cells and item boxes the player has grabbed in a lane this lap. */
@@ -1410,6 +1435,7 @@ export function createTrack(scene, course = CIRCUITS[0], options = {}) {
   function reset() {
     lastTime = 0;
     viewLap = null;
+    visualsStale = false;
     core.reset();
     if (!visualsMounted) return;
     pickupUniforms.uTime.value = 0;
@@ -1475,6 +1501,8 @@ export function createTrack(scene, course = CIRCUITS[0], options = {}) {
     sky: core.sky,
     setSkyCollected,
     setViewLap,
+    setVisualsPerFrame,
+    drawVisuals,
     triggerSwitch: core.triggerSwitch,
     getFixtureState: core.getFixtureState,
     setFixtureState: core.setFixtureState,

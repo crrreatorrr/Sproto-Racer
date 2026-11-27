@@ -1,5 +1,5 @@
 import {HALF_KART_WIDTH,flightCeiling} from './driving.js';
-import {kartFootprint,footprintContact,laneBounds} from './kart-footprint.js';
+import {kartFootprint,footprintContact,laneBounds,separatedOn,lastSeparatingAxis} from './kart-footprint.js';
 import {cos,sin} from './sim/math.js';
 import {createTrackSample} from './sim/track-core.js';
 
@@ -29,10 +29,36 @@ function skyBounds(track, kart) {
   return { min: -half, max: half };
 }
 
-let sampleScratchA = null;
-let sampleScratchB = null;
+// Working storage for one call of resolveKartContacts, created on first use.
+let sampleScratch = null;
+// The road under each racer, by position in the list. A kart is tested against many neighbours,
+// often over several passes, and only moves when one of those tests finds a contact.
+let roads = null;
+// For each pair, the edge normal that last showed them apart (see separatedOn). It only decides
+// which axis is tried first, never the outcome, so it is safe to keep between ticks and races.
+let hints = null;
+const HINT_STRIDE = 32;
 
-function resolvePair(track, first, second) {
+function roadUnder(track, kart, slot) {
+  const road = roads[slot] || (roads[slot] = { valid: false, s: 0, x: 0, y: 0, curvature: 0 });
+  const s = kart.s, x = kart.x;
+  if (road.valid && road.s === s && road.x === x && (x !== 0 || 1 / road.x === 1 / x)) return road;
+  let sample;
+  if (track.sampleInto) {
+    if (!sampleScratch) sampleScratch = createTrackSample();
+    sample = track.sampleInto(s, x, sampleScratch);
+  } else {
+    sample = track.sample(s, x);
+  }
+  road.valid = true;
+  road.s = s;
+  road.x = x;
+  road.y = sample.position.y;
+  road.curvature = sample.curvature;
+  return road;
+}
+
+function resolvePair(track, first, second, slotA, slotB) {
   const a = first.kart, b = second.kart;
   if(a.fall || b.fall)return false;
   const gap = b.s - a.s;
@@ -40,30 +66,33 @@ function resolvePair(track, first, second) {
   const dx = b.x - a.x;
   if (Math.abs(ds) > diameter / .55 || Math.abs(dx) > diameter) return false;
 
-  let roadA, roadB;
-  if (track.sampleInto) {
-    if (!sampleScratchA) {
-      sampleScratchA = createTrackSample();
-      sampleScratchB = createTrackSample();
-    }
-    roadA = track.sampleInto(a.s, a.x, sampleScratchA);
-    roadB = track.sampleInto(b.s, b.x, sampleScratchB);
-  } else {
-    roadA = track.sample(a.s, a.x);
-    roadB = track.sample(b.s, b.x);
-  }
-  const height=roadB.position.y+b.y-roadA.position.y-a.y;
+  const roadA = roadUnder(track, a, slotA), roadB = roadUnder(track, b, slotB);
+  const curvatureA = roadA.curvature, curvatureB = roadB.curvature;
+  const height=roadB.y+b.y-roadA.y-a.y;
   const shapeA=kartFootprint(a),shapeB=kartFootprint(b);
-  const scale = clamp(1 - (a.x + b.x) * (roadA.curvature + roadB.curvature) / 4, .55, 1.65);
+  const scale = clamp(1 - (a.x + b.x) * (curvatureA + curvatureB) / 4, .55, 1.65);
   const tie=first.id<second.id?1:-1;
-  const envelope=footprintContact(shapeA.body,shapeB.body,ds*scale,dx,tie);
-  if(!envelope)return false;
+  const bodyA=shapeA.body,bodyB=shapeB.body,gapS=ds*scale;
+  const hintSlot=slotB<HINT_STRIDE?slotA*HINT_STRIDE+slotB:-1;
+  const hint=hintSlot<0?0:hints[hintSlot];
+  if(hint && separatedOn(bodyA,bodyB,gapS,dx,hint))return false;
+  const envelope=footprintContact(bodyA,bodyB,gapS,dx,tie);
+  if(!envelope){
+    if(hintSlot>=0)hints[hintSlot]=lastSeparatingAxis();
+    return false;
+  }
   let contact=null;
-  for(const bandA of shapeA.bands)for(const bandB of shapeB.bands){
-    if(bandA.high<=height+bandB.low || bandA.low>=height+bandB.high)continue;
-    const hit=bandA.hull===shapeA.body && bandB.hull===shapeB.body ? envelope :
-      footprintContact(bandA.hull,bandB.hull,ds*scale,dx,tie);
-    if(hit && (!contact || hit.depth>contact.depth))contact=hit;
+  const bandsA=shapeA.bands,bandsB=shapeB.bands;
+  for(let i=0;i<bandsA.length;i++){
+    const bandA=bandsA[i];
+    for(let j=0;j<bandsB.length;j++){
+      const bandB=bandsB[j];
+      if(bandA.high<=height+bandB.low || bandA.low>=height+bandB.high)continue;
+      const hullA=bandA.hull,hullB=bandB.hull;
+      const hit=hullA===bodyA && hullB===bodyB ? envelope :
+        footprintContact(hullA,hullB,gapS,dx,tie);
+      if(hit && (!contact || hit.depth>contact.depth))contact=hit;
+    }
   }
   if(!contact)return false;
   const {depth,normalS,normalX}=contact;
@@ -71,8 +100,8 @@ function resolvePair(track, first, second) {
   const forwardPush = depth * normalS / (2 * scale);
   a.s -= forwardPush;
   b.s += forwardPush;
-  const boundsA=a.flying?skyBounds(track,a):laneBounds(a,track,HALF_KART_WIDTH,roadA.curvature);
-  const boundsB=b.flying?skyBounds(track,b):laneBounds(b,track,HALF_KART_WIDTH,roadB.curvature);
+  const boundsA=a.flying?skyBounds(track,a):laneBounds(a,track,HALF_KART_WIDTH,curvatureA);
+  const boundsB=b.flying?skyBounds(track,b):laneBounds(b,track,HALF_KART_WIDTH,curvatureB);
   const sideways = depth * normalX;
   const shareA = clamp(a.x - sideways/2, boundsA.min, boundsA.max) - a.x;
   const shareB = clamp(b.x + sideways + shareA, boundsB.min, boundsB.max) - b.x;
@@ -99,13 +128,21 @@ function resolvePair(track, first, second) {
 }
 
 export function resolveKartContacts(track, racers) {
-  for (const {kart} of racers) kart.kartImpact = 0;
+  const count = racers.length;
+  if (!roads) {
+    roads = [];
+    hints = [];
+  }
+  for (let i = 0; i < count; i++) {
+    racers[i].kart.kartImpact = 0;
+    if (roads[i]) roads[i].valid = false;
+  }
   // A correction in a pack can bring a third kart into contact.
   for (let pass = 0; pass < 6; pass++) {
     let changed = false;
-    for (let i = 0; i < racers.length; i++) {
-      for (let j = i + 1; j < racers.length; j++) {
-        if (resolvePair(track, racers[i], racers[j])) changed = true;
+    for (let i = 0; i < count; i++) {
+      for (let j = i + 1; j < count; j++) {
+        if (resolvePair(track, racers[i], racers[j], i, j)) changed = true;
       }
     }
     if (!changed) break;

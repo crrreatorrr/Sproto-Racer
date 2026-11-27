@@ -590,6 +590,33 @@ export function kartFootprint(kart){
   return fp;
 }
 
+// Which edge normal last showed two footprints to be apart: i+1 for the first shape's axis i,
+// -(i+1) for the second's. See separatedOn.
+let separator=0;
+export const lastSeparatingAxis=()=>separator;
+
+// Two karts that were apart along some edge normal a moment ago are nearly always still apart
+// along it. Testing that one axis first settles most pairs with a single pass over one outline.
+// It is the same arithmetic footprintContact uses for that axis, and footprintContact reports
+// no contact as soon as any axis separates the shapes, so a true here is exactly its null.
+// A false says nothing: run footprintContact.
+export function separatedOn(a,b,ds,dx,code){
+  if(a===b)return false;
+  const first=code>0,index=(first?code:-code)-1,axes=first?a.axes:b.axes;
+  if(index>=axes.length)return false;
+  const axis=axes[index],s=axis.s,x=axis.x,points=first?b.points:a.points;
+  let lo=Infinity,hi=-Infinity;
+  for(let j=0;j<points.length;j++){
+    const p=points[j],d=p.s*s+p.x*x;
+    if(d<lo)lo=d;
+    if(d>hi)hi=d;
+  }
+  const aLo=first?axis.lo:lo,aHi=first?axis.hi:hi;
+  const bLo=first?lo:axis.lo,bHi=first?hi:axis.hi;
+  const offset=ds*s+dx*x,positive=aHi-bLo-offset,negative=bHi+offset-aLo;
+  return Math.min(positive,negative)<=.0001;
+}
+
 // Minimum separating translation, pointing from the first footprint to the second.
 export function footprintContact(a,b,ds,dx,tie=1){
   let depth=Infinity,normalS=0,normalX=0;
@@ -609,7 +636,7 @@ export function footprintContact(a,b,ds,dx,tie=1){
       const bLo=first?lo:axis.lo,bHi=first?hi:axis.hi;
       const offset=ds*s+dx*x,positive=aHi-bLo-offset,negative=bHi+offset-aLo;
       const overlap=Math.min(positive,negative);
-      if(overlap<=.0001)return null;
+      if(overlap<=.0001){separator=pass===0?i+1:-(i+1);return null;}
       if(overlap<depth){
         const sign=positive===negative?tie:positive<negative?1:-1;
         depth=overlap;normalS=s*sign;normalX=x*sign;
